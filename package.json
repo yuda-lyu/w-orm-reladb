@@ -1,0 +1,74 @@
+{
+  "name": "w-orm-reladb",
+  "version": "1.0.0",
+  "description": "An object of operator for relational database in nodejs, like a simple ORM.",
+  "main": "dist/w-orm-reladb.umd.js",
+  "dependencies": {
+    "mssql": "^6.0.1",
+    "sequelize": "^5.21.2",
+    "sqlite3": "^4.1.1",
+    "w-auto-sequelize": "^1.0.6"
+  },
+  "devDependencies": {
+    "@babel/cli": "^7.7.5",
+    "@babel/core": "^7.7.5",
+    "@babel/node": "^7.7.4",
+    "@babel/plugin-proposal-export-default-from": "^7.7.4",
+    "@babel/plugin-transform-runtime": "^7.7.6",
+    "@babel/polyfill": "^7.7.0",
+    "@babel/preset-env": "^7.7.6",
+    "@babel/register": "^7.7.4",
+    "@babel/runtime": "^7.7.6",
+    "core-js": "^3.4.8",
+    "docdash": "^1.1.1",
+    "eslint": "^6.7.2",
+    "eslint-config-standard": "^14.1.0",
+    "eslint-friendly-formatter": "^4.0.1",
+    "eslint-plugin-import": "^2.19.1",
+    "eslint-plugin-node": "^10.0.0",
+    "eslint-plugin-promise": "^4.2.1",
+    "eslint-plugin-standard": "^4.0.1",
+    "eslint-plugin-vue": "^6.0.1",
+    "gh-pages": "^2.1.1",
+    "jsdoc": "^3.6.3",
+    "jsdoc-vuejs": "^3.0.5",
+    "lodash": "^4.17.15",
+    "mocha": "^6.2.2",
+    "nodemon": "^2.0.1",
+    "rollup": "^1.27.9",
+    "rollup-plugin-babel": "^4.3.3",
+    "rollup-plugin-commonjs": "^10.1.0",
+    "rollup-plugin-node-resolve": "^5.2.0",
+    "rollup-plugin-postcss": "^2.0.3",
+    "rollup-plugin-replace": "^2.2.0",
+    "rollup-plugin-terser": "^5.1.2",
+    "rollup-plugin-vue": "^5.1.4",
+    "rollup-plugin-vue-template-compiler": "^1.0.3",
+    "vue-template-compiler": "^2.6.10",
+    "w-package-tools": "^1.0.11",
+    "wsemi": "^1.2.53"
+  },
+  "scripts": {
+    "test": "./node_modules/.bin/mocha --require @babel/register",
+    "deploy": "gh-pages -d docs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yuda-lyu/w-orm-reladb.git"
+  },
+  "keywords": [
+    "package",
+    "tool",
+    "operator",
+    "MSSQL",
+    "sqlite",
+    "ORM",
+    "nodejs"
+  ],
+  "author": "yuda-lyu(semisphere)",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/yuda-lyu/w-orm-reladb/issues"
+  },
+  "homepage": "https://github.com/yuda-lyu/w-orm-reladb#readme"
+}
