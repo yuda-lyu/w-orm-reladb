@@ -665,6 +665,12 @@ function WOrmReladb(opt = {}) {
     }
 
 
+    /**
+     * 創建sqlite資料庫檔案
+     *
+     * @memberOf WOrmReladb
+     * @returns {Promise} 回傳Promise，resolve回傳創建結果，reject回傳錯誤訊息
+     */
     async function createStorage() {
 
         //pm
@@ -673,16 +679,16 @@ function WOrmReladb(opt = {}) {
         //initSequelize
         let si = await initSequelize(true)
 
-        //check
-        if (si.err) {
-            console.log('createStorage: ', si.err)
-        }
-
         //close
         sequelize.close()
 
-        //resolve
-        pm.resolve()
+        //check
+        if (si.err) {
+            pm.reject(si.err)
+        }
+        else {
+            pm.resolve('created')
+        }
 
         return pm
     }
