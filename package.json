@@ -1,6 +1,6 @@
 {
   "name": "w-orm-reladb",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "An object of operator for relational database in nodejs, like a simple ORM.",
   "main": "dist/w-orm-reladb.umd.js",
   "dependencies": {
@@ -45,7 +45,7 @@
     "rollup-plugin-vue": "^5.1.4",
     "rollup-plugin-vue-template-compiler": "^1.0.3",
     "vue-template-compiler": "^2.6.11",
-    "w-package-tools": "^1.0.13"
+    "w-package-tools": "^1.0.21"
   },
   "scripts": {
     "test": "./node_modules/.bin/mocha --require @babel/register",
