@@ -91,6 +91,9 @@ async function test() {
     w.on('change', function(mode, data, res) {
         console.log('change', mode)
     })
+    w.on('error', function(err) {
+        console.log('error', err)
+    })
 
 
     //delAll
@@ -270,7 +273,10 @@ async function test() {
     w.on('change', function(mode, data, res) {
         console.log('change', mode)
     })
-
+    w.on('error', function(err) {
+        console.log('error', err)
+    })
+    
 
     //delAll
     await w.delAll()

@@ -12,7 +12,6 @@ import genID from 'wsemi/src/genID.mjs'
 import isarr from 'wsemi/src/isarr.mjs'
 import isobj from 'wsemi/src/isobj.mjs'
 import isbol from 'wsemi/src/isbol.mjs'
-import iser from 'wsemi/src/iser.mjs'
 import arrhas from 'wsemi/src/arrhas.mjs'
 import pmSeries from 'wsemi/src/pmSeries.mjs'
 import pm2resolve from 'wsemi/src/pm2resolve.mjs'
@@ -278,7 +277,7 @@ function WOrmReladb(opt = {}) {
 
         }
         else {
-            console.log('select: ', si.err)
+            ee.emit('error', si.err)
         }
 
         //close
@@ -334,7 +333,7 @@ function WOrmReladb(opt = {}) {
                     ee.emit('change', 'insert', data, res)
                 })
                 .catch(({ original }) => {
-                    console.log('bulkCreate catch', original)
+                    ee.emit('error', original)
                     pm.reject({ n: 0, ok: 0 })
                 })
 
@@ -423,7 +422,7 @@ function WOrmReladb(opt = {}) {
                         raw: true,
                     })
                         .catch((error) => {
-                            //console.log('error', error)
+                            ee.emit('error', error)
                             err = error
                         })
 
@@ -441,7 +440,7 @@ function WOrmReladb(opt = {}) {
                         ...tr,
                     })
                         .catch((error) => {
-                            //console.log('error', error)
+                            ee.emit('error', error)
                             err = error
                         })
 
@@ -464,7 +463,7 @@ function WOrmReladb(opt = {}) {
                         //create
                         let rr = await md.create(v, tr)
                             .catch((error) => {
-                                //console.log('error', error)
+                                ee.emit('error', error)
                                 err = error
                             })
 
@@ -562,6 +561,7 @@ function WOrmReladb(opt = {}) {
                         raw: true,
                     })
                         .catch((error) => {
+                            ee.emit('error', error)
                             err = error
                         })
 
@@ -579,21 +579,22 @@ function WOrmReladb(opt = {}) {
                         where: { [opt.pk]: v[opt.pk] },
                     })
                         .catch((error) => {
+                            ee.emit('error', error)
                             err = error
                         })
 
                     if (rr) {
-                    //console.log('destroy 有刪除資料', rr)
+                        //console.log('destroy 有刪除資料', rr)
                         pmm.resolve({ n: 1, nDeleted: 1, ok: 1 })
                     }
                     else {
-                    //console.log('destroy 沒有刪除資料', err)
+                        //console.log('destroy 沒有刪除資料', err)
                         pmm.resolve({ n: 0, nDeleted: 0, ok: 1 })
                     }
 
                 }
                 else {
-                //console.log('findOne 沒有找到資料', err)
+                    //console.log('findOne 沒有找到資料', err)
                     pmm.resolve({ n: 1, nDeleted: 1, ok: 1 })
                 }
 
@@ -649,7 +650,8 @@ function WOrmReladb(opt = {}) {
                     pm.resolve(res)
                     ee.emit('change', 'delAll', null, res)
                 })
-                .catch((res) => {
+                .catch((error) => {
+                    ee.emit('error', error)
                     pm.reject({ n: 0, ok: 1 })
                 })
 
