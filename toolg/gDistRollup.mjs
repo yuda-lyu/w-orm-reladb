@@ -18,7 +18,6 @@ rollupFiles({
         'mssql': 'mssql',
         'sqlite': 'sqlite',
         'async': 'async',
-        'eslint': 'eslint',
     },
     external: [
         'events',
@@ -28,7 +27,6 @@ rollupFiles({
         'mssql',
         'sqlite',
         'async',
-        'eslint',
     ],
 })
 
