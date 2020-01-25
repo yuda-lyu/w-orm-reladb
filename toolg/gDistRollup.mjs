@@ -18,6 +18,7 @@ rollupFiles({
         'mssql': 'mssql',
         'sqlite': 'sqlite',
         'async': 'async',
+        'eslint': 'eslint', //w-auto-sequelize的auto-sequelize.js有使用eslint, 故得設定eslint為不打包名單
     },
     external: [
         'events',
@@ -27,6 +28,7 @@ rollupFiles({
         'mssql',
         'sqlite',
         'async',
+        'eslint',
     ],
 })
 
