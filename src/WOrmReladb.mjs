@@ -15,6 +15,7 @@ import isbol from 'wsemi/src/isbol.mjs'
 import arrhas from 'wsemi/src/arrhas.mjs'
 import pmSeries from 'wsemi/src/pmSeries.mjs'
 import pm2resolve from 'wsemi/src/pm2resolve.mjs'
+import pmQueue from 'wsemi/src/pmQueue.mjs'
 import WAutoSequelize from 'w-auto-sequelize/src/WAutoSequelize.mjs'
 import importModels from './importModels.mjs'
 
@@ -755,12 +756,33 @@ function WOrmReladb(opt = {}) {
     //bind
     ee.createStorage = createStorage
     ee.genModels = genModels
-    ee.select = select
-    ee.insert = insert
-    ee.save = save
-    ee.del = del
-    ee.delAll = delAll
-
+    if (dialect === 'sqlite') {
+        //用佇列(同時最大執行數1且先進先執行)處理sqlite高併發之情形
+        //若沒管控, 則sqlite會報錯[Error: SQLITE_MISUSE: Database is closed]問題, 此點於mssql不會
+        let q = pmQueue(1)
+        ee.select = function() {
+            return q.run(select, ...arguments)
+        }
+        ee.insert = function() {
+            return q.run(insert, ...arguments)
+        }
+        ee.save = function() {
+            return q.run(save, ...arguments)
+        }
+        ee.del = function() {
+            return q.run(del, ...arguments)
+        }
+        ee.delAll = function() {
+            return q.run(delAll, ...arguments)
+        }
+    }
+    else {
+        ee.select = select
+        ee.insert = insert
+        ee.save = save
+        ee.del = del
+        ee.delAll = delAll
+    }
 
     return ee
 }
