@@ -57,8 +57,8 @@ async function test() {
     console.log('createStorage')
 
 
-    //genModels, disable if got models
-    // await w.genModels({
+    //genModelsByDB, disable if got models
+    // await w.genModelsByDB({
     //     username,
     //     password,
     //     // dialect: 'mssql', //default

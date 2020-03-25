@@ -18,6 +18,7 @@ import pm2resolve from 'wsemi/src/pm2resolve.mjs'
 import pmQueue from 'wsemi/src/pmQueue.mjs'
 import WAutoSequelize from 'w-auto-sequelize/src/WAutoSequelize.mjs'
 import importModels from './importModels.mjs'
+import genModelsByTabs from './genModelsByTabs.mjs'
 
 
 /**
@@ -172,7 +173,7 @@ function WOrmReladb(opt = {}) {
 
         //check
         if (r.state === 'error') {
-            err = `can not import model: ${opt.cl}, need to use genModels or create ${opt.cl}.js`
+            err = `can not import model: ${opt.cl}, need to use genModelsByDB, genModelsByTabs or create ${opt.cl}.js`
         }
 
         //mds
@@ -714,7 +715,7 @@ function WOrmReladb(opt = {}) {
      * @param {Integer} [option.port=1433] 輸入連線主機port整數，預設1433
      * @returns {Promise} 回傳Promise，resolve回傳產生的models資料，reject回傳錯誤訊息
      */
-    function genModels(option = {}) {
+    function genModelsByDB(option = {}) {
 
         //default
         let def = {
@@ -755,7 +756,8 @@ function WOrmReladb(opt = {}) {
 
     //bind
     ee.createStorage = createStorage
-    ee.genModels = genModels
+    ee.genModelsByDB = genModelsByDB
+    ee.genModelsByTabs = genModelsByTabs
     if (dialect === 'sqlite') {
         //用佇列(同時最大執行數1且先進先執行)處理sqlite高併發之情形
         //若沒管控, 則sqlite會報錯[Error: SQLITE_MISUSE: Database is closed]問題, 此點於mssql不會

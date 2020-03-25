@@ -51,8 +51,13 @@ async function test() {
     let w = wo(opt)
 
 
-    //genModels, disable if got models
-    // await w.genModels({
+    //createStorage, create table for mssql
+    await w.createStorage()
+    console.log('createStorage')
+
+
+    //genModelsByDB, disable if got models
+    // await w.genModelsByDB({
     //     username,
     //     password,
     //     dialect: 'mssql', //default

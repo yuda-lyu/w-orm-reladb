@@ -75,8 +75,13 @@ async function test() {
     let w = wo(opt)
 
 
-    //genModels, disable if got models
-    // await w.genModels({
+    //createStorage, create table for mssql
+    await w.createStorage()
+    console.log('createStorage')
+
+
+    //genModelsByDB, disable if got models
+    // await w.genModelsByDB({
     //     username,
     //     password,
     //     dialect: 'mssql', //default
@@ -255,8 +260,8 @@ async function test() {
     console.log('createStorage')
 
 
-    //genModels, disable if got models
-    // await w.genModels({
+    //genModelsByDB, disable if got models
+    // await w.genModelsByDB({
     //     username,
     //     password,
     //     // dialect: 'mssql', //default
@@ -374,4 +379,128 @@ async function test() {
 
 }
 test()
+```
+
+#### Example for genModelsByTabs
+> **Link:** [[dev source code](https://github.com/yuda-lyu/w-orm-reladb/blob/master/gb.mjs)]
+```alias
+import wo from 'w-orm-reladb'
+
+let username = 'username'
+let password = 'password'
+let opt = {
+    url: `mssql://${username}:${password}@localhost:1433`,
+    db: 'worm',
+    cl: 'users',
+    fdModels: './models',
+    //autoGenPK: false,
+}
+
+let fd = 'models'
+let tabs = {
+    tb1: {
+        id: {
+            type: 'STRING',
+            pk: true,
+        },
+        title: 'STRING',
+        price: 'DOUBLE',
+        isActive: 'INTEGER',
+    },
+    tb2: {
+        sid: {
+            type: 'STRING',
+            pk: true,
+        },
+        name: 'STRING',
+        size: 'DOUBLE',
+        age: 'INTEGER',
+    },
+}
+
+async function test() {
+
+
+    //w
+    let w = wo(opt)
+
+
+    //genModelsByTabs
+    w.genModelsByTabs(fd, tabs)
+
+
+}
+test()
+
+// tb1.js
+// module.exports = function(sequelize, DataTypes) {
+//     return sequelize.define('tb1', {
+//     "id": {
+//         "type": DataTypes.STRING,
+//         "primaryKey": true,
+//         "allowNull": false,
+//         "autoIncrement": false,
+//         "comment": null
+//     },
+//     "title": {
+//         "type": DataTypes.STRING,
+//         "primaryKey": false,
+//         "allowNull": true,
+//         "autoIncrement": false,
+//         "comment": null
+//     },
+//     "price": {
+//         "type": DataTypes.DOUBLE,
+//         "primaryKey": false,
+//         "allowNull": true,
+//         "autoIncrement": false,
+//         "comment": null
+//     },
+//     "isActive": {
+//         "type": DataTypes.INTEGER,
+//         "primaryKey": false,
+//         "allowNull": true,
+//         "autoIncrement": false,
+//         "comment": null
+//     }
+// }, {
+//         tableName: 'tb1'
+//     });
+// };
+
+// tb2.js
+// module.exports = function(sequelize, DataTypes) {
+//     return sequelize.define('tb2', {
+//     "sid": {
+//         "type": DataTypes.STRING,
+//         "primaryKey": true,
+//         "allowNull": false,
+//         "autoIncrement": false,
+//         "comment": null
+//     },
+//     "name": {
+//         "type": DataTypes.STRING,
+//         "primaryKey": false,
+//         "allowNull": true,
+//         "autoIncrement": false,
+//         "comment": null
+//     },
+//     "size": {
+//         "type": DataTypes.DOUBLE,
+//         "primaryKey": false,
+//         "allowNull": true,
+//         "autoIncrement": false,
+//         "comment": null
+//     },
+//     "age": {
+//         "type": DataTypes.INTEGER,
+//         "primaryKey": false,
+//         "allowNull": true,
+//         "autoIncrement": false,
+//         "comment": null
+//     }
+// }, {
+//         tableName: 'tb2'
+//     });
+// };
 ```
