@@ -81,6 +81,7 @@ function genModelsByTabs(fd, tabs) {
         //write
         try {
             fs.writeFileSync(fn, c, 'utf8')
+            console.log('generate file: ', fn)
         }
         catch (err) {
             console.log('save file catch', err)

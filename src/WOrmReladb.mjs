@@ -18,7 +18,7 @@ import pm2resolve from 'wsemi/src/pm2resolve.mjs'
 import pmQueue from 'wsemi/src/pmQueue.mjs'
 import WAutoSequelize from 'w-auto-sequelize/src/WAutoSequelize.mjs'
 import importModels from './importModels.mjs'
-import genModelsByTabs from './genModelsByTabs.mjs'
+import _genModelsByTabs from './genModelsByTabs.mjs'
 
 
 /**
@@ -33,9 +33,10 @@ import genModelsByTabs from './genModelsByTabs.mjs'
  * @param {String} [opt.db='worm'] 輸入使用資料庫名稱字串，預設'worm'
  * @param {String} [opt.cl='test'] 輸入使用資料表名稱字串，預設'test'
  * @param {String} [opt.fdModels='./models'] 輸入資料表models(各檔為*.js)所在資料夾字串，預設'./models'
- * @param {Boolean} [opt.logging=false] 輸入是否輸出實際執行的sql指令，預設false
+ * @param {Boolean} [opt.logging=false] 輸入是否輸出實際執行的sql指令，型別為布林值，預設false
  * @param {String} [opt.pk='id'] 輸入數據主鍵字串，預設'id'
- * @param {Boolean} [opt.autoGenPK=true] 輸入若數據pk(id)欄位沒給時則自動給予隨機uuid，預設true
+ * @param {Boolean} [opt.autoGenPK=true] 輸入若數據pk(id)欄位沒給時則自動給予隨機uuid，型別為布林值，預設true
+ * @param {Boolean} [opt.useStable=true] 輸入是否使用穩定模式，使用佇列管理限定只能同時處理一種操作，型別為布林值，預設true
  * @returns {Object} 回傳操作資料庫物件，各事件功能詳見說明
  */
 function WOrmReladb(opt = {}) {
@@ -62,6 +63,9 @@ function WOrmReladb(opt = {}) {
     }
     if (!isbol(opt.autoGenPK)) {
         opt.autoGenPK = true
+    }
+    if (!isbol(opt.useStable)) {
+        opt.useStable = true
     }
     if (!opt.storage) {
         opt.storage = './worm.db' //storage, only use for sqlite
@@ -699,7 +703,7 @@ function WOrmReladb(opt = {}) {
 
 
     /**
-     * 由指定資料庫生成各表的models資料
+     * 由指定資料庫生成各資料表的models資料
      *
      * include from: [w-auto-sequelize](https://github.com/yuda-lyu/w-auto-sequelize)
      *
@@ -754,13 +758,25 @@ function WOrmReladb(opt = {}) {
     }
 
 
+    /**
+     * 由資料表物件生成各資料表的models資料
+     *
+     * @memberOf WOrmReladb
+     * @param {String} [fd='./models'] 輸入models儲存的資料夾名稱字串，預設'./models'
+     * @param {String} [tabs={}] 輸入各資料表物件，預設{}
+     */
+    function genModelsByTabs(fd = './models', tabs = {}) {
+        _genModelsByTabs(fd, tabs)
+    }
+
+
     //bind
     ee.createStorage = createStorage
     ee.genModelsByDB = genModelsByDB
     ee.genModelsByTabs = genModelsByTabs
-    if (dialect === 'sqlite') {
-        //用佇列(同時最大執行數1且先進先執行)處理sqlite高併發之情形
-        //若沒管控, 則sqlite會報錯[Error: SQLITE_MISUSE: Database is closed]問題, 此點於mssql不會
+    if (opt.useStable) {
+        //用佇列(同時最大執行數1且先進先執行)處理高併發之情形
+        //若沒管控, 例如sqlite會報錯[Error: SQLITE_MISUSE: Database is closed]問題
         let q = pmQueue(1)
         ee.select = function() {
             return q.run(select, ...arguments)

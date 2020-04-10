@@ -42,7 +42,7 @@ let opt = {
 async function test() {
 
 
-    //w, 預先創建共用, 使用sqlite時, 若沒有通過佇列控管同時只能一種操作, 就會報錯[Error: SQLITE_MISUSE: Database is closed], 此點於mssql不會
+    //w, 預先創建共用, 使用sqlite時, 若沒有通過佇列控管同時只能一種操作, 就會報錯[Error: SQLITE_MISUSE: Database is closed]
     let w = wo(opt)
 
 

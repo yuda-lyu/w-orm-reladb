@@ -11,7 +11,7 @@ let opt = {
     //autoGenPK: false,
 }
 
-let fd = 'models'
+let fd = './models'
 let tabs = {
     tb1: {
         id: {
