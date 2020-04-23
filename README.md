@@ -21,7 +21,9 @@ To view documentation or get support, visit [docs](https://yuda-lyu.github.io/w-
 
 ## Installation
 ### Using npm(ES6 module):
-> **Note:** `w-orm-reladb` depends on `sequelize`, `mssql`, `sqlite3` and `w-auto-sequelize`, and `@journeyapps/sqlcipher` is not compiled into the *.umd file by default.
+> **Note:** `w-orm-reladb` depends on `sequelize`, `mssql`, `sqlite3` and `w-auto-sequelize`.
+
+> **Note:** `@journeyapps/sqlcipher` is not compiled into the *.umd file by default, and it is not tied to the dependents for general use in package.json.
 
 ```alias
 npm i w-orm-reladb
