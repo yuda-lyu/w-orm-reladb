@@ -2,7 +2,13 @@ import fs from 'fs'
 import wo from './src/WOrmReladb.mjs'
 
 
-//測試sqlite
+//測試加密sqlite
+
+//安裝@journeyapps/sqlcipher方式：
+//1.visual studio code得使用系統管理員權限開啟
+//2.開啟專案資料夾, 確定路徑內不能含有中文, 否則python2.7無法接受
+//3.先安裝windows-build-tools並指定安裝vs2015, 使用指令安裝至全域: npm i -g windows-build-tools --vs2015
+//4.安裝@journeyapps/sqlcipher: npm i @journeyapps/sqlcipher
 
 let username = 'username'
 let password = 'password'
@@ -13,6 +19,7 @@ let opt = {
     fdModels: './models',
     //autoGenPK: false,
     storage: './worm.sqlite',
+    useSqlcipher: true,
 }
 
 //因worm.sqlite可能為加密數據, 若有切換useSqlcipher時得先刪除, 再通過createStorage重新產生

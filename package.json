@@ -1,14 +1,15 @@
 {
   "name": "w-orm-reladb",
-  "version": "1.0.11",
+  "version": "1.0.13",
   "description": "An object of operator for relational database in nodejs, like a simple ORM.",
   "main": "dist/w-orm-reladb.umd.js",
   "dependencies": {
+    "@journeyapps/sqlcipher": "^4.1.0",
     "lodash": "^4.17.15",
     "mssql": "^6.2.0",
     "sqlite3": "^4.1.1",
     "w-auto-sequelize": "^1.0.10",
-    "wsemi": "^1.4.6"
+    "wsemi": "^1.4.7"
   },
   "devDependencies": {
     "w-package-tools": "^1.0.25"

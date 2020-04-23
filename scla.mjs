@@ -1,6 +1,8 @@
 import wo from './src/WOrmReladb.mjs'
 
 
+//測試mssql
+
 let username = 'username'
 let password = 'password'
 let opt = {

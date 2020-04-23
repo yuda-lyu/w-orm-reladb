@@ -12,9 +12,16 @@ An object of operator for relational database in nodejs, like a simple ORM.
 ## Documentation
 To view documentation or get support, visit [docs](https://yuda-lyu.github.io/w-orm-reladb/WOrm.html).
 
+## Before Installation
+> If you need to use encrypted sqlite, you need to manually install `@journeyapps/sqlcipher`, as follows:
+>1. Open visual studio code by system administrator.
+>2. Open the project folder, and need to make sure the words of path are `ascii` for Python 2.7.
+>3. Install `windows-build-tools` into npm global first, and specify with `vs2015`. Use command to install: `npm i -g windows-build-tools --vs2015`.
+>4. Install `@journeyapps/sqlcipher` second, use command to install: `npm i @journeyapps/sqlcipher`.
+
 ## Installation
 ### Using npm(ES6 module):
-> **Note:** `w-orm-reladb` depends on `sequelize`, `mssql`, `sqlite3` and `w-auto-sequelize`.
+> **Note:** `w-orm-reladb` depends on `sequelize`, `mssql`, `sqlite3` and `w-auto-sequelize`, and `@journeyapps/sqlcipher` is not compiled into the *.umd file by default.
 
 ```alias
 npm i w-orm-reladb
