@@ -181,7 +181,7 @@ async function test() {
     // => select [ { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 } ]
 
 
-    //select by regex
+    //select by regex, it's an Operator LIKE, not really a regex.
     let sr = await w.select({ name: { $regex: 'PeT', $options: '$i' } })
     console.log('selectReg', sr)
     // => select [ { id: 'id-peter', name: 'peter(modify)', value: 123 } ]
@@ -363,7 +363,7 @@ async function test() {
     // => select [ { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 } ]
 
 
-    //select by regex
+    //select by regex, it's an Operator LIKE, not really a regex.
     let sr = await w.select({ name: { $regex: 'PeT', $options: '$i' } })
     console.log('selectReg', sr)
     // => select [ { id: 'id-peter', name: 'peter(modify)', value: 123 } ]
