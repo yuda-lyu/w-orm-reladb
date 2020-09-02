@@ -8,7 +8,8 @@ import wo from './src/WOrmReladb.mjs'
 //1.visual studio code得使用系統管理員權限開啟
 //2.開啟專案資料夾, 確定路徑內不能含有中文, 否則python2.7無法接受
 //3.先安裝windows-build-tools並指定安裝vs2015, 使用指令安裝至全域: npm i -g windows-build-tools --vs2015
-//4.安裝@journeyapps/sqlcipher: npm i @journeyapps/sqlcipher
+//4.若切換或重新安裝nodejs, 因全域環境不同, 記得得要重裝windows-build-tools
+//5.安裝@journeyapps/sqlcipher: npm i @journeyapps/sqlcipher
 
 let username = 'username'
 let password = 'password'
