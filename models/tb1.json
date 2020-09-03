@@ -3,28 +3,28 @@
     table: 'tb1',
     fields: {
     "id": {
-        "type": DataTypes.STRING,
+        "type": "DataTypes.STRING",
         "primaryKey": true,
         "allowNull": false,
         "autoIncrement": false,
         "comment": null
     },
     "title": {
-        "type": DataTypes.STRING,
+        "type": "DataTypes.STRING",
         "primaryKey": false,
         "allowNull": true,
         "autoIncrement": false,
         "comment": null
     },
     "price": {
-        "type": DataTypes.DOUBLE,
+        "type": "DataTypes.DOUBLE",
         "primaryKey": false,
         "allowNull": true,
         "autoIncrement": false,
         "comment": null
     },
     "isActive": {
-        "type": DataTypes.INTEGER,
+        "type": "DataTypes.INTEGER",
         "primaryKey": false,
         "allowNull": true,
         "autoIncrement": false,

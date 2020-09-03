@@ -65,9 +65,10 @@ function getModel(name, kpType) {
 
     tmp = replace(tmp, '{name}', name)
     tmp = replace(tmp, '{fields}', fields)
-    tmp = replace(tmp, '"DataTypes.STRING"', 'DataTypes.STRING')
-    tmp = replace(tmp, '"DataTypes.INTEGER"', 'DataTypes.INTEGER')
-    tmp = replace(tmp, '"DataTypes.DOUBLE"', 'DataTypes.DOUBLE')
+    //現不需取代, importModels會自動轉換與繫結
+    // tmp = replace(tmp, '"DataTypes.STRING"', 'DataTypes.STRING')
+    // tmp = replace(tmp, '"DataTypes.INTEGER"', 'DataTypes.INTEGER')
+    // tmp = replace(tmp, '"DataTypes.DOUBLE"', 'DataTypes.DOUBLE')
 
     return tmp
 }
