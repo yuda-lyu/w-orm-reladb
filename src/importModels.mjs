@@ -1,12 +1,10 @@
 import fs from 'fs'
 import path from 'path'
-import url from 'url'
 import JSON5 from 'json5'
 import Sequelize from 'sequelize'
 import each from 'lodash/each'
 import get from 'lodash/get'
 import genPm from 'wsemi/src/genPm.mjs'
-import replace from 'wsemi/src/replace.mjs'
 import modifyModel from './modifyModel.mjs'
 
 

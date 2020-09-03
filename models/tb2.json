@@ -1,38 +1,36 @@
-
 {
     table: 'tb2',
     fields: {
-    "sid": {
-        "type": "DataTypes.STRING",
-        "primaryKey": true,
-        "allowNull": false,
-        "autoIncrement": false,
-        "comment": null
+        sid: {
+            type: 'DataTypes.STRING',
+            primaryKey: true,
+            allowNull: false,
+            autoIncrement: false,
+            comment: null,
+        },
+        name: {
+            type: 'DataTypes.STRING',
+            primaryKey: false,
+            allowNull: true,
+            autoIncrement: false,
+            comment: null,
+        },
+        size: {
+            type: 'DataTypes.DOUBLE',
+            primaryKey: false,
+            allowNull: true,
+            autoIncrement: false,
+            comment: null,
+        },
+        age: {
+            type: 'DataTypes.INTEGER',
+            primaryKey: false,
+            allowNull: true,
+            autoIncrement: false,
+            comment: null,
+        },
     },
-    "name": {
-        "type": "DataTypes.STRING",
-        "primaryKey": false,
-        "allowNull": true,
-        "autoIncrement": false,
-        "comment": null
-    },
-    "size": {
-        "type": "DataTypes.DOUBLE",
-        "primaryKey": false,
-        "allowNull": true,
-        "autoIncrement": false,
-        "comment": null
-    },
-    "age": {
-        "type": "DataTypes.INTEGER",
-        "primaryKey": false,
-        "allowNull": true,
-        "autoIncrement": false,
-        "comment": null
-    }
-}, 
     options: {
-        tableName: 'tb2'
-    }
+        tableName: 'tb2',
+    },
 }
-    

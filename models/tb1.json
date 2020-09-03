@@ -1,38 +1,36 @@
-
 {
     table: 'tb1',
     fields: {
-    "id": {
-        "type": "DataTypes.STRING",
-        "primaryKey": true,
-        "allowNull": false,
-        "autoIncrement": false,
-        "comment": null
+        id: {
+            type: 'DataTypes.STRING',
+            primaryKey: true,
+            allowNull: false,
+            autoIncrement: false,
+            comment: null,
+        },
+        title: {
+            type: 'DataTypes.STRING',
+            primaryKey: false,
+            allowNull: true,
+            autoIncrement: false,
+            comment: null,
+        },
+        price: {
+            type: 'DataTypes.DOUBLE',
+            primaryKey: false,
+            allowNull: true,
+            autoIncrement: false,
+            comment: null,
+        },
+        isActive: {
+            type: 'DataTypes.INTEGER',
+            primaryKey: false,
+            allowNull: true,
+            autoIncrement: false,
+            comment: null,
+        },
     },
-    "title": {
-        "type": "DataTypes.STRING",
-        "primaryKey": false,
-        "allowNull": true,
-        "autoIncrement": false,
-        "comment": null
-    },
-    "price": {
-        "type": "DataTypes.DOUBLE",
-        "primaryKey": false,
-        "allowNull": true,
-        "autoIncrement": false,
-        "comment": null
-    },
-    "isActive": {
-        "type": "DataTypes.INTEGER",
-        "primaryKey": false,
-        "allowNull": true,
-        "autoIncrement": false,
-        "comment": null
-    }
-}, 
     options: {
-        tableName: 'tb1'
-    }
+        tableName: 'tb1',
+    },
 }
-    

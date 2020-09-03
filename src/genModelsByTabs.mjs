@@ -1,4 +1,5 @@
 import fs from 'fs'
+import JSON5 from 'json5'
 import each from 'lodash/each'
 import get from 'lodash/get'
 import replace from 'wsemi/src/replace.mjs'
@@ -44,20 +45,14 @@ function getFields(kpType) {
 
 function getModel(name, kpType) {
 
-    //     let tmp = `module.exports = function(sequelize, DataTypes) {
-    //     return sequelize.define('{name}', {fields}, {
-    //         tableName: '{name}'
-    //     });
-    // };
-    //     `
     let tmp = `
-{
-    table: '{name}',
-    fields: {fields}, 
-    options: {
-        tableName: '{name}'
+    {
+        table: '{name}',
+        fields: {fields}, 
+        options: {
+            tableName: '{name}'
+        }
     }
-}
     `
 
     let f = getFields(kpType)
@@ -69,6 +64,9 @@ function getModel(name, kpType) {
     // tmp = replace(tmp, '"DataTypes.STRING"', 'DataTypes.STRING')
     // tmp = replace(tmp, '"DataTypes.INTEGER"', 'DataTypes.INTEGER')
     // tmp = replace(tmp, '"DataTypes.DOUBLE"', 'DataTypes.DOUBLE')
+
+    //format
+    tmp = JSON5.stringify(JSON5.parse(tmp), null, 4)
 
     return tmp
 }

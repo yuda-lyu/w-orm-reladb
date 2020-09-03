@@ -1,27 +1,27 @@
 {
     table: 'users',
     fields: {
-        'id': {
+        id: {
             type: 'DataTypes.STRING',
             allowNull: false,
-            primaryKey: true,
             autoIncrement: false,
-            comment: null
+            comment: null,
+            primaryKey: true,
         },
-        'name': {
+        name: {
             type: 'DataTypes.STRING',
             allowNull: true,
             autoIncrement: false,
-            comment: null
+            comment: null,
         },
-        'value': {
+        value: {
             type: 'DataTypes.FLOAT',
             allowNull: true,
             autoIncrement: false,
-            comment: null
-        }
-    }, 
+            comment: null,
+        },
+    },
     options: {
-        tableName: 'users'
-    }
+        tableName: 'users',
+    },
 }
