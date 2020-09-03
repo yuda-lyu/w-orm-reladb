@@ -1,7 +1,7 @@
 
-    {
-        table: 'tb1',
-        fields: {
+{
+    table: 'tb1',
+    fields: {
     "id": {
         "type": DataTypes.STRING,
         "primaryKey": true,
@@ -31,8 +31,8 @@
         "comment": null
     }
 }, 
-        options: {
-            tableName: 'tb1'
-        }
+    options: {
+        tableName: 'tb1'
     }
+}
     

@@ -4,6 +4,7 @@ import get from 'lodash/get'
 import replace from 'wsemi/src/replace.mjs'
 import strright from 'wsemi/src/strright.mjs'
 import iseobj from 'wsemi/src/iseobj.mjs'
+import fsCreateFolder from 'wsemi/src/fsCreateFolder.mjs'
 
 
 function getField(key, type, pk = false) {
@@ -50,13 +51,13 @@ function getModel(name, kpType) {
     // };
     //     `
     let tmp = `
-    {
-        table: '{name}',
-        fields: {fields}, 
-        options: {
-            tableName: '{name}'
-        }
+{
+    table: '{name}',
+    fields: {fields}, 
+    options: {
+        tableName: '{name}'
     }
+}
     `
 
     let f = getFields(kpType)
@@ -73,6 +74,9 @@ function getModel(name, kpType) {
 
 
 function genModelsByTabs(fd, tabs) {
+
+    //fsCreateFolder
+    fsCreateFolder(fd)
 
     //each
     each(tabs, (kpType, name) => {
