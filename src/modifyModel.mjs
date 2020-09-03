@@ -10,13 +10,15 @@ function modifyModel(fn) {
     //h
     let h = fs.readFileSync(fn, 'utf8')
 
-    //j
-    let r = `define[\\s\\S]+}, {`
-    let reg = new RegExp(r, 'g')
-    let j = h.match(reg)[0]
+    // //j
+    // let r = `define[\\s\\S]+}, {`
+    // let reg = new RegExp(r, 'g')
+    // let j = h.match(reg)[0]
 
     //s
-    let s = sep(j, '\n')
+    //let s = sep(j, '\n')
+    let s = sep(h, '\n')
+    // console.log('s', s)
 
     //find ind
     let indIDs = null
@@ -39,11 +41,11 @@ function modifyModel(fn) {
     //console.log(`indIDs=${indIDs}, indIDe=${indIDe}, indHasPK=${indHasPK}`)
     if (indIDs !== null && !indHasPK) {
         //若id沒有被設定為pk, 則需要強制設為pk, 否則sequelize無法匯入
-        s[indIDs] += 'primaryKey: true'
-        if (indIDs + 2 < indIDe) {
-            //不只id欄位故要添加結尾逗號
-            s[indIDs] += ','
-        }
+        s[indIDs] += 'primaryKey: true,' //用json5轉不用考慮是否最末不補逗號
+        // if (indIDs + 2 < indIDe) {
+        //     //不只id欄位故要添加結尾逗號
+        //     s[indIDs] += ','
+        // }
         console.log('modify:', fn)
     }
 
@@ -51,8 +53,9 @@ function modifyModel(fn) {
     let c = join(s, '\n')
 
     //replace
-    let h2 = h.replace(reg, c)
-    //console.log(h2)
+    //let h2 = h.replace(reg, c)
+    let h2 = c
+    // console.log('h2', h2)
 
     //write
     fs.writeFileSync(fn, h2, 'utf8')

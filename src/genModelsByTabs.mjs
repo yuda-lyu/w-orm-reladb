@@ -43,11 +43,20 @@ function getFields(kpType) {
 
 function getModel(name, kpType) {
 
-    let tmp = `module.exports = function(sequelize, DataTypes) {
-    return sequelize.define('{name}', {fields}, {
-        tableName: '{name}'
-    });
-};
+    //     let tmp = `module.exports = function(sequelize, DataTypes) {
+    //     return sequelize.define('{name}', {fields}, {
+    //         tableName: '{name}'
+    //     });
+    // };
+    //     `
+    let tmp = `
+    {
+        table: '{name}',
+        fields: {fields}, 
+        options: {
+            tableName: '{name}'
+        }
+    }
     `
 
     let f = getFields(kpType)
@@ -76,7 +85,7 @@ function genModelsByTabs(fd, tabs) {
         if (strright(fd, 1) !== '/') {
             fd = `${fd}/`
         }
-        let fn = `${fd}/${name}.js`
+        let fn = `${fd}/${name}.json`
 
         //write
         try {

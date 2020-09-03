@@ -191,6 +191,7 @@ function WOrmReladb(opt = {}) {
 
         //check
         if (r.state === 'error') {
+            console.log(r)
             err = `can not import model: ${opt.cl}, need to use genModelsByDB, genModelsByTabs or create ${opt.cl}.js`
         }
 

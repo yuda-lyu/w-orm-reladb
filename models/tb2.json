@@ -1,35 +1,38 @@
-module.exports = function(sequelize, DataTypes) {
-    return sequelize.define('tb1', {
-    "id": {
+
+    {
+        table: 'tb2',
+        fields: {
+    "sid": {
         "type": DataTypes.STRING,
         "primaryKey": true,
         "allowNull": false,
         "autoIncrement": false,
         "comment": null
     },
-    "title": {
+    "name": {
         "type": DataTypes.STRING,
         "primaryKey": false,
         "allowNull": true,
         "autoIncrement": false,
         "comment": null
     },
-    "price": {
+    "size": {
         "type": DataTypes.DOUBLE,
         "primaryKey": false,
         "allowNull": true,
         "autoIncrement": false,
         "comment": null
     },
-    "isActive": {
+    "age": {
         "type": DataTypes.INTEGER,
         "primaryKey": false,
         "allowNull": true,
         "autoIncrement": false,
         "comment": null
     }
-}, {
-        tableName: 'tb1'
-    });
-};
+}, 
+        options: {
+            tableName: 'tb2'
+        }
+    }
     
