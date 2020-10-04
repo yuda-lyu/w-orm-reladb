@@ -42,7 +42,7 @@ async function importModels(fdModels, sequelize, name, sync = false) {
         let j = fs.readFileSync(fn, 'utf8')
         let s = JSON5.parse(j)
 
-        //抽換DataTypes, 例如將'DataTypes.STRING'改為DataTypes.STRING
+        //抽換DataTypes, 例如將'DataTypes.TEXT'改為DataTypes.TEXT
         each(s.fields, (v) => {
             v.type = get(Sequelize, v.type, null)
         })

@@ -9,7 +9,7 @@
             comment: null
         },
         'name': {
-            type: 'DataTypes.STRING',
+            type: 'DataTypes.TEXT',
             allowNull: true,
             autoIncrement: false,
             comment: null

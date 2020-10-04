@@ -192,7 +192,7 @@ function WOrmReladb(opt = {}) {
         //check
         if (r.state === 'error') {
             console.log(r)
-            err = `can not import model: ${opt.cl}, need to use genModelsByDB, genModelsByTabs or create ${opt.cl}.js`
+            err = `can not import model: ${opt.cl}, need to use genModelsByDB, genModelsByTabs or create ${opt.cl}.json`
         }
 
         //mds
@@ -392,7 +392,7 @@ function WOrmReladb(opt = {}) {
         //check
         if (opt.useSqlcipher && dialect === 'sqlite') {
             if (atomic) {
-                console.log('@journeyapps/sqlcipher can not support atomic=true, set atomic=false automatically')
+                console.log('@journeyapps/sqlcipher can not support atomic=true, set atomic=false automatically.')
                 atomic = false
             }
         }

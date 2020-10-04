@@ -9,9 +9,9 @@ import fsCreateFolder from 'wsemi/src/fsCreateFolder.mjs'
 
 
 function getField(key, type, pk = false) {
-    if (type !== 'STRING' && type !== 'INTEGER' && type !== 'DOUBLE') {
-        console.log(`invalid type for ${type}. The type is support STRING, INTEGER, DOUBLE only.`)
-        type = 'STRING'
+    if (type !== 'TEXT' && type !== 'STRING' && type !== 'INTEGER' && type !== 'DOUBLE') {
+        console.log(`Invalid type for ${type}. The type is support TEXT, STRING, INTEGER, DOUBLE only.`)
+        type = 'TEXT'
     }
     let o = {
         type: `DataTypes.${type}`,
@@ -23,6 +23,10 @@ function getField(key, type, pk = false) {
     if (pk) {
         o.primaryKey = true
         o.allowNull = false
+    }
+    if (o.primaryKey && o.type === 'TEXT') {
+        console.log(`Can not construct TEXT type for primary key. It will change type to STRING automatically.`)
+        o.type = `DataTypes.STRING`
     }
     return o
 }
@@ -61,6 +65,7 @@ function getModel(name, kpType) {
     tmp = replace(tmp, '{name}', name)
     tmp = replace(tmp, '{fields}', fields)
     //現不需取代, importModels會自動轉換與繫結
+    // tmp = replace(tmp, '"DataTypes.TEXT"', 'DataTypes.TEXT')
     // tmp = replace(tmp, '"DataTypes.STRING"', 'DataTypes.STRING')
     // tmp = replace(tmp, '"DataTypes.INTEGER"', 'DataTypes.INTEGER')
     // tmp = replace(tmp, '"DataTypes.DOUBLE"', 'DataTypes.DOUBLE')
