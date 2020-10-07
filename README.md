@@ -227,7 +227,7 @@ test()
 ```
 
 #### Example of commit transaction for mssql
-> **Link:** [[dev source code](https://github.com/yuda-lyu/w-orm-reladb/blob/master/sp-sp-mssql-transaction-commit.mjs)]
+> **Link:** [[dev source code](https://github.com/yuda-lyu/w-orm-reladb/blob/master/sp-mssql-transaction-commit.mjs)]
 ```alias
 import wo from 'w-orm-reladb'
 
@@ -442,7 +442,7 @@ testCommit()
 ```
 
 #### Example of rollback transaction for mssql
-> **Link:** [[dev source code](https://github.com/yuda-lyu/w-orm-reladb/blob/master/sp-sp-mssql-transaction-rollback.mjs)]
+> **Link:** [[dev source code](https://github.com/yuda-lyu/w-orm-reladb/blob/master/sp-mssql-transaction-rollback.mjs)]
 ```alias
 import wo from 'w-orm-reladb'
 
