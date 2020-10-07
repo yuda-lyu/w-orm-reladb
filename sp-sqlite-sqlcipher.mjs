@@ -1,8 +1,6 @@
-import fs from 'fs'
 import wo from './src/WOrmReladb.mjs'
+import fs from 'fs'
 
-
-//測試sqlite
 
 let username = 'username'
 let password = 'password'
@@ -13,6 +11,7 @@ let opt = {
     fdModels: './models',
     //autoGenPK: false,
     storage: './worm.sqlite',
+    useSqlcipher: true,
 }
 
 //因worm.sqlite可能為加密數據, 若有切換useSqlcipher時得先刪除, 再通過createStorage重新產生
@@ -54,6 +53,13 @@ let rsm = [
 ]
 
 async function test() {
+    //測試加密sqlite
+    //安裝@journeyapps/sqlcipher方式：
+    //1.visual studio code得使用系統管理員權限開啟
+    //2.開啟專案資料夾, 確定路徑內不能含有中文, 否則python2.7無法接受
+    //3.先安裝windows-build-tools並指定安裝vs2015, 使用指令安裝至全域: npm i -g windows-build-tools --vs2015
+    //4.若切換或重新安裝nodejs, 因全域環境不同, 記得得要重裝windows-build-tools
+    //5.安裝@journeyapps/sqlcipher: npm i @journeyapps/sqlcipher
 
 
     //w
@@ -109,7 +115,7 @@ async function test() {
 
 
     //save
-    await w.save(rsm, { autoInsert: false, atomic: true })
+    await w.save(rsm, { autoInsert: false })
         .then(function(msg) {
             console.log('save then', msg)
         })
@@ -166,3 +172,40 @@ async function test() {
 
 }
 test()
+// createStorage
+// change delAll
+// delAll then { n: 0, ok: 1 }
+// change insert
+// insert then { n: 3, ok: 1 }
+// change save
+// save then [
+//   { n: 1, nModified: 1, ok: 1 },
+//   { n: 1, nModified: 1, ok: 1 },
+//   { n: 0, nModified: 0, ok: 1 }
+// ]
+// select all [
+//   { id: 'id-peter', name: 'peter(modify)', value: 123 },
+//   { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 },
+//   { id: 'random', name: 'kettle', value: 456 }
+// ]
+// select [
+//   { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 }
+// ]
+// select by $and, $gt, $lt [
+//   { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 }
+// ]
+// select by $or, $gte, $lte [
+//   { id: 'random', name: 'kettle', value: 456 }
+// ]
+// select by $and, $ne, $in, $nin [
+//   { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 }
+// ]
+// selectReg [
+//   { id: 'id-peter', name: 'peter(modify)', value: 123 }
+// ]
+// change del
+// del then [
+//   { n: 1, nDeleted: 1, ok: 1 }
+// ]
+
+//node --experimental-modules --es-module-specifier-resolution=node sp-sqlite-sqlcipher.mjs

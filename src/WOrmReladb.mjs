@@ -43,6 +43,7 @@ import _genModelsByTabs from './genModelsByTabs.mjs'
 function WOrmReladb(opt = {}) {
     let ss
     let u
+    let sequelize = null
 
 
     //default
@@ -75,6 +76,10 @@ function WOrmReladb(opt = {}) {
     if (!opt.useSqlcipher) {
         opt.useSqlcipher = false
     }
+
+
+    //Op
+    let Op = Sequelize.Op
 
 
     //ee
@@ -145,8 +150,13 @@ function WOrmReladb(opt = {}) {
     }
 
 
-    //sequelize
-    let sequelize
+    /**
+     * 初始化sequelize
+     *
+     * @memberOf WOrmReladb
+     * @param {Boolean} [sync=false] 輸入當importModels匯入models時是否使用同步方式，將models資料變更至資料庫當中，此功能提供給createStorage之用
+     * @returns {Promise} 回傳Promise，resolve代表關閉成功，reject回傳錯誤訊息
+     */
     async function initSequelize(sync = false) {
         let err = null
 
@@ -182,7 +192,7 @@ function WOrmReladb(opt = {}) {
         //sequelize
         sequelize = new Sequelize(opt.db, username, password, optSeq)
         if (opt.useSqlcipher && dialect === 'sqlite') {
-            await sequelize.query('PRAGMA cipher_compatibility = 3') //設置sqlite密鑰相容性
+            await sequelize.query('PRAGMA cipher_compatibility = 4') //設置sqlite密鑰相容性
             await sequelize.query(`PRAGMA key = '${username}:${password}'`) //設置slqite密碼為${username}:${password}, 為使用者名稱與密碼用冒號分隔
         }
 
@@ -205,8 +215,41 @@ function WOrmReladb(opt = {}) {
     }
 
 
-    //Op
-    let Op = Sequelize.Op
+    /**
+     * 關閉sequelize
+     *
+     * @memberOf WOrmReladb
+     * @returns {Promise} 回傳Promise，resolve代表關閉成功，reject回傳錯誤訊息
+     */
+    async function closeSequelize(from) {
+        if (sequelize !== null) {
+            await sequelize.close()
+            //console.log(from, 'sequelize.close()')
+        }
+        sequelize = null
+        //console.log(from, 'sequelize = null')
+    }
+
+
+    /**
+     * 產生交易transaction狀態物件
+     *
+     * @memberOf WOrmReladb
+     * @returns {Promise} 回傳Promise，resolve回傳交易transaction物件，reject回傳錯誤訊息
+     */
+    async function genTransaction() {
+        let t
+        if (sequelize !== null) {
+            t = await sequelize.transaction() //使用Unmanaged transaction (then-callback)
+            // t.afterCommit(() => {
+            //     console.log('afterCommit')
+            // })
+        }
+        else {
+            return Promise.reject('invalid sequelize')
+        }
+        return t
+    }
 
 
     /**
@@ -214,9 +257,12 @@ function WOrmReladb(opt = {}) {
      *
      * @memberOf WOrmReladb
      * @param {Object} [find={}] 輸入查詢條件物件
+     * @param {Object} [option={}] 輸入設定物件，預設為{}
+     * @param {Object} [option.instance=null] 輸入實例instance物件，預設為null
+     * @param {Object} [option.transaction=null] 輸入交易(transaction)物件，預設為null
      * @returns {Promise} 回傳Promise，resolve回傳數據，reject回傳錯誤訊息
      */
-    async function select(find = {}) {
+    async function select(find = {}, option = {}) {
 
         function cvObj(o) {
             let oNew = {}
@@ -267,21 +313,40 @@ function WOrmReladb(opt = {}) {
         }
 
         function cvFind(o) {
-            let oNew = {}
-            if (isobj(o)) {
-                oNew = cvObj(o)
-            }
-            else {
-                console.log('select: find is not object')
-            }
+            let oNew = cvObj(o)
             return oNew
         }
+
+        //find
+        if (!isobj(find)) {
+            find = {}
+        }
+        find = cloneDeep(find)
 
         //useFind
         let useFind = cvFind(find)
 
-        //initSequelize
-        let si = await initSequelize()
+        //instance
+        let instance = get(option, 'instance', null)
+
+        //transaction
+        let transaction = get(option, 'transaction', null)
+
+        //check
+        if (opt.useSqlcipher && dialect === 'sqlite') {
+            if (transaction !== null) {
+                console.log('@journeyapps/sqlcipher can not support transaction.')
+            }
+        }
+
+        //si
+        let si = instance
+        if (instance === null) {
+            si = await initSequelize()
+        }
+        // else {
+        //     console.log('select use instance', instance)
+        // }
 
         //rs
         let rs = null
@@ -290,19 +355,27 @@ function WOrmReladb(opt = {}) {
             //md
             let md = si.mds[opt.cl]
 
-            //findAll
-            rs = await md.findAll({
+            //setting
+            let setting = {
                 where: useFind,
                 raw: true,
-            })
+            }
+            if (transaction !== null) {
+                setting.transaction = transaction
+            }
+
+            //findAll
+            rs = await md.findAll(setting)
 
         }
         else {
             ee.emit('error', si.err)
         }
 
-        //close
-        sequelize.close()
+        //closeSequelize
+        if (instance === null) { //內部自動初始化得close
+            await closeSequelize('select')
+        }
 
         return rs
     }
@@ -313,9 +386,25 @@ function WOrmReladb(opt = {}) {
      *
      * @memberOf WOrmReladb
      * @param {Object|Array} data 輸入數據物件或陣列
+     * @param {Object} [option={}] 輸入設定物件，預設為{}
+     * @param {Object} [option.instance=null] 輸入實例instance物件，預設為null
+     * @param {Object} [option.transaction=null] 輸入交易(transaction)物件，預設為null
      * @returns {Promise} 回傳Promise，resolve回傳插入結果，reject回傳錯誤訊息
      */
-    async function insert(data) {
+    async function insert(data, option = {}) {
+
+        //instance
+        let instance = get(option, 'instance', null)
+
+        //transaction
+        let transaction = get(option, 'transaction', null)
+
+        //check
+        if (opt.useSqlcipher && dialect === 'sqlite') {
+            if (transaction !== null) {
+                console.log('@journeyapps/sqlcipher can not support transaction.')
+            }
+        }
 
         //cloneDeep
         data = cloneDeep(data)
@@ -323,8 +412,14 @@ function WOrmReladb(opt = {}) {
         //pm
         let pm = genPm()
 
-        //initSequelize
-        let si = await initSequelize()
+        //si
+        let si = instance
+        if (instance === null) {
+            si = await initSequelize()
+        }
+        // else {
+        //     console.log('insert use instance', instance)
+        // }
 
         if (!si.err) {
 
@@ -346,8 +441,14 @@ function WOrmReladb(opt = {}) {
                 })
             }
 
+            //setting
+            let setting = { }
+            if (transaction !== null) {
+                setting.transaction = transaction
+            }
+
             //bulkCreate
-            await md.bulkCreate(data)
+            await md.bulkCreate(data, setting)
                 .then((res) => {
                     res = { n: size(data), ok: 1 }
                     pm.resolve(res)
@@ -363,8 +464,10 @@ function WOrmReladb(opt = {}) {
             pm.reject(si.err)
         }
 
-        //close
-        sequelize.close()
+        //closeSequelize
+        if (instance === null) { //內部自動初始化得close
+            await closeSequelize('insert')
+        }
 
         return pm
     }
@@ -376,8 +479,9 @@ function WOrmReladb(opt = {}) {
      * @memberOf WOrmReladb
      * @param {Object|Array} data 輸入數據物件或陣列
      * @param {Object} [option={}] 輸入設定物件，預設為{}
+     * @param {Object} [option.instance=null] 輸入實例instance物件，預設為null
+     * @param {Object} [option.transaction=null] 輸入交易(transaction)物件，預設為null
      * @param {boolean} [option.autoInsert=true] 輸入是否於儲存時發現原本無數據，則自動改以插入處理，預設為true
-     * @param {boolean} [option.atomic=false] 輸入是否於儲存時採用上鎖，避免同時操作互改問題，預設為false
      * @returns {Promise} 回傳Promise，resolve回傳儲存結果，reject回傳錯誤訊息
      */
     async function save(data, option = {}) {
@@ -385,23 +489,33 @@ function WOrmReladb(opt = {}) {
         //cloneDeep
         data = cloneDeep(data)
 
-        //autoInsert, atomic
-        let autoInsert = get(option, 'autoInsert', true)
-        let atomic = get(option, 'atomic', false)
+        //instance
+        let instance = get(option, 'instance', null)
+
+        //transaction
+        let transaction = get(option, 'transaction', null)
 
         //check
         if (opt.useSqlcipher && dialect === 'sqlite') {
-            if (atomic) {
-                console.log('@journeyapps/sqlcipher can not support atomic=true, set atomic=false automatically.')
-                atomic = false
+            if (transaction !== null) {
+                console.log('@journeyapps/sqlcipher can not support transaction.')
             }
         }
+
+        //autoInsert
+        let autoInsert = get(option, 'autoInsert', true)
 
         //pm
         let pm = genPm()
 
-        //initSequelize
-        let si = await initSequelize()
+        //si
+        let si = instance
+        if (instance === null) {
+            si = await initSequelize()
+        }
+        // else {
+        //     console.log('save use instance', instance)
+        // }
 
         if (!si.err) {
 
@@ -423,15 +537,15 @@ function WOrmReladb(opt = {}) {
                 })
             }
 
-            //tr
-            let t = null
-            let tr = {}
-            if (atomic) {
-                t = await sequelize.transaction()
-                tr = {
-                    transaction: t
-                }
-            }
+            // //tr
+            // let t = null
+            // let tr = {}
+            // if (atomic) {
+            //     t = await sequelize.transaction() //使用Unmanaged transaction (then-callback)
+            //     tr = {
+            //         transaction: t
+            //     }
+            // }
 
             //pmSeries
             await pmSeries(data, async function(v) {
@@ -445,11 +559,17 @@ function WOrmReladb(opt = {}) {
                 if (v[opt.pk]) {
                     //有id
 
-                    //findOne
-                    r = await md.findOne({
+                    //setting
+                    let setting = {
                         where: { [opt.pk]: v[opt.pk] },
                         raw: true,
-                    })
+                    }
+                    if (transaction !== null) {
+                        setting.transaction = transaction
+                    }
+
+                    //findOne
+                    r = await md.findOne(setting)
                         .catch((error) => {
                             ee.emit('error', error)
                             err = error
@@ -464,10 +584,15 @@ function WOrmReladb(opt = {}) {
                 if (r) {
                     //有找到資料
 
-                    let rr = await md.update(v, {
+                    //setting
+                    let setting = {
                         where: { [opt.pk]: v[opt.pk] },
-                        ...tr,
-                    })
+                    }
+                    if (transaction !== null) {
+                        setting.transaction = transaction
+                    }
+
+                    let rr = await md.update(v, setting)
                         .catch((error) => {
                             ee.emit('error', error)
                             err = error
@@ -489,8 +614,14 @@ function WOrmReladb(opt = {}) {
                     //autoInsert
                     if (autoInsert) {
 
+                        //setting
+                        let setting = { }
+                        if (transaction !== null) {
+                            setting.transaction = transaction
+                        }
+
                         //create
-                        let rr = await md.create(v, tr)
+                        let rr = await md.create(v, setting)
                             .catch((error) => {
                                 ee.emit('error', error)
                                 err = error
@@ -519,26 +650,59 @@ function WOrmReladb(opt = {}) {
                 .then((res) => {
                     pm.resolve(res)
                     ee.emit('change', 'save', data, res)
-                    if (t) {
-                        //console.log('transaction commit')
-                        return t.commit()
-                    }
                 })
-                .catch((res) => {
-                    pm.reject(res)
-                    if (t) {
-                        //console.log('transaction rollback')
-                        return t.rollback()
-                    }
+                .catch((error) => {
+                    pm.reject(error)
                 })
+            // if (!errAll) {
+            //     // if (t) {
+            //     //     //console.log('transaction commit')
+            //     //     await t.commit()
+            //     //         .then((res) => {
+            //     //             pm.resolve(resAll)
+            //     //             ee.emit('change', 'save', data, resAll)
+            //     //         })
+            //     //         .catch((error) => {
+            //     //             //console.log('commit catch', error)
+            //     //             ee.emit('error', error)
+            //     //             pm.reject(error)
+            //     //         })
+            //     // }
+            //     // else {
+            //     //     pm.resolve(resAll)
+            //     //     ee.emit('change', 'save', data, resAll)
+            //     // }
+            //     pm.resolve(resAll)
+            //     ee.emit('change', 'save', data, resAll)
+            // }
+            // else {
+            //     // if (t) {
+            //     //     //console.log('transaction rollback')
+            //     //     await t.rollback()
+            //     //         .then((res) => {
+            //     //             pm.reject(errAll)
+            //     //         })
+            //     //         .catch((error) => {
+            //     //             //console.log('rollback catch', error)
+            //     //             ee.emit('error', error)
+            //     //             pm.reject(error)
+            //     //         })
+            //     // }
+            //     // else {
+            //     //     pm.reject(errAll)
+            //     // }
+            //     pm.reject(errAll)
+            // }
 
         }
         else {
             pm.reject(si.err)
         }
 
-        //close
-        sequelize.close()
+        //closeSequelize
+        if (instance === null) { //內部自動初始化得close
+            await closeSequelize('save')
+        }
 
         return pm
     }
@@ -549,18 +713,40 @@ function WOrmReladb(opt = {}) {
      *
      * @memberOf WOrmReladb
      * @param {Object|Array} data 輸入數據物件或陣列
+     * @param {Object} [option={}] 輸入設定物件，預設為{}
+     * @param {Object} [option.instance=null] 輸入實例instance物件，預設為null
+     * @param {Object} [option.transaction=null] 輸入交易(transaction)物件，預設為null
      * @returns {Promise} 回傳Promise，resolve回傳刪除結果，reject回傳錯誤訊息
      */
-    async function del(data) {
+    async function del(data, option = {}) {
 
         //cloneDeep
         data = cloneDeep(data)
 
+        //instance
+        let instance = get(option, 'instance', null)
+
+        //transaction
+        let transaction = get(option, 'transaction', null)
+
+        //check
+        if (opt.useSqlcipher && dialect === 'sqlite') {
+            if (transaction !== null) {
+                console.log('@journeyapps/sqlcipher can not support transaction.')
+            }
+        }
+
         //pm
         let pm = genPm()
 
-        //initSequelize
-        let si = await initSequelize()
+        //si
+        let si = instance
+        if (instance === null) {
+            si = await initSequelize()
+        }
+        // else {
+        //     console.log('del use instance', instance)
+        // }
 
         if (!si.err) {
 
@@ -582,13 +768,19 @@ function WOrmReladb(opt = {}) {
                 //r
                 let r
                 if (v[opt.pk]) {
-                //有id
+                    //有id
 
-                    //findOne
-                    r = await md.findOne({
+                    //setting
+                    let setting = {
                         where: { [opt.pk]: v[opt.pk] },
                         raw: true,
-                    })
+                    }
+                    if (transaction !== null) {
+                        setting.transaction = transaction
+                    }
+
+                    //findOne
+                    r = await md.findOne(setting)
                         .catch((error) => {
                             ee.emit('error', error)
                             err = error
@@ -596,17 +788,23 @@ function WOrmReladb(opt = {}) {
 
                 }
                 else {
-                //沒有id
+                    //沒有id
                     err = `${opt.pk} is invalid`
                 }
 
                 if (r) {
-                //有找到資料
+                    //有找到資料
+
+                    //setting
+                    let setting = {
+                        where: { [opt.pk]: v[opt.pk] },
+                    }
+                    if (transaction !== null) {
+                        setting.transaction = transaction //destroy的說明寫不需transaction但實際需要 (2020/10/07)
+                    }
 
                     //destroy
-                    let rr = await md.destroy({
-                        where: { [opt.pk]: v[opt.pk] },
-                    })
+                    let rr = await md.destroy(setting)
                         .catch((error) => {
                             ee.emit('error', error)
                             err = error
@@ -643,8 +841,10 @@ function WOrmReladb(opt = {}) {
             pm.reject(si.err)
         }
 
-        //close
-        sequelize.close()
+        //closeSequelize
+        if (instance === null) { //內部自動初始化得close
+            await closeSequelize('del')
+        }
 
         return pm
     }
@@ -655,25 +855,59 @@ function WOrmReladb(opt = {}) {
      *
      * @memberOf WOrmReladb
      * @param {Object} [find={}] 輸入刪除條件物件
+     * @param {Object} [option={}] 輸入設定物件，預設為{}
+     * @param {Object} [option.instance=null] 輸入實例instance物件，預設為null
+     * @param {Object} [option.transaction=null] 輸入交易(transaction)物件，預設為null
      * @returns {Promise} 回傳Promise，resolve回傳刪除結果，reject回傳錯誤訊息
      */
-    async function delAll(find = {}) {
+    async function delAll(find = {}, option = {}) {
+
+        //find
+        if (!isobj(find)) {
+            find = {}
+        }
+        find = cloneDeep(find)
+
+        //instance
+        let instance = get(option, 'instance', null)
+
+        //transaction
+        let transaction = get(option, 'transaction', null)
+
+        //check
+        if (opt.useSqlcipher && dialect === 'sqlite') {
+            if (transaction !== null) {
+                console.log('@journeyapps/sqlcipher can not support transaction.')
+            }
+        }
 
         //pm
         let pm = genPm()
 
-        //initSequelize
-        let si = await initSequelize()
+        //si
+        let si = instance
+        if (instance === null) {
+            si = await initSequelize()
+        }
+        // else {
+        //     console.log('delAll use instance', instance)
+        // }
 
         if (!si.err) {
 
             //md
             let md = si.mds[opt.cl]
 
-            //destroy
-            await md.destroy({
+            //setting
+            let setting = {
                 where: find,
-            })
+            }
+            if (transaction !== null) {
+                setting.transaction = transaction //destroy的說明寫不需transaction但實際需要 (2020/10/07)
+            }
+
+            //destroy
+            await md.destroy(setting)
                 .then((res) => {
                     res = { n: res, ok: 1 }
                     pm.resolve(res)
@@ -689,8 +923,10 @@ function WOrmReladb(opt = {}) {
             pm.reject(si.err)
         }
 
-        //close
-        sequelize.close()
+        //closeSequelize
+        if (instance === null) { //內部自動初始化得close
+            await closeSequelize('delAll')
+        }
 
         return pm
     }
@@ -710,8 +946,8 @@ function WOrmReladb(opt = {}) {
         //initSequelize
         let si = await initSequelize(true)
 
-        //close
-        sequelize.close()
+        //closeSequelize
+        await closeSequelize('createStorage')
 
         //check
         if (si.err) {
@@ -732,7 +968,7 @@ function WOrmReladb(opt = {}) {
      *
      * @memberOf WOrmReladb
      * @param {Object} [option={}] 輸入設定物件，預設{}
-     * @param {String} [opt.storage='./worm.db'] 輸入sqlite資料庫檔案位置字串，預設'./worm.db'
+     * @param {String} [option.storage='./worm.db'] 輸入sqlite資料庫檔案位置字串，預設'./worm.db'
      * @param {String} [option.db='worm'] 輸入資料庫名稱字串，預設'worm'
      * @param {String} [option.username='username'] 輸入使用者名稱字串，預設'username'
      * @param {String} [option.password='password'] 輸入密碼字串，預設'password'
@@ -797,6 +1033,11 @@ function WOrmReladb(opt = {}) {
     ee.createStorage = createStorage
     ee.genModelsByDB = genModelsByDB
     ee.genModelsByTabs = genModelsByTabs
+    ee.init = initSequelize
+    ee.close = () => {
+        return closeSequelize('external')
+    }
+    ee.genTransaction = genTransaction
     if (opt.useStable) {
         //用佇列(同時最大執行數1且先進先執行)處理高併發之情形
         //若沒管控, 例如sqlite會報錯[Error: SQLITE_MISUSE: Database is closed]問題

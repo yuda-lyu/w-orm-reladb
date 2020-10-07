@@ -1,8 +1,6 @@
-import fs from 'fs'
 import wo from './src/WOrmReladb.mjs'
+import fs from 'fs'
 
-
-//測試mssql與sqlite高併發狀況
 
 let username = 'username'
 let password = 'password'
@@ -16,31 +14,6 @@ let opt = {
     //autoGenPK: false,
     storage: './worm.sqlite',
 }
-// call save 1
-// call select 2
-// call save 3
-// call select 4
-// save then 1 msg= [ { n: 1, nInserted: 1, ok: 1 } ]
-// select then 2 len= 1
-// save then 3 msg= [ { n: 1, nInserted: 1, ok: 1 } ]
-// select then 4 len= 2
-
-// mssql
-// let opt = {
-//     url: `mssql://${username}:${password}@localhost:1433`,
-//     db: 'worm',
-//     cl: 'users',
-//     fdModels: './models',
-//     //autoGenPK: false,
-// }
-// call save 1
-// call select 2
-// call save 3
-// call select 4
-// select then 4 len= 30
-// select then 2 len= 30
-// save then 3 msg= [ { n: 1, nModified: 1, ok: 1 } ]
-// save then 1 msg= [ { n: 1, nModified: 1, ok: 1 } ]
 
 //因worm.sqlite可能為加密數據, 若有切換useSqlcipher時得先刪除, 再通過createStorage重新產生
 if (fs.existsSync(opt.storage)) {
@@ -48,6 +21,7 @@ if (fs.existsSync(opt.storage)) {
 }
 
 async function test() {
+    //測試sqlite高併發狀況
 
 
     //w, 預先創建共用, 使用sqlite時, 若沒有通過佇列控管同時只能一種操作, 就會報錯[Error: SQLITE_MISUSE: Database is closed]
@@ -76,7 +50,6 @@ async function test() {
                 },
             ]
             console.log('call save', n)
-            //w.save(r, { atomic: true })
             w.save(r)
                 .then(function(msg) {
                     console.log('save then', n, 'msg=', msg)
@@ -121,3 +94,14 @@ async function test() {
 
 }
 test()
+// createStorage
+// call save 1
+// call select 2
+// call save 3
+// call select 4
+// save then 1 msg= [ { n: 1, nInserted: 1, ok: 1 } ]
+// select then 2 len= 1
+// save then 3 msg= [ { n: 1, nInserted: 1, ok: 1 } ]
+// select then 4 len= 2
+
+//node --experimental-modules --es-module-specifier-resolution=node sp-sqlite-concurrency.mjs

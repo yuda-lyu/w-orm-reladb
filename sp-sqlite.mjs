@@ -1,16 +1,21 @@
 import wo from './src/WOrmReladb.mjs'
+import fs from 'fs'
 
-
-//測試mssql
 
 let username = 'username'
 let password = 'password'
 let opt = {
-    url: `mssql://${username}:${password}@localhost:1433`,
+    url: `sqlite://${username}:${password}`, //username:password
     db: 'worm',
     cl: 'users',
     fdModels: './models',
     //autoGenPK: false,
+    storage: './worm.sqlite',
+}
+
+//因worm.sqlite可能為加密數據, 若有切換useSqlcipher時得先刪除, 再通過createStorage重新產生
+if (fs.existsSync(opt.storage)) {
+    fs.unlinkSync(opt.storage)
 }
 
 let rs = [
@@ -47,13 +52,14 @@ let rsm = [
 ]
 
 async function test() {
+    //測試sqlite
 
 
     //w
     let w = wo(opt)
 
 
-    //createStorage, create table for mssql
+    //createStorage, create db file for sqlite
     await w.createStorage()
     console.log('createStorage')
 
@@ -62,11 +68,13 @@ async function test() {
     // await w.genModelsByDB({
     //     username,
     //     password,
-    //     dialect: 'mssql', //default
-    //     host: 'localhost', //default
-    //     port: 1433, //default
+    //     // dialect: 'mssql', //default
+    //     // host: 'localhost', //default
+    //     // port: 1433, //default
+    //     dialect: 'sqlite',
     //     db: opt.db,
     //     fdModels: opt.fdModels,
+    //     storage: opt.storage,
     // })
 
 
@@ -100,7 +108,7 @@ async function test() {
 
 
     //save
-    await w.save(rsm, { autoInsert: false, atomic: true })
+    await w.save(rsm, { autoInsert: false })
         .then(function(msg) {
             console.log('save then', msg)
         })
@@ -157,3 +165,40 @@ async function test() {
 
 }
 test()
+// createStorage
+// change delAll
+// delAll then { n: 0, ok: 1 }
+// change insert
+// insert then { n: 3, ok: 1 }
+// change save
+// save then [
+//   { n: 1, nModified: 1, ok: 1 },
+//   { n: 1, nModified: 1, ok: 1 },
+//   { n: 0, nModified: 0, ok: 1 }
+// ]
+// select all [
+//   { id: 'id-peter', name: 'peter(modify)', value: 123 },
+//   { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 },
+//   { id: 'random', name: 'kettle', value: 456 }
+// ]
+// select [
+//   { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 }
+// ]
+// select by $and, $gt, $lt [
+//   { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 }
+// ]
+// select by $or, $gte, $lte [
+//   { id: 'random', name: 'kettle', value: 456 }
+// ]
+// select by $and, $ne, $in, $nin [
+//   { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 }
+// ]
+// selectReg [
+//   { id: 'id-peter', name: 'peter(modify)', value: 123 }
+// ]
+// change del
+// del then [
+//   { n: 1, nDeleted: 1, ok: 1 }
+// ]
+
+//node --experimental-modules --es-module-specifier-resolution=node sp-sqlite.mjs

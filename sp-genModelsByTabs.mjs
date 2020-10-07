@@ -1,8 +1,6 @@
 import wo from './src/WOrmReladb.mjs'
 
 
-//測試使用數據tabs並呼叫genModelsByTabs來產生models
-
 let username = 'username'
 let password = 'password'
 let opt = {
@@ -17,25 +15,26 @@ let fd = opt.fdModels
 let tabs = {
     tb1: {
         id: {
-            type: 'STRING',
+            type: 'STRING', //主鍵不能使用TEXT
             pk: true,
         },
-        title: 'STRING',
+        title: 'TEXT',
         price: 'DOUBLE',
         isActive: 'INTEGER',
     },
     tb2: {
         sid: {
-            type: 'STRING',
+            type: 'STRING', //主鍵不能使用TEXT
             pk: true,
         },
-        name: 'STRING',
+        name: 'TEXT',
         size: 'DOUBLE',
         age: 'INTEGER',
     },
 }
 
 async function test() {
+    //測試使用數據tabs並呼叫genModelsByTabs來產生models
 
 
     //w
@@ -48,3 +47,7 @@ async function test() {
 
 }
 test()
+// generate file:  ./models//tb1.json
+// generate file:  ./models//tb2.json
+
+//node --experimental-modules --es-module-specifier-resolution=node sp-genModelsByTabs.mjs

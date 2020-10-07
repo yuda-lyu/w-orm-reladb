@@ -30,9 +30,10 @@ npm i w-orm-reladb
 ```
 
 #### Example for mssql
-> **Link:** [[dev source code](https://github.com/yuda-lyu/w-orm-reladb/blob/master/ga.mjs)]
+> **Link:** [[dev source code](https://github.com/yuda-lyu/w-orm-reladb/blob/master/sp-mssql.mjs)]
 ```alias
 import wo from 'w-orm-reladb'
+
 
 let username = 'username'
 let password = 'password'
@@ -118,7 +119,6 @@ async function test() {
         .catch(function(msg) {
             console.log('delAll catch', msg)
         })
-    // => delAll then { n: {n}, ok: 1 }
 
 
     //insert
@@ -129,62 +129,46 @@ async function test() {
         .catch(function(msg) {
             console.log('insert catch', msg)
         })
-    // => insert then { n: 3, ok: 1 }
 
 
     //save
-    await w.save(rsm, { autoInsert: false, atomic: true })
+    await w.save(rsm, { autoInsert: false })
         .then(function(msg) {
             console.log('save then', msg)
         })
         .catch(function(msg) {
             console.log('save catch', msg)
         })
-    // => save then [ { n: 1, nModified: 1, ok: 1 },
-                      { n: 1, nModified: 1, ok: 1 }, 
-                      { n: 0, nModified: 0, ok: 1 }, //autoInsert=false
-                      { n: 1, nInserted: 1, ok: 1 }  //autoInsert=true
-                    ]
 
 
     //select all
     let ss = await w.select()
     console.log('select all', ss)
-    // => select all [ { id: 'id-peter', name: 'peter(modify)', value: 123 },
-                       { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 },
-                       { id: '{random id}', name: 'kettle', value: 456 }, 
-                       { id: '{random id}', name: 'kettle(modify)', value: null } //autoInsert=true
-                    ]
 
 
     //select
     let so = await w.select({ id: 'id-rosemary' })
     console.log('select', so)
-    // => select [ { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 } ]
 
 
     //select by $and, $gt, $lt
     let spa = await w.select({ '$and': [{ value: { '$gt': 123 } }, { value: { '$lt': 200 } }] })
     console.log('select by $and, $gt, $lt', spa)
-    // => select [ { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 } ]
 
 
     //select by $or, $gte, $lte
     let spb = await w.select({ '$or': [{ value: { '$lte': -1 } }, { value: { '$gte': 200 } }] })
     console.log('select by $or, $gte, $lte', spb)
-    // => select [ { id: '{random id}', name: 'kettle', value: 456 } ]
 
 
     //select by $and, $ne, $in, $nin
     let spc = await w.select({ '$and': [{ value: { '$ne': 123 } }, { value: { '$in': [123, 321, 123.456, 456] } }, { value: { '$nin': [456, 654] } }] })
     console.log('select by $and, $ne, $in, $nin', spc)
-    // => select [ { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 } ]
 
 
-    //select by regex, it's an Operator LIKE, not really a regex.
+    //select by regex
     let sr = await w.select({ name: { $regex: 'PeT', $options: '$i' } })
     console.log('selectReg', sr)
-    // => select [ { id: 'id-peter', name: 'peter(modify)', value: 123 } ]
 
 
     //del
@@ -201,27 +185,492 @@ async function test() {
         .catch(function(msg) {
             console.log('del catch', msg)
         })
-    // => del then [ { n: 1, nDeleted: 1, ok: 1 } ]
 
 
 }
 test()
+// createStorage
+// change delAll
+// delAll then { n: 0, ok: 1 }
+// change insert
+// insert then { n: 3, ok: 1 }
+// change save
+// save then [
+//   { n: 1, nModified: 1, ok: 1 },
+//   { n: 1, nModified: 1, ok: 1 },
+//   { n: 0, nModified: 0, ok: 1 }
+// ]
+// select all [
+//   { id: 'id-peter', name: 'peter(modify)', value: 123 },
+//   { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 },
+//   { id: 'random', name: 'kettle', value: 456 }
+// ]
+// select [
+//   { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 }
+// ]
+// select by $and, $gt, $lt [
+//   { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 }
+// ]
+// select by $or, $gte, $lte [
+//   { id: 'random', name: 'kettle', value: 456 }
+// ]
+// select by $and, $ne, $in, $nin [
+//   { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 }
+// ]
+// selectReg [
+//   { id: 'id-peter', name: 'peter(modify)', value: 123 }
+// ]
+// change del
+// del then [
+//   { n: 1, nDeleted: 1, ok: 1 }
+// ]
 ```
 
-#### Example for sqlite
-> **Link:** [[dev source code](https://github.com/yuda-lyu/w-orm-reladb/blob/master/gb.mjs)]
+#### Example of commit transaction for mssql
+> **Link:** [[dev source code](https://github.com/yuda-lyu/w-orm-reladb/blob/master/sp-sp-mssql-transaction-commit.mjs)]
 ```alias
 import wo from 'w-orm-reladb'
+
 
 let username = 'username'
 let password = 'password'
 let opt = {
-    url: `sqlite://${username}:${password}`,
+    url: `mssql://${username}:${password}@localhost:1433`,
+    db: 'worm',
+    cl: 'users',
+    fdModels: './models',
+    //autoGenPK: false,
+}
+
+let rs = [
+    {
+        id: 'id-peter',
+        name: 'peter',
+        value: 123,
+    },
+    {
+        id: 'id-rosemary',
+        name: 'rosemary',
+        value: 123.456,
+    },
+    {
+        id: '',
+        name: 'kettle',
+        value: 456,
+    },
+]
+
+let rsm = [
+    {
+        id: 'id-peter',
+        name: 'peter(modify)'
+    },
+    {
+        id: 'id-rosemary',
+        name: 'rosemary(modify)'
+    },
+    {
+        id: '',
+        name: 'kettle(modify)'
+    },
+]
+
+async function testCommit() {
+
+
+    //w
+    let w = wo(opt)
+
+
+    //createStorage, create table for mssql
+    await w.createStorage()
+    console.log('createStorage')
+
+
+    //genModelsByDB, disable if got models
+    // await w.genModelsByDB({
+    //     username,
+    //     password,
+    //     dialect: 'mssql', //default
+    //     host: 'localhost', //default
+    //     port: 1433, //default
+    //     db: opt.db,
+    //     fdModels: opt.fdModels,
+    // })
+
+
+    //on
+    w.on('change', function(mode, data, res) {
+        console.log('change', mode)
+    })
+    w.on('error', function(err) {
+        console.log('error', err)
+    })
+
+
+    //delAll
+    await w.delAll()
+        .then(function(msg) {
+            console.log('delAll then', msg)
+        })
+        .catch(function(msg) {
+            console.log('delAll catch', msg)
+        })
+
+
+    //connState
+    let instance = await w.init()
+    let transaction = await w.genTransaction()
+    let connState = {
+        instance, //可由外部初始化共用instance, 可單獨使用不另外給transaction
+        transaction, //若外部使用共用之transaction, 亦需使用共用instance
+    }
+    console.log('init')
+
+
+    //insert
+    await w.insert(rs, connState)
+        .then(function(msg) {
+            console.log('insert then', msg)
+        })
+        .catch(function(msg) {
+            console.log('insert catch', msg)
+        })
+
+
+    //save
+    await w.save(rsm, { ...connState, autoInsert: false })
+        .then(function(msg) {
+            console.log('save then', msg)
+        })
+        .catch(function(msg) {
+            console.log('save catch', msg)
+        })
+
+
+    //del
+    await w.del({ id: 'id-rosemary' }, connState)
+        .then(function(msg) {
+            console.log('del then', msg)
+        })
+        .catch(function(msg) {
+            console.log('del catch', msg)
+        })
+
+
+    //select all
+    let ssBeforeCommit = await w.select(null, connState)
+    console.log('select all (before commit)', ssBeforeCommit) //此時select可查到暫時有效的數據
+    // => [
+    //     { id: 'id-peter', name: 'peter(modify)', value: 123 },
+    //     { id: 'random', name: 'kettle', value: 456 }
+    // ]
+
+
+    //commit
+    await transaction.commit()
+    console.log('commit')
+
+
+    //close
+    await w.close()
+    console.log('close')
+
+
+    //select all
+    let ssFinal = await w.select()
+    console.log('select all (final)', ssFinal)
+    // => [
+    //     { id: 'id-peter', name: 'peter(modify)', value: 123 },
+    //     { id: 'random', name: 'kettle', value: 456 }
+    // ]
+
+
+    //check
+    let rPeter = ssFinal.filter((v) => {
+        return v.name === 'peter(modify)'
+    })
+    let bPeter = rPeter?.[0]?.value === 123
+
+    let rRosemary = ssFinal.filter((v) => {
+        return v.name === 'rosemary(modify)'
+    })
+    let bRosemary = rRosemary?.[0]?.value === 123.456
+
+    let rKettle = ssFinal.filter((v) => {
+        return v.name === 'kettle'
+    })
+    let bKettle = rKettle?.[0]?.value === 456
+
+    if (bPeter && !bRosemary && bKettle) {
+        console.log('commit success')
+    }
+    else {
+        console.log('commit error')
+    }
+
+
+}
+testCommit()
+// createStorage
+// change delAll
+// delAll then { n: 2, ok: 1 }
+// init
+// change insert
+// insert then { n: 3, ok: 1 }
+// change save
+// save then [
+//   { n: 1, nModified: 1, ok: 1 },
+//   { n: 1, nModified: 1, ok: 1 },
+//   { n: 0, nModified: 0, ok: 1 }
+// ]
+// change del
+// del then [
+//   { n: 1, nDeleted: 1, ok: 1 }
+// ]
+// select all (before commit) [
+//   { id: 'id-peter', name: 'peter(modify)', value: 123 },
+//   { id: 'random', name: 'kettle', value: 456 }
+// ]
+// commit
+// close
+// select all (final) [
+//   { id: 'id-peter', name: 'peter(modify)', value: 123 },
+//   { id: 'random', name: 'kettle', value: 456 }
+// ]
+// commit success
+```
+
+#### Example of rollback transaction for mssql
+> **Link:** [[dev source code](https://github.com/yuda-lyu/w-orm-reladb/blob/master/sp-sp-mssql-transaction-rollback.mjs)]
+```alias
+import wo from 'w-orm-reladb'
+
+
+let username = 'username'
+let password = 'password'
+let opt = {
+    url: `mssql://${username}:${password}@localhost:1433`,
+    db: 'worm',
+    cl: 'users',
+    fdModels: './models',
+    //autoGenPK: false,
+}
+
+let rs = [
+    {
+        id: 'id-peter',
+        name: 'peter',
+        value: 123,
+    },
+    {
+        id: 'id-rosemary',
+        name: 'rosemary',
+        value: 123.456,
+    },
+    {
+        id: '',
+        name: 'kettle',
+        value: 456,
+    },
+]
+
+let rsm = [
+    {
+        id: 'id-peter',
+        name: 'peter(modify)'
+    },
+    {
+        id: 'id-rosemary',
+        name: 'rosemary(modify)'
+    },
+    {
+        id: '',
+        name: 'kettle(modify)'
+    },
+]
+
+async function testRollback() {
+
+
+    //w
+    let w = wo(opt)
+
+
+    //createStorage, create table for mssql
+    await w.createStorage()
+    console.log('createStorage')
+
+
+    //genModelsByDB, disable if got models
+    // await w.genModelsByDB({
+    //     username,
+    //     password,
+    //     dialect: 'mssql', //default
+    //     host: 'localhost', //default
+    //     port: 1433, //default
+    //     db: opt.db,
+    //     fdModels: opt.fdModels,
+    // })
+
+
+    //on
+    w.on('change', function(mode, data, res) {
+        console.log('change', mode)
+    })
+    w.on('error', function(err) {
+        console.log('error', err)
+    })
+
+
+    //delAll
+    await w.delAll()
+        .then(function(msg) {
+            console.log('delAll then', msg)
+        })
+        .catch(function(msg) {
+            console.log('delAll catch', msg)
+        })
+
+
+    //connState
+    let instance = await w.init()
+    let transaction = await w.genTransaction()
+    let connState = {
+        instance, //可由外部初始化共用instance, 可單獨使用不另外給transaction
+        transaction, //若外部使用共用之transaction, 亦需使用共用instance
+    }
+    console.log('init')
+
+
+    //insert
+    await w.insert(rs, connState)
+        .then(function(msg) {
+            console.log('insert then', msg)
+        })
+        .catch(function(msg) {
+            console.log('insert catch', msg)
+        })
+
+
+    //save
+    await w.save(rsm, { ...connState, autoInsert: false })
+        .then(function(msg) {
+            console.log('save then', msg)
+        })
+        .catch(function(msg) {
+            console.log('save catch', msg)
+        })
+
+
+    //del
+    await w.del({ id: 'id-rosemary' }, connState)
+        .then(function(msg) {
+            console.log('del then', msg)
+        })
+        .catch(function(msg) {
+            console.log('del catch', msg)
+        })
+
+
+    //select all
+    let ssBeforeRollback = await w.select(null, connState)
+    console.log('select all (before rollback)', ssBeforeRollback) //此時select可查到暫時有效的數據
+    // => [
+    //     { id: 'id-peter', name: 'peter(modify)', value: 123 },
+    //     { id: 'random', name: 'kettle', value: 456 }
+    // ]
+
+
+    //rollback
+    await transaction.rollback()
+    console.log('rollback')
+
+
+    //close
+    await w.close()
+    console.log('close')
+
+
+    //select all
+    let ssFinal = await w.select()
+    console.log('select all (final)', ssFinal)
+    // => []
+
+
+    //check
+    let rPeter = ssFinal.filter((v) => {
+        return v.name === 'peter(modify)'
+    })
+    let bPeter = rPeter?.[0]?.value === 123
+
+    let rRosemary = ssFinal.filter((v) => {
+        return v.name === 'rosemary(modify)'
+    })
+    let bRosemary = rRosemary?.[0]?.value === 123.456
+
+    let rKettle = ssFinal.filter((v) => {
+        return v.name === 'kettle'
+    })
+    let bKettle = rKettle?.[0]?.value === 456
+
+    if (!bPeter && !bRosemary && !bKettle) {
+        console.log('rollback success')
+    }
+    else {
+        console.log('rollback error')
+    }
+
+
+}
+testRollback()
+// createStorage
+// change delAll
+// delAll then { n: 0, ok: 1 }
+// init
+// change insert
+// insert then { n: 3, ok: 1 }
+// change save
+// save then [
+//   { n: 1, nModified: 1, ok: 1 },
+//   { n: 1, nModified: 1, ok: 1 },
+//   { n: 0, nModified: 0, ok: 1 }
+// ]
+// change del
+// del then [
+//   { n: 1, nDeleted: 1, ok: 1 }
+// ]
+// select all (before rollback) [
+//   { id: 'id-peter', name: 'peter(modify)', value: 123 },
+//   { id: 'random', name: 'kettle', value: 456 }
+// ]
+// rollback
+// close
+// select all (final) []
+// rollback success
+```
+
+#### Example for sqlite
+> **Link:** [[dev source code](https://github.com/yuda-lyu/w-orm-reladb/blob/master/sp-sqlite.mjs)]
+```alias
+import wo from 'w-orm-reladb'
+import fs from 'fs'
+
+
+let username = 'username'
+let password = 'password'
+let opt = {
+    url: `sqlite://${username}:${password}`, //username:password
     db: 'worm',
     cl: 'users',
     fdModels: './models',
     //autoGenPK: false,
     storage: './worm.sqlite',
+}
+
+//因worm.sqlite可能為加密數據, 若有切換useSqlcipher時得先刪除, 再通過createStorage重新產生
+if (fs.existsSync(opt.storage)) {
+    fs.unlinkSync(opt.storage)
 }
 
 let rs = [
@@ -258,6 +707,7 @@ let rsm = [
 ]
 
 async function test() {
+    //測試sqlite
 
 
     //w
@@ -290,7 +740,7 @@ async function test() {
     w.on('error', function(err) {
         console.log('error', err)
     })
-    
+
 
     //delAll
     await w.delAll()
@@ -300,7 +750,6 @@ async function test() {
         .catch(function(msg) {
             console.log('delAll catch', msg)
         })
-    // => delAll then { n: {n}, ok: 1 }
 
 
     //insert
@@ -311,62 +760,46 @@ async function test() {
         .catch(function(msg) {
             console.log('insert catch', msg)
         })
-    // => insert then { n: 3, ok: 1 }
 
 
     //save
-    await w.save(rsm, { autoInsert: false, atomic: true })
+    await w.save(rsm, { autoInsert: false })
         .then(function(msg) {
             console.log('save then', msg)
         })
         .catch(function(msg) {
             console.log('save catch', msg)
         })
-    // => save then [ { n: 1, nModified: 1, ok: 1 },
-                      { n: 1, nModified: 1, ok: 1 }, 
-                      { n: 0, nModified: 0, ok: 1 }, //autoInsert=false
-                      { n: 1, nInserted: 1, ok: 1 }  //autoInsert=true
-                    ]
 
 
     //select all
     let ss = await w.select()
     console.log('select all', ss)
-    // => select all [ { id: 'id-peter', name: 'peter(modify)', value: 123 },
-                       { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 },
-                       { id: '{random id}', name: 'kettle', value: 456 }, 
-                       { id: '{random id}', name: 'kettle(modify)', value: null } //autoInsert=true
-                    ]
 
 
     //select
     let so = await w.select({ id: 'id-rosemary' })
     console.log('select', so)
-    // => select [ { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 } ]
 
 
     //select by $and, $gt, $lt
     let spa = await w.select({ '$and': [{ value: { '$gt': 123 } }, { value: { '$lt': 200 } }] })
     console.log('select by $and, $gt, $lt', spa)
-    // => select [ { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 } ]
 
 
     //select by $or, $gte, $lte
     let spb = await w.select({ '$or': [{ value: { '$lte': -1 } }, { value: { '$gte': 200 } }] })
     console.log('select by $or, $gte, $lte', spb)
-    // => select [ { id: '{random id}', name: 'kettle', value: 456 } ]
 
 
     //select by $and, $ne, $in, $nin
     let spc = await w.select({ '$and': [{ value: { '$ne': 123 } }, { value: { '$in': [123, 321, 123.456, 456] } }, { value: { '$nin': [456, 654] } }] })
     console.log('select by $and, $ne, $in, $nin', spc)
-    // => select [ { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 } ]
 
 
-    //select by regex, it's an Operator LIKE, not really a regex.
+    //select by regex
     let sr = await w.select({ name: { $regex: 'PeT', $options: '$i' } })
     console.log('selectReg', sr)
-    // => select [ { id: 'id-peter', name: 'peter(modify)', value: 123 } ]
 
 
     //del
@@ -383,17 +816,266 @@ async function test() {
         .catch(function(msg) {
             console.log('del catch', msg)
         })
-    // => del then [ { n: 1, nDeleted: 1, ok: 1 } ]
-    
+
 
 }
 test()
+// createStorage
+// change delAll
+// delAll then { n: 0, ok: 1 }
+// change insert
+// insert then { n: 3, ok: 1 }
+// change save
+// save then [
+//   { n: 1, nModified: 1, ok: 1 },
+//   { n: 1, nModified: 1, ok: 1 },
+//   { n: 0, nModified: 0, ok: 1 }
+// ]
+// select all [
+//   { id: 'id-peter', name: 'peter(modify)', value: 123 },
+//   { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 },
+//   { id: 'random', name: 'kettle', value: 456 }
+// ]
+// select [
+//   { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 }
+// ]
+// select by $and, $gt, $lt [
+//   { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 }
+// ]
+// select by $or, $gte, $lte [
+//   { id: 'random', name: 'kettle', value: 456 }
+// ]
+// select by $and, $ne, $in, $nin [
+//   { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 }
+// ]
+// selectReg [
+//   { id: 'id-peter', name: 'peter(modify)', value: 123 }
+// ]
+// change del
+// del then [
+//   { n: 1, nDeleted: 1, ok: 1 }
+// ]
+```
+
+#### Example of sqlcipher for sqlite
+> **Link:** [[dev source code](https://github.com/yuda-lyu/w-orm-reladb/blob/master/sp-sqlite-sqlcipher.mjs)]
+```alias
+import wo from 'w-orm-reladb'
+import fs from 'fs'
+
+
+let username = 'username'
+let password = 'password'
+let opt = {
+    url: `sqlite://${username}:${password}`, //username:password
+    db: 'worm',
+    cl: 'users',
+    fdModels: './models',
+    //autoGenPK: false,
+    storage: './worm.sqlite',
+    useSqlcipher: true,
+}
+
+//因worm.sqlite可能為加密數據, 若有切換useSqlcipher時得先刪除, 再通過createStorage重新產生
+if (fs.existsSync(opt.storage)) {
+    fs.unlinkSync(opt.storage)
+}
+
+let rs = [
+    {
+        id: 'id-peter',
+        name: 'peter',
+        value: 123,
+    },
+    {
+        id: 'id-rosemary',
+        name: 'rosemary',
+        value: 123.456,
+    },
+    {
+        id: '',
+        name: 'kettle',
+        value: 456,
+    },
+]
+
+let rsm = [
+    {
+        id: 'id-peter',
+        name: 'peter(modify)'
+    },
+    {
+        id: 'id-rosemary',
+        name: 'rosemary(modify)'
+    },
+    {
+        id: '',
+        name: 'kettle(modify)'
+    },
+]
+
+async function test() {
+    //測試加密sqlite
+    //安裝@journeyapps/sqlcipher方式：
+    //1.visual studio code得使用系統管理員權限開啟
+    //2.開啟專案資料夾, 確定路徑內不能含有中文, 否則python2.7無法接受
+    //3.先安裝windows-build-tools並指定安裝vs2015, 使用指令安裝至全域: npm i -g windows-build-tools --vs2015
+    //4.若切換或重新安裝nodejs, 因全域環境不同, 記得得要重裝windows-build-tools
+    //5.安裝@journeyapps/sqlcipher: npm i @journeyapps/sqlcipher
+
+
+    //w
+    let w = wo(opt)
+
+
+    //createStorage, create db file for sqlite
+    await w.createStorage()
+    console.log('createStorage')
+
+
+    //genModelsByDB, disable if got models
+    // await w.genModelsByDB({
+    //     username,
+    //     password,
+    //     // dialect: 'mssql', //default
+    //     // host: 'localhost', //default
+    //     // port: 1433, //default
+    //     dialect: 'sqlite',
+    //     db: opt.db,
+    //     fdModels: opt.fdModels,
+    //     storage: opt.storage,
+    // })
+
+
+    //on
+    w.on('change', function(mode, data, res) {
+        console.log('change', mode)
+    })
+    w.on('error', function(err) {
+        console.log('error', err)
+    })
+
+
+    //delAll
+    await w.delAll()
+        .then(function(msg) {
+            console.log('delAll then', msg)
+        })
+        .catch(function(msg) {
+            console.log('delAll catch', msg)
+        })
+
+
+    //insert
+    await w.insert(rs)
+        .then(function(msg) {
+            console.log('insert then', msg)
+        })
+        .catch(function(msg) {
+            console.log('insert catch', msg)
+        })
+
+
+    //save
+    await w.save(rsm, { autoInsert: false })
+        .then(function(msg) {
+            console.log('save then', msg)
+        })
+        .catch(function(msg) {
+            console.log('save catch', msg)
+        })
+
+
+    //select all
+    let ss = await w.select()
+    console.log('select all', ss)
+
+
+    //select
+    let so = await w.select({ id: 'id-rosemary' })
+    console.log('select', so)
+
+
+    //select by $and, $gt, $lt
+    let spa = await w.select({ '$and': [{ value: { '$gt': 123 } }, { value: { '$lt': 200 } }] })
+    console.log('select by $and, $gt, $lt', spa)
+
+
+    //select by $or, $gte, $lte
+    let spb = await w.select({ '$or': [{ value: { '$lte': -1 } }, { value: { '$gte': 200 } }] })
+    console.log('select by $or, $gte, $lte', spb)
+
+
+    //select by $and, $ne, $in, $nin
+    let spc = await w.select({ '$and': [{ value: { '$ne': 123 } }, { value: { '$in': [123, 321, 123.456, 456] } }, { value: { '$nin': [456, 654] } }] })
+    console.log('select by $and, $ne, $in, $nin', spc)
+
+
+    //select by regex
+    let sr = await w.select({ name: { $regex: 'PeT', $options: '$i' } })
+    console.log('selectReg', sr)
+
+
+    //del
+    let d = []
+    if (ss) {
+        d = ss.filter(function(v) {
+            return v.name === 'kettle'
+        })
+    }
+    await w.del(d)
+        .then(function(msg) {
+            console.log('del then', msg)
+        })
+        .catch(function(msg) {
+            console.log('del catch', msg)
+        })
+
+
+}
+test()
+// createStorage
+// change delAll
+// delAll then { n: 0, ok: 1 }
+// change insert
+// insert then { n: 3, ok: 1 }
+// change save
+// save then [
+//   { n: 1, nModified: 1, ok: 1 },
+//   { n: 1, nModified: 1, ok: 1 },
+//   { n: 0, nModified: 0, ok: 1 }
+// ]
+// select all [
+//   { id: 'id-peter', name: 'peter(modify)', value: 123 },
+//   { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 },
+//   { id: 'random', name: 'kettle', value: 456 }
+// ]
+// select [
+//   { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 }
+// ]
+// select by $and, $gt, $lt [
+//   { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 }
+// ]
+// select by $or, $gte, $lte [
+//   { id: 'random', name: 'kettle', value: 456 }
+// ]
+// select by $and, $ne, $in, $nin [
+//   { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 }
+// ]
+// selectReg [
+//   { id: 'id-peter', name: 'peter(modify)', value: 123 }
+// ]
+// change del
+// del then [
+//   { n: 1, nDeleted: 1, ok: 1 }
+// ]
 ```
 
 #### Example for genModelsByTabs
-> **Link:** [[dev source code](https://github.com/yuda-lyu/w-orm-reladb/blob/master/gb.mjs)]
+> **Link:** [[dev source code](https://github.com/yuda-lyu/w-orm-reladb/blob/master/sp-genModelsByTabs.mjs)]
 ```alias
 import wo from 'w-orm-reladb'
+
 
 let username = 'username'
 let password = 'password'
@@ -405,29 +1087,30 @@ let opt = {
     //autoGenPK: false,
 }
 
-let fd = 'models'
+let fd = opt.fdModels
 let tabs = {
     tb1: {
         id: {
-            type: 'STRING',
+            type: 'STRING', //主鍵不能使用TEXT
             pk: true,
         },
-        title: 'STRING',
+        title: 'TEXT',
         price: 'DOUBLE',
         isActive: 'INTEGER',
     },
     tb2: {
         sid: {
-            type: 'STRING',
+            type: 'STRING', //主鍵不能使用TEXT
             pk: true,
         },
-        name: 'STRING',
+        name: 'TEXT',
         size: 'DOUBLE',
         age: 'INTEGER',
     },
 }
 
 async function test() {
+    //測試使用數據tabs並呼叫genModelsByTabs來產生models
 
 
     //w
@@ -440,6 +1123,8 @@ async function test() {
 
 }
 test()
+// generate file:  ./models//tb1.json
+// generate file:  ./models//tb2.json
 
 // tb1.json
 // {

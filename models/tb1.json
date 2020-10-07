@@ -9,7 +9,7 @@
             comment: null,
         },
         title: {
-            type: 'DataTypes.STRING',
+            type: 'DataTypes.TEXT',
             primaryKey: false,
             allowNull: true,
             autoIncrement: false,
