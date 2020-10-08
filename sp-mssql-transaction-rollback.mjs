@@ -136,6 +136,16 @@ async function testRollback() {
     // ]
 
 
+    // function delay(s) {
+    //     return new Promise((resolve, reject) => {
+    //         setTimeout(() => {
+    //             resolve()
+    //         }, 1000 * s)
+    //     })
+    // }
+    // await delay(10)
+
+
     //rollback
     await transaction.rollback()
     console.log('rollback')

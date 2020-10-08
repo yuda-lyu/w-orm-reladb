@@ -1,14 +1,21 @@
 import wo from './src/WOrmReladb.mjs'
+import fs from 'fs'
 
 
 let username = 'username'
 let password = 'password'
 let opt = {
-    url: `mssql://${username}:${password}@localhost:1433`,
+    url: `sqlite://${username}:${password}`, //username:password
     db: 'worm',
     cl: 'users',
     fdModels: './models',
     //autoGenPK: false,
+    storage: './worm.sqlite',
+}
+
+//因worm.sqlite可能為加密數據, 若有切換useSqlcipher時得先刪除, 再通過createStorage重新產生
+if (fs.existsSync(opt.storage)) {
+    fs.unlinkSync(opt.storage)
 }
 
 let rs = [
@@ -44,7 +51,7 @@ let rsm = [
     },
 ]
 
-async function testCommit() {
+async function testRollback() {
 
 
     //w
@@ -128,8 +135,8 @@ async function testCommit() {
 
 
     //select all
-    let ssBeforeCommit = await w.select(null, connState)
-    console.log('select all (before commit)', ssBeforeCommit) //此時select可查到暫時有效的數據
+    let ssBeforeRollback = await w.select(null, connState)
+    console.log('select all (before rollback)', ssBeforeRollback) //此時select可查到暫時有效的數據
     // => [
     //     { id: 'id-peter', name: 'peter(modify)', value: 123 },
     //     { id: 'random', name: 'kettle', value: 456 }
@@ -146,9 +153,9 @@ async function testCommit() {
     // await delay(10)
 
 
-    //commit
-    await transaction.commit()
-    console.log('commit')
+    //rollback
+    await transaction.rollback()
+    console.log('rollback')
 
 
     //close
@@ -159,10 +166,7 @@ async function testCommit() {
     //select all
     let ssFinal = await w.select()
     console.log('select all (final)', ssFinal)
-    // => [
-    //     { id: 'id-peter', name: 'peter(modify)', value: 123 },
-    //     { id: 'random', name: 'kettle', value: 456 }
-    // ]
+    // => []
 
 
     //check
@@ -181,19 +185,19 @@ async function testCommit() {
     })
     let bKettle = rKettle?.[0]?.value === 456
 
-    if (bPeter && !bRosemary && bKettle) {
-        console.log('commit success')
+    if (!bPeter && !bRosemary && !bKettle) {
+        console.log('rollback success')
     }
     else {
-        console.log('commit error')
+        console.log('rollback error')
     }
 
 
 }
-testCommit()
+testRollback()
 // createStorage
 // change delAll
-// delAll then { n: 2, ok: 1 }
+// delAll then { n: 0, ok: 1 }
 // init
 // change insert
 // insert then { n: 3, ok: 1 }
@@ -207,16 +211,13 @@ testCommit()
 // del then [
 //   { n: 1, nDeleted: 1, ok: 1 }
 // ]
-// select all (before commit) [
+// select all (before rollback) [
 //   { id: 'id-peter', name: 'peter(modify)', value: 123 },
 //   { id: 'random', name: 'kettle', value: 456 }
 // ]
-// commit
+// rollback
 // close
-// select all (final) [
-//   { id: 'id-peter', name: 'peter(modify)', value: 123 },
-//   { id: 'random', name: 'kettle', value: 456 }
-// ]
-// commit success
+// select all (final) []
+// rollback success
 
-//node --experimental-modules --es-module-specifier-resolution=node sp-mssql-transaction-commit.mjs
+//node --experimental-modules --es-module-specifier-resolution=node sp-sqlite-transaction-rollback.mjs

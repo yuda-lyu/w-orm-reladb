@@ -1,14 +1,21 @@
 import wo from './src/WOrmReladb.mjs'
+import fs from 'fs'
 
 
 let username = 'username'
 let password = 'password'
 let opt = {
-    url: `mssql://${username}:${password}@localhost:1433`,
+    url: `sqlite://${username}:${password}`, //username:password
     db: 'worm',
     cl: 'users',
     fdModels: './models',
     //autoGenPK: false,
+    storage: './worm.sqlite',
+}
+
+//因worm.sqlite可能為加密數據, 若有切換useSqlcipher時得先刪除, 再通過createStorage重新產生
+if (fs.existsSync(opt.storage)) {
+    fs.unlinkSync(opt.storage)
 }
 
 let rs = [
@@ -193,7 +200,7 @@ async function testCommit() {
 testCommit()
 // createStorage
 // change delAll
-// delAll then { n: 2, ok: 1 }
+// delAll then { n: 0, ok: 1 }
 // init
 // change insert
 // insert then { n: 3, ok: 1 }
@@ -219,4 +226,4 @@ testCommit()
 // ]
 // commit success
 
-//node --experimental-modules --es-module-specifier-resolution=node sp-mssql-transaction-commit.mjs
+//node --experimental-modules --es-module-specifier-resolution=node sp-sqlite-transaction-commit.mjs

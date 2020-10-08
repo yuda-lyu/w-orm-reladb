@@ -235,7 +235,7 @@ function WOrmReladb(opt = {}) {
 
 
     /**
-     * 產生交易transaction狀態物件
+     * 產生交易transaction狀態物件，當使用transaction時資料庫會上鎖，只能供調用的連線操作處理
      *
      * @memberOf WOrmReladb
      * @returns {Promise} 回傳Promise，resolve回傳交易transaction物件，reject回傳錯誤訊息
