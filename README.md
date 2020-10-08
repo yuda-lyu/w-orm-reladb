@@ -373,7 +373,7 @@ async function testCommit() {
 
 
     //close
-    await w.close()
+    await instance.close()
     console.log('close')
 
 
@@ -588,7 +588,7 @@ async function testRollback() {
 
 
     //close
-    await w.close()
+    await instance.close()
     console.log('close')
 
 

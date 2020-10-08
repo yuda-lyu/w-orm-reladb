@@ -211,6 +211,9 @@ function WOrmReladb(opt = {}) {
         return {
             mds,
             err,
+            close: () => {
+                return closeSequelize('external')
+            },
         }
     }
 
@@ -1034,9 +1037,9 @@ function WOrmReladb(opt = {}) {
     ee.genModelsByDB = genModelsByDB
     ee.genModelsByTabs = genModelsByTabs
     ee.init = initSequelize
-    ee.close = () => {
-        return closeSequelize('external')
-    }
+    // ee.close = () => {
+    //     return closeSequelize('external')
+    // }
     ee.genTransaction = genTransaction
     if (opt.useStable) {
         //用佇列(同時最大執行數1且先進先執行)處理高併發之情形

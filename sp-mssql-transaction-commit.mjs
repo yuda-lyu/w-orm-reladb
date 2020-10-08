@@ -142,7 +142,7 @@ async function testCommit() {
 
 
     //close
-    await w.close()
+    await instance.close()
     console.log('close')
 
 
