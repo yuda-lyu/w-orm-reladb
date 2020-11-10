@@ -607,7 +607,7 @@ function WOrmReladb(opt = {}) {
                     }
                     else {
                         //console.log('update 沒有更新資料', err)
-                        pmm.resolve({ n: 0, nInserted: 0, ok: 1 })
+                        pmm.resolve({ n: 1, nModified: 0, ok: 0 })
                     }
 
                 }
@@ -636,7 +636,7 @@ function WOrmReladb(opt = {}) {
                         }
                         else {
                             //console.log('create 沒有插入資料', err)
-                            pmm.resolve({ n: 0, nInserted: 0, ok: 1 })
+                            pmm.resolve({ n: 1, nInserted: 0, ok: 0 })
                         }
 
                     }
@@ -819,13 +819,13 @@ function WOrmReladb(opt = {}) {
                     }
                     else {
                         //console.log('destroy 沒有刪除資料', err)
-                        pmm.resolve({ n: 0, nDeleted: 0, ok: 1 })
+                        pmm.resolve({ n: 1, nDeleted: 0, ok: 0 })
                     }
 
                 }
                 else {
                     //console.log('findOne 沒有找到資料', err)
-                    pmm.resolve({ n: 1, nDeleted: 1, ok: 1 })
+                    pmm.resolve({ n: 0, nDeleted: 0, ok: 1 })
                 }
 
                 pmm._err = err //避免eslint錯誤訊息
@@ -918,7 +918,7 @@ function WOrmReladb(opt = {}) {
                 })
                 .catch((error) => {
                     ee.emit('error', error)
-                    pm.reject({ n: 0, ok: 1 })
+                    pm.reject({ n: 0, ok: 0 })
                 })
 
         }

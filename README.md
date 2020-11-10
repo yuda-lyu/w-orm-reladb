@@ -175,7 +175,7 @@ async function test() {
     let d = []
     if (ss) {
         d = ss.filter(function(v) {
-            return v.name === 'kettle'
+            return v.name !== 'kettle'
         })
     }
     await w.del(d)
@@ -222,6 +222,7 @@ test()
 // ]
 // change del
 // del then [
+//   { n: 1, nDeleted: 1, ok: 1 },
 //   { n: 1, nDeleted: 1, ok: 1 }
 // ]
 ```
@@ -806,7 +807,7 @@ async function test() {
     let d = []
     if (ss) {
         d = ss.filter(function(v) {
-            return v.name === 'kettle'
+            return v.name !== 'kettle'
         })
     }
     await w.del(d)
@@ -853,6 +854,7 @@ test()
 // ]
 // change del
 // del then [
+//   { n: 1, nDeleted: 1, ok: 1 },
 //   { n: 1, nDeleted: 1, ok: 1 }
 // ]
 ```
@@ -1458,7 +1460,7 @@ async function test() {
     let d = []
     if (ss) {
         d = ss.filter(function(v) {
-            return v.name === 'kettle'
+            return v.name !== 'kettle'
         })
     }
     await w.del(d)
@@ -1505,6 +1507,7 @@ test()
 // ]
 // change del
 // del then [
+//   { n: 1, nDeleted: 1, ok: 1 },
 //   { n: 1, nDeleted: 1, ok: 1 }
 // ]
 ```
