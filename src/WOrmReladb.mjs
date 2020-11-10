@@ -1044,21 +1044,21 @@ function WOrmReladb(opt = {}) {
     if (opt.useStable) {
         //用佇列(同時最大執行數1且先進先執行)處理高併發之情形
         //若沒管控, 例如sqlite會報錯[Error: SQLITE_MISUSE: Database is closed]問題
-        let q = pmQueue(1)
+        let pmq = pmQueue(1)
         ee.select = function() {
-            return q.run(select, ...arguments)
+            return pmq(select, ...arguments)
         }
         ee.insert = function() {
-            return q.run(insert, ...arguments)
+            return pmq(insert, ...arguments)
         }
         ee.save = function() {
-            return q.run(save, ...arguments)
+            return pmq(save, ...arguments)
         }
         ee.del = function() {
-            return q.run(del, ...arguments)
+            return pmq(del, ...arguments)
         }
         ee.delAll = function() {
-            return q.run(delAll, ...arguments)
+            return pmq(delAll, ...arguments)
         }
     }
     else {
