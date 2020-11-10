@@ -56,6 +56,7 @@ import genID from 'wsemi/src/genID.mjs'
 import isarr from 'wsemi/src/isarr.mjs'
 import isobj from 'wsemi/src/isobj.mjs'
 import isbol from 'wsemi/src/isbol.mjs'
+import isestr from 'wsemi/src/isestr.mjs'
 import arrhas from 'wsemi/src/arrhas.mjs'
 import pmSeries from 'wsemi/src/pmSeries.mjs'
 import pm2resolve from 'wsemi/src/pm2resolve.mjs'
@@ -65,6 +66,10 @@ import importModels from './importModels.mjs'
 import _genModelsByTabs from './genModelsByTabs.mjs'
 
 
+//放置於全域宣告, 若使用useStable=true才可於當創建多實例時仍能全域控管
+let pmq = pmQueue(1)
+
+
 /**
  * 操作關聯式資料庫
  *
@@ -72,16 +77,17 @@ import _genModelsByTabs from './genModelsByTabs.mjs'
  *
  * @class
  * @param {Object} [opt={}] 輸入設定物件，預設{}
- * @param {String} [opt.url='mssql://username:password@localhost:1433'] 輸入連接資料庫字串，預設'mssql://username:password@localhost:1433'
+ * @param {String} [opt.url='mssql://username:password@localhost:1433'] 輸入連接資料庫字串，資料庫可選'mssql'、'sqlite'、'mysql'、'mariadb'、'postgres'，預設'mssql://username:password@localhost:1433'
  * @param {String} [opt.storage='./worm.db'] 輸入sqlite資料庫檔案位置字串，預設'./worm.db'
  * @param {Boolean} [opt.useSqlcipher=false] 輸入是否使用sqlite加密套件[@journeyapps/sqlcipher]，型別為布林值，預設false，若是的話因依賴預設不安裝，得自行人工安裝
  * @param {String} [opt.db='worm'] 輸入使用資料庫名稱字串，預設'worm'
  * @param {String} [opt.cl='test'] 輸入使用資料表名稱字串，預設'test'
- * @param {String} [opt.fdModels='./models'] 輸入資料表models(各檔為*.js)所在資料夾字串，預設'./models'
- * @param {Boolean} [opt.logging=false] 輸入是否輸出實際執行的sql指令，型別為布林值，預設false
+ * @param {String} [opt.fdModels='./models'] 輸入資料表設定檔所在資料夾字串，預設'./models'
+ * @param {String} [opt.modelType='js'] 輸入資料表設定檔類型字串，可有'js'、'json'，預設'js'
+ * @param {Boolean} [opt.logging=false] 輸入是否輸出實際執行的sql指令布林值，預設false
  * @param {String} [opt.pk='id'] 輸入數據主鍵字串，預設'id'
  * @param {Boolean} [opt.autoGenPK=true] 輸入若數據pk(id)欄位沒給時則自動給予隨機uuid，型別為布林值，預設true
- * @param {Boolean} [opt.useStable=true] 輸入是否使用穩定模式，使用佇列管理限定只能同時處理一種操作，型別為布林值，預設true
+ * @param {Boolean} [opt.useStable=true] 輸入是否使用穩定模式，使用佇列管理同時只能進行一種操作故會犧牲效能，sqlite需開啟穩定模式才不會有非預期錯誤，型別為布林值，預設true
  * @returns {Object} 回傳操作資料庫物件，各事件功能詳見說明
  */
 function WOrmReladb(opt = {}) {
@@ -91,20 +97,23 @@ function WOrmReladb(opt = {}) {
 
 
     //default
-    if (!opt.url) {
+    if (!isestr(opt.url)) {
         opt.url = 'mssql://username:password@localhost:1433'
     }
-    if (!opt.db) {
+    if (!isestr(opt.db)) {
         opt.db = 'worm'
     }
-    if (!opt.cl) {
+    if (!isestr(opt.cl)) {
         opt.cl = 'test'
     }
-    if (!opt.fdModels) {
+    if (!isestr(opt.fdModels)) {
         opt.fdModels = './models'
     }
+    if (!isestr(opt.modelType)) {
+        opt.modelType = 'js'
+    }
     opt.logging = (opt.logging === true)
-    if (!opt.pk) {
+    if (!isestr(opt.pk)) {
         opt.pk = 'id'
     }
     if (!isbol(opt.autoGenPK)) {
@@ -113,11 +122,11 @@ function WOrmReladb(opt = {}) {
     if (!isbol(opt.useStable)) {
         opt.useStable = true
     }
-    if (!opt.storage) {
+    if (!isestr(opt.storage)) {
         opt.storage = './worm.db' //storage, only use for sqlite
     }
     opt.storage = path.resolve(opt.storage)
-    if (!opt.useSqlcipher) {
+    if (!isbol(opt.useSqlcipher)) {
         opt.useSqlcipher = false
     }
 
@@ -241,7 +250,7 @@ function WOrmReladb(opt = {}) {
         }
 
         //mds, 若model內id不是pk則需要強制更改成為pk, 否則sequelize無法匯入
-        let r = await pm2resolve(importModels)(opt.fdModels, sequelize, opt.cl, sync)
+        let r = await pm2resolve(importModels)(opt.fdModels, sequelize, opt.cl, { sync, type: opt.modelType })
 
         //check
         if (r.state === 'error') {
@@ -1011,6 +1020,8 @@ function WOrmReladb(opt = {}) {
     /**
      * 由指定資料庫生成各資料表的models資料
      *
+     * 目前僅能產生js檔格式，且mssql欄位為nvarchar(MAX)無法自動轉成TEXT格式
+     *
      * include from: [w-auto-sequelize](https://github.com/yuda-lyu/w-auto-sequelize)
      *
      * @memberOf WOrmReladb
@@ -1069,10 +1080,12 @@ function WOrmReladb(opt = {}) {
      *
      * @memberOf WOrmReladb
      * @param {String} [fd='./models'] 輸入models儲存的資料夾名稱字串，預設'./models'
-     * @param {String} [tabs={}] 輸入各資料表物件，預設{}
+     * @param {Object} [tabs={}] 輸入各資料表物件，預設{}
+     * @param {Object} [opt={}] 輸入設定物件，預設{}
+     * @param {String} [opt.type='js'] 輸入資料表類型字串，預設'js'
      */
-    function genModelsByTabs(fd = './models', tabs = {}) {
-        _genModelsByTabs(fd, tabs)
+    function genModelsByTabs(...input) {
+        _genModelsByTabs(...input)
     }
 
 
@@ -1087,8 +1100,9 @@ function WOrmReladb(opt = {}) {
     ee.genTransaction = genTransaction
     if (opt.useStable) {
         //用佇列(同時最大執行數1且先進先執行)處理高併發之情形
-        //若沒管控, 例如sqlite會報錯[Error: SQLITE_MISUSE: Database is closed]問題
-        let pmq = pmQueue(1)
+        //若沒管控:
+        //mssql就是先執行先贏
+        //Sqlite有機會無法儲存, 或是出錯[Error: SQLITE_MISUSE: bad parameter or other API misuse]或[Error: SQLITE_MISUSE: Database handle is closed]
         ee.select = function() {
             return pmq(select, ...arguments)
         }
@@ -1132,7 +1146,7 @@ export default WOrmReladb
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 3.6.6</a> on Tue Nov 10 2020 16:24:06 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 3.6.6</a> on Tue Nov 10 2020 22:07:56 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
 </footer>
 
 <script>prettyPrint();</script>

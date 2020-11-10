@@ -42,7 +42,8 @@ let opt = {
     db: 'worm',
     cl: 'users',
     fdModels: './models',
-    //autoGenPK: false,
+    // modelType: 'json',
+    // autoGenPK: false,
 }
 
 let rs = [
@@ -240,7 +241,8 @@ let opt = {
     db: 'worm',
     cl: 'users',
     fdModels: './models',
-    //autoGenPK: false,
+    // modelType: 'json',
+    // autoGenPK: false,
 }
 
 let rs = [
@@ -455,7 +457,8 @@ let opt = {
     db: 'worm',
     cl: 'users',
     fdModels: './models',
-    //autoGenPK: false,
+    // modelType: 'json',
+    // autoGenPK: false,
 }
 
 let rs = [
@@ -665,7 +668,8 @@ let opt = {
     db: 'worm',
     cl: 'users',
     fdModels: './models',
-    //autoGenPK: false,
+    // modelType: 'json',
+    // autoGenPK: false,
     storage: './worm.sqlite',
 }
 
@@ -715,23 +719,21 @@ async function test() {
     let w = wo(opt)
 
 
-    //createStorage, create db file for sqlite
-    await w.createStorage()
-    console.log('createStorage')
-
-
     //genModelsByDB, disable if got models
     // await w.genModelsByDB({
     //     username,
     //     password,
-    //     // dialect: 'mssql', //default
-    //     // host: 'localhost', //default
-    //     // port: 1433, //default
-    //     dialect: 'sqlite',
+    //     dialect: 'mssql', //default
+    //     host: 'localhost', //default
+    //     port: 1433, //default
     //     db: opt.db,
     //     fdModels: opt.fdModels,
-    //     storage: opt.storage,
     // })
+
+
+    //createStorage, create table for mssql
+    await w.createStorage()
+    console.log('createStorage')
 
 
     //on
@@ -873,7 +875,8 @@ let opt = {
     db: 'worm',
     cl: 'users',
     fdModels: './models',
-    //autoGenPK: false,
+    // modelType: 'json',
+    // autoGenPK: false,
     storage: './worm.sqlite',
 }
 
@@ -1095,7 +1098,8 @@ let opt = {
     db: 'worm',
     cl: 'users',
     fdModels: './models',
-    //autoGenPK: false,
+    // modelType: 'json',
+    // autoGenPK: false,
     storage: './worm.sqlite',
 }
 
@@ -1311,7 +1315,8 @@ let opt = {
     db: 'worm',
     cl: 'users',
     fdModels: './models',
-    //autoGenPK: false,
+    // modelType: 'json',
+    // autoGenPK: false,
     storage: './worm.sqlite',
     useSqlcipher: true,
 }
@@ -1368,23 +1373,21 @@ async function test() {
     let w = wo(opt)
 
 
-    //createStorage, create db file for sqlite
-    await w.createStorage()
-    console.log('createStorage')
-
-
     //genModelsByDB, disable if got models
     // await w.genModelsByDB({
     //     username,
     //     password,
-    //     // dialect: 'mssql', //default
-    //     // host: 'localhost', //default
-    //     // port: 1433, //default
-    //     dialect: 'sqlite',
+    //     dialect: 'mssql', //default
+    //     host: 'localhost', //default
+    //     port: 1433, //default
     //     db: opt.db,
     //     fdModels: opt.fdModels,
-    //     storage: opt.storage,
     // })
+
+
+    //createStorage, create table for mssql
+    await w.createStorage()
+    console.log('createStorage')
 
 
     //on
@@ -1525,7 +1528,8 @@ let opt = {
     db: 'worm',
     cl: 'users',
     fdModels: './models',
-    //autoGenPK: false,
+    // modelType: 'json',
+    // autoGenPK: false,
 }
 
 let fd = opt.fdModels
@@ -1548,6 +1552,17 @@ let tabs = {
         size: 'DOUBLE',
         age: 'INTEGER',
     },
+    tb3: {
+        keyINTEGER: 'INTEGER',
+        keyBIGINT: 'BIGINT',
+        keyFLOAT: 'FLOAT', //精確度7位
+        keyDOUBLE: 'DOUBLE', //精確度15~16位
+        keyDECIMAL: 'DECIMAL', //精確度28~29位
+        keyDATE: 'DATE',
+        keyBOOLEAN: 'BOOLEAN',
+        keySTRING: 'STRING',
+        keyTEXT: 'TEXT',
+    },
 }
 
 async function test() {
@@ -1558,14 +1573,22 @@ async function test() {
     let w = wo(opt)
 
 
-    //genModelsByTabs
+    //genModelsByTabs, 預設產生js格式的設定檔
     w.genModelsByTabs(fd, tabs)
+
+
+    //genModelsByTabs, 產生json格式的設定檔
+    w.genModelsByTabs(fd, tabs, { type: 'json' })
 
 
 }
 test()
-// generate file:  ./models//tb1.json
-// generate file:  ./models//tb2.json
+// generate file:  ./models/tb1.js
+// generate file:  ./models/tb2.js
+// generate file:  ./models/tb3.js
+// generate file:  ./models/tb1.json
+// generate file:  ./models/tb2.json
+// generate file:  ./models/tb3.json
 
 // tb1.json
 // {
@@ -1605,7 +1628,43 @@ test()
 //     },
 // }
 
-// tb2.js
+// tb1.js
+// module.exports = function(sequelize, DataTypes) {
+//     return sequelize.define('tb1', {
+//     "id": {
+//         "type": DataTypes.STRING,
+//         "primaryKey": true,
+//         "allowNull": false,
+//         "autoIncrement": false,
+//         "comment": null
+//     },
+//     "title": {
+//         "type": DataTypes.TEXT,
+//         "primaryKey": false,
+//         "allowNull": true,
+//         "autoIncrement": false,
+//         "comment": null
+//     },
+//     "price": {
+//         "type": DataTypes.DOUBLE,
+//         "primaryKey": false,
+//         "allowNull": true,
+//         "autoIncrement": false,
+//         "comment": null
+//     },
+//     "isActive": {
+//         "type": DataTypes.INTEGER,
+//         "primaryKey": false,
+//         "allowNull": true,
+//         "autoIncrement": false,
+//         "comment": null
+//     }
+// }, {
+//         tableName: 'tb1'
+//     });
+// };
+
+// tb2.json
 // {
 //     table: 'tb2',
 //     fields: {
@@ -1642,4 +1701,184 @@ test()
 //         tableName: 'tb2',
 //     },
 // }
+
+// tb2.js
+// module.exports = function(sequelize, DataTypes) {
+//     return sequelize.define('tb2', {
+//     "sid": {
+//         "type": DataTypes.STRING,
+//         "primaryKey": true,
+//         "allowNull": false,
+//         "autoIncrement": false,
+//         "comment": null
+//     },
+//     "name": {
+//         "type": DataTypes.TEXT,
+//         "primaryKey": false,
+//         "allowNull": true,
+//         "autoIncrement": false,
+//         "comment": null
+//     },
+//     "size": {
+//         "type": DataTypes.DOUBLE,
+//         "primaryKey": false,
+//         "allowNull": true,
+//         "autoIncrement": false,
+//         "comment": null
+//     },
+//     "age": {
+//         "type": DataTypes.INTEGER,
+//         "primaryKey": false,
+//         "allowNull": true,
+//         "autoIncrement": false,
+//         "comment": null
+//     }
+// }, {
+//         tableName: 'tb2'
+//     });
+// };
+    
+// tb3.json
+// {
+//     table: 'tb3',
+//     fields: {
+//         keyINTEGER: {
+//             type: 'DataTypes.INTEGER',
+//             primaryKey: false,
+//             allowNull: true,
+//             autoIncrement: false,
+//             comment: null,
+//         },
+//         keyBIGINT: {
+//             type: 'DataTypes.BIGINT',
+//             primaryKey: false,
+//             allowNull: true,
+//             autoIncrement: false,
+//             comment: null,
+//         },
+//         keyFLOAT: {
+//             type: 'DataTypes.FLOAT',
+//             primaryKey: false,
+//             allowNull: true,
+//             autoIncrement: false,
+//             comment: null,
+//         },
+//         keyDOUBLE: {
+//             type: 'DataTypes.DOUBLE',
+//             primaryKey: false,
+//             allowNull: true,
+//             autoIncrement: false,
+//             comment: null,
+//         },
+//         keyDECIMAL: {
+//             type: 'DataTypes.DECIMAL',
+//             primaryKey: false,
+//             allowNull: true,
+//             autoIncrement: false,
+//             comment: null,
+//         },
+//         keyDATE: {
+//             type: 'DataTypes.DATE',
+//             primaryKey: false,
+//             allowNull: true,
+//             autoIncrement: false,
+//             comment: null,
+//         },
+//         keyBOOLEAN: {
+//             type: 'DataTypes.BOOLEAN',
+//             primaryKey: false,
+//             allowNull: true,
+//             autoIncrement: false,
+//             comment: null,
+//         },
+//         keySTRING: {
+//             type: 'DataTypes.STRING',
+//             primaryKey: false,
+//             allowNull: true,
+//             autoIncrement: false,
+//             comment: null,
+//         },
+//         keyTEXT: {
+//             type: 'DataTypes.TEXT',
+//             primaryKey: false,
+//             allowNull: true,
+//             autoIncrement: false,
+//             comment: null,
+//         },
+//     },
+//     options: {
+//         tableName: 'tb3',
+//     },
+// }
+
+// tb3.js
+// module.exports = function(sequelize, DataTypes) {
+//     return sequelize.define('tb3', {
+//     "keyINTEGER": {
+//         "type": DataTypes.INTEGER,
+//         "primaryKey": false,
+//         "allowNull": true,
+//         "autoIncrement": false,
+//         "comment": null
+//     },
+//     "keyBIGINT": {
+//         "type": DataTypes.BIGINT,
+//         "primaryKey": false,
+//         "allowNull": true,
+//         "autoIncrement": false,
+//         "comment": null
+//     },
+//     "keyFLOAT": {
+//         "type": DataTypes.FLOAT,
+//         "primaryKey": false,
+//         "allowNull": true,
+//         "autoIncrement": false,
+//         "comment": null
+//     },
+//     "keyDOUBLE": {
+//         "type": DataTypes.DOUBLE,
+//         "primaryKey": false,
+//         "allowNull": true,
+//         "autoIncrement": false,
+//         "comment": null
+//     },
+//     "keyDECIMAL": {
+//         "type": DataTypes.DECIMAL,
+//         "primaryKey": false,
+//         "allowNull": true,
+//         "autoIncrement": false,
+//         "comment": null
+//     },
+//     "keyDATE": {
+//         "type": DataTypes.DATE,
+//         "primaryKey": false,
+//         "allowNull": true,
+//         "autoIncrement": false,
+//         "comment": null
+//     },
+//     "keyBOOLEAN": {
+//         "type": DataTypes.BOOLEAN,
+//         "primaryKey": false,
+//         "allowNull": true,
+//         "autoIncrement": false,
+//         "comment": null
+//     },
+//     "keySTRING": {
+//         "type": DataTypes.STRING,
+//         "primaryKey": false,
+//         "allowNull": true,
+//         "autoIncrement": false,
+//         "comment": null
+//     },
+//     "keyTEXT": {
+//         "type": DataTypes.TEXT,
+//         "primaryKey": false,
+//         "allowNull": true,
+//         "autoIncrement": false,
+//         "comment": null
+//     }
+// }, {
+//         tableName: 'tb3'
+//     });
+// };
 ```

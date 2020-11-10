@@ -9,7 +9,8 @@ let opt = {
     db: 'worm',
     cl: 'users',
     fdModels: './models',
-    //autoGenPK: false,
+    // modelType: 'json',
+    // autoGenPK: false,
     storage: './worm.sqlite',
 }
 
@@ -59,23 +60,21 @@ async function test() {
     let w = wo(opt)
 
 
-    //createStorage, create db file for sqlite
-    await w.createStorage()
-    console.log('createStorage')
-
-
     //genModelsByDB, disable if got models
     // await w.genModelsByDB({
     //     username,
     //     password,
-    //     // dialect: 'mssql', //default
-    //     // host: 'localhost', //default
-    //     // port: 1433, //default
-    //     dialect: 'sqlite',
+    //     dialect: 'mssql', //default
+    //     host: 'localhost', //default
+    //     port: 1433, //default
     //     db: opt.db,
     //     fdModels: opt.fdModels,
-    //     storage: opt.storage,
     // })
+
+
+    //createStorage, create table for mssql
+    await w.createStorage()
+    console.log('createStorage')
 
 
     //on

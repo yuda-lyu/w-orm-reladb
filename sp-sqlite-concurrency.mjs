@@ -11,7 +11,8 @@ let opt = {
     db: 'worm',
     cl: 'users',
     fdModels: './models',
-    //autoGenPK: false,
+    // modelType: 'json',
+    // autoGenPK: false,
     storage: './worm.sqlite',
 }
 
@@ -24,13 +25,16 @@ async function test() {
     //測試sqlite高併發狀況
 
 
-    //w, 預先創建共用, 使用sqlite時, 若沒有通過佇列控管同時只能一種操作, 就會報錯[Error: SQLITE_MISUSE: Database is closed]
+    //w, 預先創建共用
     let w = wo(opt)
 
 
     //createStorage, create db file for sqlite
     await w.createStorage()
     console.log('createStorage')
+
+
+    //sqlite因事先會刪除故不用delAll
 
 
     async function core(name, n) {

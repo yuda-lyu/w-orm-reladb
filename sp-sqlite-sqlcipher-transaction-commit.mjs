@@ -9,7 +9,8 @@ let opt = {
     db: 'worm',
     cl: 'users',
     fdModels: './models',
-    //autoGenPK: false,
+    // modelType: 'json',
+    // autoGenPK: false,
     storage: './worm.sqlite',
     useSqlcipher: true,
 }

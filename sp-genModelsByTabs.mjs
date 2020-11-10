@@ -6,9 +6,10 @@ let password = 'password'
 let opt = {
     url: `mssql://${username}:${password}@localhost:1433`,
     db: 'worm',
-    cl: 'users',
+    cl: 'users2',
     fdModels: './models',
-    //autoGenPK: false,
+    // modelType: 'json',
+    // autoGenPK: false,
 }
 
 let fd = opt.fdModels
@@ -31,6 +32,17 @@ let tabs = {
         size: 'DOUBLE',
         age: 'INTEGER',
     },
+    tb3: {
+        keyINTEGER: 'INTEGER',
+        keyBIGINT: 'BIGINT',
+        keyFLOAT: 'FLOAT', //精確度7位
+        keyDOUBLE: 'DOUBLE', //精確度15~16位
+        keyDECIMAL: 'DECIMAL', //精確度28~29位
+        keyDATE: 'DATE',
+        keyBOOLEAN: 'BOOLEAN',
+        keySTRING: 'STRING',
+        keyTEXT: 'TEXT',
+    },
 }
 
 async function test() {
@@ -41,13 +53,21 @@ async function test() {
     let w = wo(opt)
 
 
-    //genModelsByTabs
+    //genModelsByTabs, 預設產生js格式的設定檔
     w.genModelsByTabs(fd, tabs)
+
+
+    //genModelsByTabs, 產生json格式的設定檔
+    w.genModelsByTabs(fd, tabs, { type: 'json' })
 
 
 }
 test()
-// generate file:  ./models//tb1.json
-// generate file:  ./models//tb2.json
+// generate file:  ./models/tb1.js
+// generate file:  ./models/tb2.js
+// generate file:  ./models/tb3.js
+// generate file:  ./models/tb1.json
+// generate file:  ./models/tb2.json
+// generate file:  ./models/tb3.json
 
 //node --experimental-modules --es-module-specifier-resolution=node sp-genModelsByTabs.mjs

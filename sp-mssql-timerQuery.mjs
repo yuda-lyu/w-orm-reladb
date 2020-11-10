@@ -8,7 +8,8 @@ let opt = {
     db: 'worm',
     cl: 'users',
     fdModels: './models',
-    //autoGenPK: false,
+    // modelType: 'json',
+    // autoGenPK: false,
 }
 
 async function test() {

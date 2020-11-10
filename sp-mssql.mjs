@@ -8,7 +8,8 @@ let opt = {
     db: 'worm',
     cl: 'users',
     fdModels: './models',
-    //autoGenPK: false,
+    // modelType: 'json',
+    // autoGenPK: false,
 }
 
 let rs = [
@@ -51,11 +52,6 @@ async function test() {
     let w = wo(opt)
 
 
-    //createStorage, create table for mssql
-    await w.createStorage()
-    console.log('createStorage')
-
-
     //genModelsByDB, disable if got models
     // await w.genModelsByDB({
     //     username,
@@ -66,6 +62,11 @@ async function test() {
     //     db: opt.db,
     //     fdModels: opt.fdModels,
     // })
+
+
+    //createStorage, create table for mssql
+    await w.createStorage()
+    console.log('createStorage')
 
 
     //on

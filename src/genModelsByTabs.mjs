@@ -5,14 +5,18 @@ import get from 'lodash/get'
 import replace from 'wsemi/src/replace.mjs'
 import strright from 'wsemi/src/strright.mjs'
 import iseobj from 'wsemi/src/iseobj.mjs'
+import isestr from 'wsemi/src/isestr.mjs'
 import fsCreateFolder from 'wsemi/src/fsCreateFolder.mjs'
 
 
-function getField(key, type, pk = false) {
-    if (type !== 'TEXT' && type !== 'STRING' && type !== 'INTEGER' && type !== 'DOUBLE') {
-        console.log(`Invalid type for ${type}. The type is support TEXT, STRING, INTEGER, DOUBLE only.`)
-        type = 'TEXT'
-    }
+let fieldsAll = {} //Sequelize Datatypes: https://sequelize.org/v5/manual/data-types.html
+
+function getField(type, pk = false) {
+
+    //add type
+    fieldsAll[type] = true
+
+    //o
     let o = {
         type: `DataTypes.${type}`,
         primaryKey: false,
@@ -20,14 +24,19 @@ function getField(key, type, pk = false) {
         autoIncrement: false,
         comment: null
     }
+
+    //check
     if (pk) {
         o.primaryKey = true
         o.allowNull = false
     }
+
+    //check
     if (o.primaryKey && o.type === 'TEXT') {
         console.log(`Can not construct TEXT type for primary key. It will change type to STRING automatically.`)
         o.type = `DataTypes.STRING`
     }
+
     return o
 }
 
@@ -42,12 +51,12 @@ function getFields(kpType) {
                 t = _t
             }
         }
-        fields[k] = getField(k, t, pk)
+        fields[k] = getField(t, pk)
     })
     return fields
 }
 
-function getModel(name, kpType) {
+function getJsonModel(name, kpType) {
 
     let tmp = `
     {
@@ -64,11 +73,7 @@ function getModel(name, kpType) {
 
     tmp = replace(tmp, '{name}', name)
     tmp = replace(tmp, '{fields}', fields)
-    //現不需取代, importModels會自動轉換與繫結
-    // tmp = replace(tmp, '"DataTypes.TEXT"', 'DataTypes.TEXT')
-    // tmp = replace(tmp, '"DataTypes.STRING"', 'DataTypes.STRING')
-    // tmp = replace(tmp, '"DataTypes.INTEGER"', 'DataTypes.INTEGER')
-    // tmp = replace(tmp, '"DataTypes.DOUBLE"', 'DataTypes.DOUBLE')
+    //不能取代否則無法format(JSON5.parse), 之後於importModels會使用readJsonModel自動轉換並繫結
 
     //format
     tmp = JSON5.stringify(JSON5.parse(tmp), null, 4)
@@ -76,24 +81,68 @@ function getModel(name, kpType) {
     return tmp
 }
 
+function getJsModel(name, kpType) {
 
-function genModelsByTabs(fd, tabs) {
+    let tmp = `module.exports = function(sequelize, DataTypes) {
+    return sequelize.define('{name}', {fields}, {
+        tableName: '{name}'
+    });
+};
+    `
+
+    let f = getFields(kpType)
+    let fields = JSON.stringify(f, null, 4)
+
+    tmp = replace(tmp, '{name}', name)
+    tmp = replace(tmp, '{fields}', fields)
+    each(fieldsAll, (v, field) => {
+        tmp = replace(tmp, `"DataTypes.${field}"`, `DataTypes.${field}`)
+    })
+
+    return tmp
+}
+
+function genModelsByTabs(fd, tabs, opt = {}) {
+    // console.log('genModelsByTabs')
+    // console.log('fd', fd)
+    // console.log('tabs', tabs)
+    // console.log('opt', opt)
+
+    //fd
+    if (!isestr(fd)) {
+        fd = './models'
+    }
+
+    //type
+    let type = get(opt, 'type')
+    if (type !== 'js' && type !== 'json') {
+        type = 'js'
+    }
+    //console.log('type', type)
 
     //fsCreateFolder
     fsCreateFolder(fd)
 
     //each
     each(tabs, (kpType, name) => {
+        //console.log('kpType', kpType, 'name', name)
 
         //getModel
-        let c = getModel(name, kpType)
-        // console.log(c)
+        let c = null
+        if (type === 'js') {
+            c = getJsModel(name, kpType)
+        }
+        else if (type === 'json') {
+            c = getJsonModel(name, kpType)
+        }
+        // console.log('model',c)
 
         //fn
         if (strright(fd, 1) !== '/') {
             fd = `${fd}/`
         }
-        let fn = `${fd}/${name}.json`
+        let fn = `${fd}${name}.${type}`
+        // console.log('fn', fn)
 
         //write
         try {
