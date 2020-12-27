@@ -113,10 +113,6 @@ function WOrmReladb(opt = {}) {
     //username, password
     let username
     let password
-    // if (u.indexOf('@') < 0) {
-    //     console.log('invalid username or password in opt.url')
-    //     return ee
-    // }
     ss = split(u, '@')
     u = get(ss, 1, '') //另存給後面使用
     ss = get(ss, 0, '')
@@ -205,7 +201,7 @@ function WOrmReladb(opt = {}) {
             await sequelize.query(`PRAGMA key = '${username}:${password}'`) //設置slqite密碼為${username}:${password}, 為使用者名稱與密碼用冒號分隔
         }
 
-        //mds, 若model內id不是pk則需要強制更改成為pk, 否則sequelize無法匯入
+        //importModels, 若model內id不是pk則需要強制更改成為pk, 否則sequelize無法匯入
         let r = await pm2resolve(importModels)(opt.fdModels, sequelize, opt.cl, { sync, type: opt.modelType })
 
         //check

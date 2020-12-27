@@ -6,7 +6,6 @@ import trim from 'lodash/trim'
 import join from 'lodash/join'
 import iseobj from 'wsemi/src/iseobj.mjs'
 import sep from 'wsemi/src/sep.mjs'
-import strright from 'wsemi/src/strright.mjs'
 
 
 function forJS(h) {

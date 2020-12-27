@@ -140,7 +140,7 @@ async function testCommit() {
     console.log('select all (before commit)', ssBeforeCommit) //此時select可查到暫時有效的數據
     // => [
     //     { id: 'id-peter', name: 'peter(modify)', value: 123 },
-    //     { id: 'random', name: 'kettle', value: 456 }
+    //     { id: '{random id}', name: 'kettle', value: 456 }
     // ]
 
 
@@ -169,7 +169,7 @@ async function testCommit() {
     console.log('select all (final)', ssFinal)
     // => [
     //     { id: 'id-peter', name: 'peter(modify)', value: 123 },
-    //     { id: 'random', name: 'kettle', value: 456 }
+    //     { id: '{random id}', name: 'kettle', value: 456 }
     // ]
 
 
@@ -217,13 +217,13 @@ testCommit()
 // ]
 // select all (before commit) [
 //   { id: 'id-peter', name: 'peter(modify)', value: 123 },
-//   { id: 'random', name: 'kettle', value: 456 }
+//   { id: '{random id}', name: 'kettle', value: 456 }
 // ]
 // commit
 // close
 // select all (final) [
 //   { id: 'id-peter', name: 'peter(modify)', value: 123 },
-//   { id: 'random', name: 'kettle', value: 456 }
+//   { id: '{random id}', name: 'kettle', value: 456 }
 // ]
 // commit success
 

@@ -143,9 +143,9 @@ async function test() {
     console.log('select by $or, $gte, $lte', spb)
 
 
-    //select by $and, $ne, $in, $nin
-    let spc = await w.select({ '$and': [{ value: { '$ne': 123 } }, { value: { '$in': [123, 321, 123.456, 456] } }, { value: { '$nin': [456, 654] } }] })
-    console.log('select by $and, $ne, $in, $nin', spc)
+    //select by $or, $and, $ne, $in, $nin
+    let spc = await w.select({ '$or': [{ '$and': [{ value: { '$ne': 123 } }, { value: { '$in': [123, 321, 123.456, 456] } }, { value: { '$nin': [456, 654] } }] }, { '$or': [{ value: { '$lte': -1 } }, { value: { '$gte': 400 } }] }] })
+    console.log('select by $or, $and, $ne, $in, $nin', spc)
 
 
     //select by regex
@@ -185,7 +185,7 @@ test()
 // select all [
 //   { id: 'id-peter', name: 'peter(modify)', value: 123 },
 //   { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 },
-//   { id: 'random', name: 'kettle', value: 456 }
+//   { id: '{random id}', name: 'kettle', value: 456 }
 // ]
 // select [
 //   { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 }
@@ -194,10 +194,15 @@ test()
 //   { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 }
 // ]
 // select by $or, $gte, $lte [
-//   { id: 'random', name: 'kettle', value: 456 }
+//   { id: '{random id}', name: 'kettle', value: 456 }
 // ]
-// select by $and, $ne, $in, $nin [
-//   { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 }
+// select by $or, $and, $ne, $in, $nin [
+//   { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 },
+//   {
+//     id: '{random id}',
+//     name: 'kettle',
+//     value: 456
+//   }
 // ]
 // selectReg [
 //   { id: 'id-peter', name: 'peter(modify)', value: 123 }

@@ -33,8 +33,8 @@ function getField(type, pk = false) {
 
     //check
     if (o.primaryKey && o.type === 'TEXT') {
-        console.log(`Can not construct TEXT type for primary key. It will change type to STRING automatically.`)
-        o.type = `DataTypes.STRING`
+        console.log(`Can not use TEXT type for primary key. It will change type to STRING automatically.`)
+        o.type = `DataTypes.STRING` //STRING => VARCHAR(255)
     }
 
     return o

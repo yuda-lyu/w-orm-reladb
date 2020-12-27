@@ -140,7 +140,7 @@ async function testRollback() {
     console.log('select all (before rollback)', ssBeforeRollback) //此時select可查到暫時有效的數據
     // => [
     //     { id: 'id-peter', name: 'peter(modify)', value: 123 },
-    //     { id: 'random', name: 'kettle', value: 456 }
+    //     { id: '{random id}', name: 'kettle', value: 456 }
     // ]
 
 
@@ -214,7 +214,7 @@ testRollback()
 // ]
 // select all (before rollback) [
 //   { id: 'id-peter', name: 'peter(modify)', value: 123 },
-//   { id: 'random', name: 'kettle', value: 456 }
+//   { id: '{random id}', name: 'kettle', value: 456 }
 // ]
 // rollback
 // close
