@@ -34,8 +34,8 @@ let pmq = pmQueue(1)
  * @class
  * @param {Object} [opt={}] 輸入設定物件，預設{}
  * @param {String} [opt.url='mssql://username:password@localhost:1433'] 輸入連接資料庫字串，資料庫可選'mssql'、'sqlite'、'mysql'、'mariadb'、'postgres'，預設'mssql://username:password@localhost:1433'
- * @param {String} [opt.storage='./worm.db'] 輸入sqlite資料庫檔案位置字串，預設'./worm.db'
- * @param {Boolean} [opt.useSqlcipher=false] 輸入是否使用sqlite加密套件[@journeyapps/sqlcipher]，型別為布林值，預設false，若是的話因依賴預設不安裝，得自行人工安裝
+ * @param {String} [opt.storage='./worm.db'] 輸入為sqlite時，資料庫檔案所在位置字串，預設'./worm.db'
+ * @param {Boolean} [opt.useEncryption=false] 輸入為sqlite時是否使用加密套件[@journeyapps/sqlcipher]，型別為布林值，預設false，若是的話因依賴預設不安裝，得自行人工安裝
  * @param {String} [opt.db='worm'] 輸入使用資料庫名稱字串，預設'worm'
  * @param {String} [opt.cl='test'] 輸入使用資料表名稱字串，預設'test'
  * @param {String} [opt.fdModels='./models'] 輸入資料表設定檔所在資料夾字串，預設'./models'
@@ -82,8 +82,8 @@ function WOrmReladb(opt = {}) {
         opt.storage = './worm.db' //storage, only use for sqlite
     }
     opt.storage = path.resolve(opt.storage)
-    if (!isbol(opt.useSqlcipher)) {
-        opt.useSqlcipher = false
+    if (!isbol(opt.useEncryption)) {
+        opt.useEncryption = false
     }
 
 
@@ -121,15 +121,17 @@ function WOrmReladb(opt = {}) {
         console.log('invalid username or password in opt.url')
         return ee
     }
-    username = get(ss, 0, null)
-    password = get(ss, 1, null)
-    if (!username) {
-        console.log('invalid username in opt.url')
-        return ee
-    }
-    if (!password) {
-        console.log('invalid password in opt.url')
-        return ee
+    username = get(ss, 0, '')
+    password = get(ss, 1, '')
+    if (dialect !== 'sqlite' || (dialect === 'sqlite' && opt.useEncryption)) {
+        if (username === '') {
+            console.log('invalid username in opt.url')
+            return ee
+        }
+        if (password === '') {
+            console.log('invalid password in opt.url')
+            return ee
+        }
     }
 
 
@@ -190,13 +192,13 @@ function WOrmReladb(opt = {}) {
             // },
             //sync: { force: true }, //強制同步
         }
-        if (opt.useSqlcipher && dialect === 'sqlite') {
+        if (opt.useEncryption && dialect === 'sqlite') {
             optSeq.dialectModulePath = '@journeyapps/sqlcipher' //sqlite加密版
         }
 
         //sequelize
         sequelize = new Sequelize(opt.db, username, password, optSeq)
-        if (opt.useSqlcipher && dialect === 'sqlite') {
+        if (opt.useEncryption && dialect === 'sqlite') {
             await sequelize.query('PRAGMA cipher_compatibility = 4') //設置sqlite密鑰相容性
             await sequelize.query(`PRAGMA key = '${username}:${password}'`) //設置slqite密碼為${username}:${password}, 為使用者名稱與密碼用冒號分隔
         }
@@ -341,7 +343,7 @@ function WOrmReladb(opt = {}) {
         let transaction = get(option, 'transaction', null)
 
         //check
-        if (opt.useSqlcipher && dialect === 'sqlite') {
+        if (opt.useEncryption && dialect === 'sqlite') {
             if (transaction !== null) {
                 console.log('@journeyapps/sqlcipher can not support transaction.')
             }
@@ -408,7 +410,7 @@ function WOrmReladb(opt = {}) {
         let transaction = get(option, 'transaction', null)
 
         //check
-        if (opt.useSqlcipher && dialect === 'sqlite') {
+        if (opt.useEncryption && dialect === 'sqlite') {
             if (transaction !== null) {
                 console.log('@journeyapps/sqlcipher can not support transaction.')
             }
@@ -439,6 +441,9 @@ function WOrmReladb(opt = {}) {
                 data = [data]
             }
 
+            //n
+            let n = size(data)
+
             //check
             if (opt.autoGenPK) {
                 data = map(data, function(v) {
@@ -458,7 +463,7 @@ function WOrmReladb(opt = {}) {
             //bulkCreate
             await md.bulkCreate(data, setting)
                 .then((res) => {
-                    res = { n: size(data), ok: 1 }
+                    res = { n, ok: 1 }
                     pm.resolve(res)
                     ee.emit('change', 'insert', data, res)
                 })
@@ -504,7 +509,7 @@ function WOrmReladb(opt = {}) {
         let transaction = get(option, 'transaction', null)
 
         //check
-        if (opt.useSqlcipher && dialect === 'sqlite') {
+        if (opt.useEncryption && dialect === 'sqlite') {
             if (transaction !== null) {
                 console.log('@journeyapps/sqlcipher can not support transaction.')
             }
@@ -662,45 +667,6 @@ function WOrmReladb(opt = {}) {
                 .catch((error) => {
                     pm.reject(error)
                 })
-            // if (!errAll) {
-            //     // if (t) {
-            //     //     //console.log('transaction commit')
-            //     //     await t.commit()
-            //     //         .then((res) => {
-            //     //             pm.resolve(resAll)
-            //     //             ee.emit('change', 'save', data, resAll)
-            //     //         })
-            //     //         .catch((error) => {
-            //     //             //console.log('commit catch', error)
-            //     //             ee.emit('error', error)
-            //     //             pm.reject(error)
-            //     //         })
-            //     // }
-            //     // else {
-            //     //     pm.resolve(resAll)
-            //     //     ee.emit('change', 'save', data, resAll)
-            //     // }
-            //     pm.resolve(resAll)
-            //     ee.emit('change', 'save', data, resAll)
-            // }
-            // else {
-            //     // if (t) {
-            //     //     //console.log('transaction rollback')
-            //     //     await t.rollback()
-            //     //         .then((res) => {
-            //     //             pm.reject(errAll)
-            //     //         })
-            //     //         .catch((error) => {
-            //     //             //console.log('rollback catch', error)
-            //     //             ee.emit('error', error)
-            //     //             pm.reject(error)
-            //     //         })
-            //     // }
-            //     // else {
-            //     //     pm.reject(errAll)
-            //     // }
-            //     pm.reject(errAll)
-            // }
 
         }
         else {
@@ -720,7 +686,7 @@ function WOrmReladb(opt = {}) {
      * 刪除數據
      *
      * @memberOf WOrmReladb
-     * @param {Object|Array} data 輸入數據物件或陣列
+     * @param {Object|Array} data 輸入數據物件或陣列，會查找各數據的opt.pk值，有存在者就刪除
      * @param {Object} [option={}] 輸入設定物件，預設為{}
      * @param {Object} [option.instance=null] 輸入實例instance物件，預設為null
      * @param {Object} [option.transaction=null] 輸入交易(transaction)物件，預設為null
@@ -738,7 +704,7 @@ function WOrmReladb(opt = {}) {
         let transaction = get(option, 'transaction', null)
 
         //check
-        if (opt.useSqlcipher && dialect === 'sqlite') {
+        if (opt.useEncryption && dialect === 'sqlite') {
             if (transaction !== null) {
                 console.log('@journeyapps/sqlcipher can not support transaction.')
             }
@@ -859,10 +825,10 @@ function WOrmReladb(opt = {}) {
 
 
     /**
-     * 刪除全部數據，需與del分開，避免未傳數據導致直接刪除全表
+     * 刪除數據，需與del分開，避免未傳數據導致直接刪除全表
      *
      * @memberOf WOrmReladb
-     * @param {Object} [find={}] 輸入刪除條件物件
+     * @param {Object} [find={}] 輸入刪除條件物件，不給予find則代表刪除全部數據
      * @param {Object} [option={}] 輸入設定物件，預設為{}
      * @param {Object} [option.instance=null] 輸入實例instance物件，預設為null
      * @param {Object} [option.transaction=null] 輸入交易(transaction)物件，預設為null
@@ -883,7 +849,7 @@ function WOrmReladb(opt = {}) {
         let transaction = get(option, 'transaction', null)
 
         //check
-        if (opt.useSqlcipher && dialect === 'sqlite') {
+        if (opt.useEncryption && dialect === 'sqlite') {
             if (transaction !== null) {
                 console.log('@journeyapps/sqlcipher can not support transaction.')
             }

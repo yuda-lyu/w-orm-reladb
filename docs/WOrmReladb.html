@@ -287,14 +287,14 @@
                 </td>
             
 
-            <td class="description last"><p>輸入sqlite資料庫檔案位置字串，預設'./worm.db'</p></td>
+            <td class="description last"><p>輸入為sqlite時，資料庫檔案所在位置字串，預設'./worm.db'</p></td>
         </tr>
 
     
 
         <tr>
             
-                <td class="name"><code>useSqlcipher</code></td>
+                <td class="name"><code>useEncryption</code></td>
             
 
             <td class="type">
@@ -326,7 +326,7 @@
                 </td>
             
 
-            <td class="description last"><p>輸入是否使用sqlite加密套件[@journeyapps/sqlcipher]，型別為布林值，預設false，若是的話因依賴預設不安裝，得自行人工安裝</p></td>
+            <td class="description last"><p>輸入為sqlite時是否使用加密套件[@journeyapps/sqlcipher]，型別為布林值，預設false，若是的話因依賴預設不安裝，得自行人工安裝</p></td>
         </tr>
 
     
@@ -730,7 +730,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line232">line 232</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line234">line 234</a>
     </li></ul></dd>
     
 
@@ -839,7 +839,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line949">line 949</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line915">line 915</a>
     </li></ul></dd>
     
 
@@ -948,7 +948,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line729">line 729</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line695">line 695</a>
     </li></ul></dd>
     
 
@@ -1061,7 +1061,7 @@
                 </td>
             
 
-            <td class="description last"><p>輸入數據物件或陣列</p></td>
+            <td class="description last"><p>輸入數據物件或陣列，會查找各數據的opt.pk值，有存在者就刪除</p></td>
         </tr>
 
     
@@ -1272,7 +1272,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line871">line 871</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line837">line 837</a>
     </li></ul></dd>
     
 
@@ -1312,7 +1312,7 @@
 
 
 <div class="description usertext">
-    <p>刪除全部數據，需與del分開，避免未傳數據導致直接刪除全表</p>
+    <p>刪除數據，需與del分開，避免未傳數據導致直接刪除全表</p>
 </div>
 
 
@@ -1386,7 +1386,7 @@
                 </td>
             
 
-            <td class="description last"><p>輸入刪除條件物件</p></td>
+            <td class="description last"><p>輸入刪除條件物件，不給予find則代表刪除全部數據</p></td>
         </tr>
 
     
@@ -1597,7 +1597,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line991">line 991</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line957">line 957</a>
     </li></ul></dd>
     
 
@@ -2119,7 +2119,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1039">line 1039</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1005">line 1005</a>
     </li></ul></dd>
     
 
@@ -2422,7 +2422,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line248">line 248</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line250">line 250</a>
     </li></ul></dd>
     
 
@@ -2531,7 +2531,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line165">line 165</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line167">line 167</a>
     </li></ul></dd>
     
 
@@ -2709,7 +2709,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line402">line 402</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line404">line 404</a>
     </li></ul></dd>
     
 
@@ -3033,7 +3033,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line495">line 495</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line500">line 500</a>
     </li></ul></dd>
     
 
@@ -3396,7 +3396,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line273">line 273</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line275">line 275</a>
     </li></ul></dd>
     
 
@@ -3724,7 +3724,7 @@
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 3.6.6</a> on Sun Dec 27 2020 20:32:59 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 3.6.6</a> on Mon Jan 04 2021 22:45:20 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
 </footer>
 
 <script>prettyPrint();</script>

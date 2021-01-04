@@ -217,11 +217,7 @@ test()
 // ]
 // select by $or, $and, $ne, $in, $nin [
 //   { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 },
-//   {
-//     id: '{random id}',
-//     name: 'kettle',
-//     value: 456
-//   }
+//   { id: '{random id}', name: 'kettle', value: 456 }
 // ]
 // selectReg [
 //   { id: 'id-peter', name: 'peter(modify)', value: 123 }
@@ -669,7 +665,7 @@ import fs from 'fs'
 let username = 'username'
 let password = 'password'
 let opt = {
-    url: `sqlite://${username}:${password}`, //username:password
+    url: `sqlite://${username}:${password}`,
     db: 'worm',
     cl: 'users',
     fdModels: './models',
@@ -678,7 +674,7 @@ let opt = {
     storage: './worm.sqlite',
 }
 
-//因worm.sqlite可能為加密數據, 若有切換useSqlcipher時得先刪除, 再通過createStorage重新產生
+//因worm.sqlite可能為加密數據, 若有切換useEncryption時得先刪除, 再通過createStorage重新產生
 if (fs.existsSync(opt.storage)) {
     fs.unlinkSync(opt.storage)
 }
@@ -855,11 +851,7 @@ test()
 // ]
 // select by $or, $and, $ne, $in, $nin [
 //   { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 },
-//   {
-//     id: '{random id}',
-//     name: 'kettle',
-//     value: 456
-//   }
+//   { id: '{random id}', name: 'kettle', value: 456 }
 // ]
 // selectReg [
 //   { id: 'id-peter', name: 'peter(modify)', value: 123 }
@@ -881,7 +873,7 @@ import fs from 'fs'
 let username = 'username'
 let password = 'password'
 let opt = {
-    url: `sqlite://${username}:${password}`, //username:password
+    url: `sqlite://${username}:${password}`,
     db: 'worm',
     cl: 'users',
     fdModels: './models',
@@ -890,7 +882,7 @@ let opt = {
     storage: './worm.sqlite',
 }
 
-//因worm.sqlite可能為加密數據, 若有切換useSqlcipher時得先刪除, 再通過createStorage重新產生
+//因worm.sqlite可能為加密數據, 若有切換useEncryption時得先刪除, 再通過createStorage重新產生
 if (fs.existsSync(opt.storage)) {
     fs.unlinkSync(opt.storage)
 }
@@ -1104,7 +1096,7 @@ import fs from 'fs'
 let username = 'username'
 let password = 'password'
 let opt = {
-    url: `sqlite://${username}:${password}`, //username:password
+    url: `sqlite://${username}:${password}`,
     db: 'worm',
     cl: 'users',
     fdModels: './models',
@@ -1113,7 +1105,7 @@ let opt = {
     storage: './worm.sqlite',
 }
 
-//因worm.sqlite可能為加密數據, 若有切換useSqlcipher時得先刪除, 再通過createStorage重新產生
+//因worm.sqlite可能為加密數據, 若有切換useEncryption時得先刪除, 再通過createStorage重新產生
 if (fs.existsSync(opt.storage)) {
     fs.unlinkSync(opt.storage)
 }
@@ -1312,7 +1304,7 @@ testRollback()
 ```
 
 #### Example of sqlcipher for sqlite
-> **Link:** [[dev source code](https://github.com/yuda-lyu/w-orm-reladb/blob/master/sp-sqlite-sqlcipher.mjs)]
+> **Link:** [[dev source code](https://github.com/yuda-lyu/w-orm-reladb/blob/master/sp-sqlite-encryption.mjs)]
 ```alias
 import wo from 'w-orm-reladb'
 import fs from 'fs'
@@ -1321,17 +1313,17 @@ import fs from 'fs'
 let username = 'username'
 let password = 'password'
 let opt = {
-    url: `sqlite://${username}:${password}`, //username:password
+    url: `sqlite://${username}:${password}`,
     db: 'worm',
     cl: 'users',
     fdModels: './models',
     // modelType: 'json',
     // autoGenPK: false,
     storage: './worm.sqlite',
-    useSqlcipher: true,
+    useEncryption: true,
 }
 
-//因worm.sqlite可能為加密數據, 若有切換useSqlcipher時得先刪除, 再通過createStorage重新產生
+//因worm.sqlite可能為加密數據, 若有切換useEncryption時得先刪除, 再通過createStorage重新產生
 if (fs.existsSync(opt.storage)) {
     fs.unlinkSync(opt.storage)
 }
@@ -1514,11 +1506,7 @@ test()
 // ]
 // select by $or, $and, $ne, $in, $nin [
 //   { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 },
-//   {
-//     id: '{random id}',
-//     name: 'kettle',
-//     value: 456
-//   }
+//   { id: '{random id}', name: 'kettle', value: 456 }
 // ]
 // selectReg [
 //   { id: 'id-peter', name: 'peter(modify)', value: 123 }

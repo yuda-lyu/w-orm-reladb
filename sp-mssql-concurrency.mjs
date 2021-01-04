@@ -3,8 +3,6 @@ import wo from './src/WOrmReladb.mjs'
 
 let username = 'username'
 let password = 'password'
-
-// mssql
 let opt = {
     url: `mssql://${username}:${password}@localhost:1433`,
     db: 'worm',

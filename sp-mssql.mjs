@@ -183,11 +183,7 @@ test()
 // ]
 // select by $or, $and, $ne, $in, $nin [
 //   { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 },
-//   {
-//     id: '{random id}',
-//     name: 'kettle',
-//     value: 456
-//   }
+//   { id: '{random id}', name: 'kettle', value: 456 }
 // ]
 // selectReg [
 //   { id: 'id-peter', name: 'peter(modify)', value: 123 }

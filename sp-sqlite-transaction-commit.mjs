@@ -2,10 +2,10 @@ import wo from './src/WOrmReladb.mjs'
 import fs from 'fs'
 
 
-let username = 'username'
-let password = 'password'
+let username = ''
+let password = ''
 let opt = {
-    url: `sqlite://${username}:${password}`, //username:password
+    url: `sqlite://${username}:${password}`,
     db: 'worm',
     cl: 'users',
     fdModels: './models',
@@ -14,7 +14,7 @@ let opt = {
     storage: './worm.sqlite',
 }
 
-//因worm.sqlite可能為加密數據, 若有切換useSqlcipher時得先刪除, 再通過createStorage重新產生
+//因worm.sqlite可能為加密數據, 若有切換useEncryption時得先刪除, 再通過createStorage重新產生
 if (fs.existsSync(opt.storage)) {
     fs.unlinkSync(opt.storage)
 }
