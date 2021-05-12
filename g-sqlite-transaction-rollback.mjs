@@ -1,5 +1,5 @@
-import wo from './src/WOrmReladb.mjs'
 import fs from 'fs'
+import wo from './src/WOrmReladb.mjs'
 
 
 let username = ''

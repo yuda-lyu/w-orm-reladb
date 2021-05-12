@@ -658,8 +658,8 @@ testRollback()
 #### Example for sqlite
 > **Link:** [[dev source code](https://github.com/yuda-lyu/w-orm-reladb/blob/master/g-sqlite.mjs)]
 ```alias
-import wo from 'w-orm-reladb'
 import fs from 'fs'
+import wo from 'w-orm-reladb'
 
 
 let username = 'username'
@@ -866,8 +866,8 @@ test()
 #### Example commit transaction for sqlite
 > **Link:** [[dev source code](https://github.com/yuda-lyu/w-orm-reladb/blob/master/g-sqlite-transaction-commit.mjs)]
 ```alias
-import wo from 'w-orm-reladb'
 import fs from 'fs'
+import wo from 'w-orm-reladb'
 
 
 let username = 'username'
@@ -1089,8 +1089,8 @@ testCommit()
 #### Example rollback transaction for sqlite
 > **Link:** [[dev source code](https://github.com/yuda-lyu/w-orm-reladb/blob/master/g-sqlite-transaction-rollback.mjs)]
 ```alias
-import wo from 'w-orm-reladb'
 import fs from 'fs'
+import wo from 'w-orm-reladb'
 
 
 let username = 'username'
@@ -1306,8 +1306,8 @@ testRollback()
 #### Example of sqlcipher for sqlite
 > **Link:** [[dev source code](https://github.com/yuda-lyu/w-orm-reladb/blob/master/g-sqlite-encryption.mjs)]
 ```alias
-import wo from 'w-orm-reladb'
 import fs from 'fs'
+import wo from 'w-orm-reladb'
 
 
 let username = 'username'
