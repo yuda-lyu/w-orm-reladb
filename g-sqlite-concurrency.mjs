@@ -1,19 +1,26 @@
 import wo from './src/WOrmReladb.mjs'
+import fs from 'fs'
 
 
-let username = 'username'
-let password = 'password'
+let username = ''
+let password = ''
 let opt = {
-    url: `mssql://${username}:${password}@localhost:1433`,
+    url: `sqlite://${username}:${password}`,
     db: 'worm',
     cl: 'users',
     fdModels: './models',
     // modelType: 'json',
     // autoGenPK: false,
+    storage: './worm.sqlite',
+}
+
+//因worm.sqlite可能為加密數據, 若有切換useEncryption時得先刪除, 再通過createStorage重新產生
+if (fs.existsSync(opt.storage)) {
+    fs.unlinkSync(opt.storage)
 }
 
 async function test() {
-    //測試mssql高併發狀況
+    //測試sqlite高併發狀況
 
 
     //w, 預先創建共用
@@ -25,14 +32,7 @@ async function test() {
     console.log('createStorage')
 
 
-    //delAll, mssql要先刪除否則會有其他測試資料
-    await w.delAll()
-        .then(function(msg) {
-            console.log('delAll then', msg)
-        })
-        .catch(function(msg) {
-            console.log('delAll catch', msg)
-        })
+    //sqlite因事先會刪除故不用delAll
 
 
     async function core(name, n) {
@@ -106,4 +106,4 @@ test()
 // save then 3 msg= [ { n: 1, nInserted: 1, ok: 1 } ]
 // select then 4 len= 2
 
-//node --experimental-modules --es-module-specifier-resolution=node sp-mssql-concurrency.mjs
+//node --experimental-modules --es-module-specifier-resolution=node g-sqlite-concurrency.mjs

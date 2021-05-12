@@ -221,4 +221,4 @@ testRollback()
 // select all (final) []
 // rollback success
 
-//node --experimental-modules --es-module-specifier-resolution=node sp-sqlite-transaction-rollback.mjs
+//node --experimental-modules --es-module-specifier-resolution=node g-sqlite-transaction-rollback.mjs

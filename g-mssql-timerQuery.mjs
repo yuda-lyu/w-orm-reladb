@@ -46,4 +46,4 @@ async function test() {
 }
 test()
 
-//node --experimental-modules --es-module-specifier-resolution=node sp-mssql-timerQuery.mjs
+//node --experimental-modules --es-module-specifier-resolution=node g-mssql-timerQuery.mjs

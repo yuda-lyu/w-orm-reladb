@@ -2,8 +2,8 @@ import wo from './src/WOrmReladb.mjs'
 import fs from 'fs'
 
 
-let username = ''
-let password = ''
+let username = 'username'
+let password = 'password'
 let opt = {
     url: `sqlite://${username}:${password}`,
     db: 'worm',
@@ -12,6 +12,7 @@ let opt = {
     // modelType: 'json',
     // autoGenPK: false,
     storage: './worm.sqlite',
+    useEncryption: true,
 }
 
 //因worm.sqlite可能為加密數據, 若有切換useEncryption時得先刪除, 再通過createStorage重新產生
@@ -144,16 +145,6 @@ async function testCommit() {
     // ]
 
 
-    // function delay(s) {
-    //     return new Promise((resolve, reject) => {
-    //         setTimeout(() => {
-    //             resolve()
-    //         }, 1000 * s)
-    //     })
-    // }
-    // await delay(10)
-
-
     //commit
     await transaction.commit()
     console.log('commit')
@@ -199,32 +190,6 @@ async function testCommit() {
 
 }
 testCommit()
-// createStorage
-// change delAll
-// delAll then { n: 0, ok: 1 }
-// init
-// change insert
-// insert then { n: 3, ok: 1 }
-// change save
-// save then [
-//   { n: 1, nModified: 1, ok: 1 },
-//   { n: 1, nModified: 1, ok: 1 },
-//   { n: 0, nModified: 0, ok: 1 }
-// ]
-// change del
-// del then [
-//   { n: 1, nDeleted: 1, ok: 1 }
-// ]
-// select all (before commit) [
-//   { id: 'id-peter', name: 'peter(modify)', value: 123 },
-//   { id: '{random id}', name: 'kettle', value: 456 }
-// ]
-// commit
-// close
-// select all (final) [
-//   { id: 'id-peter', name: 'peter(modify)', value: 123 },
-//   { id: '{random id}', name: 'kettle', value: 456 }
-// ]
-// commit success
+// @journeyapps/sqlcipher can not support transaction.
 
-//node --experimental-modules --es-module-specifier-resolution=node sp-sqlite-transaction-commit.mjs
+//node --experimental-modules --es-module-specifier-resolution=node g-sqlite-encryption-transaction-commit.mjs

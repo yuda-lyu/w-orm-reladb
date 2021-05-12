@@ -1,15 +1,22 @@
 import wo from './src/WOrmReladb.mjs'
+import fs from 'fs'
 
 
-let username = 'username'
-let password = 'password'
+let username = ''
+let password = ''
 let opt = {
-    url: `mssql://${username}:${password}@localhost:1433`,
+    url: `sqlite://${username}:${password}`,
     db: 'worm',
     cl: 'users',
     fdModels: './models',
     // modelType: 'json',
     // autoGenPK: false,
+    storage: './worm.sqlite',
+}
+
+//因worm.sqlite可能為加密數據, 若有切換useEncryption時得先刪除, 再通過createStorage重新產生
+if (fs.existsSync(opt.storage)) {
+    fs.unlinkSync(opt.storage)
 }
 
 let rs = [
@@ -46,6 +53,7 @@ let rsm = [
 ]
 
 async function test() {
+    //測試sqlite
 
 
     //w
@@ -194,4 +202,4 @@ test()
 //   { n: 1, nDeleted: 1, ok: 1 }
 // ]
 
-//node --experimental-modules --es-module-specifier-resolution=node sp-mssql.mjs
+//node --experimental-modules --es-module-specifier-resolution=node g-sqlite.mjs

@@ -1,23 +1,15 @@
 import wo from './src/WOrmReladb.mjs'
-import fs from 'fs'
 
 
 let username = 'username'
 let password = 'password'
 let opt = {
-    url: `sqlite://${username}:${password}`,
+    url: `mssql://${username}:${password}@localhost:1433`,
     db: 'worm',
     cl: 'users',
     fdModels: './models',
     // modelType: 'json',
     // autoGenPK: false,
-    storage: './worm.sqlite',
-    useEncryption: true,
-}
-
-//因worm.sqlite可能為加密數據, 若有切換useEncryption時得先刪除, 再通過createStorage重新產生
-if (fs.existsSync(opt.storage)) {
-    fs.unlinkSync(opt.storage)
 }
 
 let rs = [
@@ -54,13 +46,6 @@ let rsm = [
 ]
 
 async function test() {
-    //測試加密sqlite
-    //安裝@journeyapps/sqlcipher方式：
-    //1.visual studio code得使用系統管理員權限開啟
-    //2.開啟專案資料夾, 確定路徑內不能含有中文, 否則python2.7無法接受
-    //3.先安裝windows-build-tools並指定安裝vs2015, 使用指令安裝至全域: npm i -g windows-build-tools --vs2015
-    //4.若切換或重新安裝nodejs, 因全域環境不同, 記得得要重裝windows-build-tools
-    //5.安裝@journeyapps/sqlcipher: npm i @journeyapps/sqlcipher
 
 
     //w
@@ -209,4 +194,4 @@ test()
 //   { n: 1, nDeleted: 1, ok: 1 }
 // ]
 
-//node --experimental-modules --es-module-specifier-resolution=node sp-sqlite-encryption.mjs
+//node --experimental-modules --es-module-specifier-resolution=node g-mssql.mjs

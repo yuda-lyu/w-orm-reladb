@@ -21,7 +21,7 @@ To view documentation or get support, visit [docs](https://yuda-lyu.github.io/w-
 
 ## Installation
 ### Using npm(ES6 module):
-> **Note:** `w-orm-reladb` depends on `sequelize`, `mssql`, `sqlite3` and `w-auto-sequelize`.
+> **Note:** `w-orm-reladb` is mainly dependent on `sequelize`, `mssql`, `sqlite3` and `w-auto-sequelize`.
 
 > **Note:** `@journeyapps/sqlcipher` is not compiled into the *.umd file by default, and it is not tied to the dependents for general use in package.json.
 
@@ -30,7 +30,7 @@ npm i w-orm-reladb
 ```
 
 #### Example for mssql
-> **Link:** [[dev source code](https://github.com/yuda-lyu/w-orm-reladb/blob/master/sp-mssql.mjs)]
+> **Link:** [[dev source code](https://github.com/yuda-lyu/w-orm-reladb/blob/master/g-mssql.mjs)]
 ```alias
 import wo from 'w-orm-reladb'
 
@@ -230,7 +230,7 @@ test()
 ```
 
 #### Example of commit transaction for mssql
-> **Link:** [[dev source code](https://github.com/yuda-lyu/w-orm-reladb/blob/master/sp-mssql-transaction-commit.mjs)]
+> **Link:** [[dev source code](https://github.com/yuda-lyu/w-orm-reladb/blob/master/g-mssql-transaction-commit.mjs)]
 ```alias
 import wo from 'w-orm-reladb'
 
@@ -446,7 +446,7 @@ testCommit()
 ```
 
 #### Example of rollback transaction for mssql
-> **Link:** [[dev source code](https://github.com/yuda-lyu/w-orm-reladb/blob/master/sp-mssql-transaction-rollback.mjs)]
+> **Link:** [[dev source code](https://github.com/yuda-lyu/w-orm-reladb/blob/master/g-mssql-transaction-rollback.mjs)]
 ```alias
 import wo from 'w-orm-reladb'
 
@@ -656,7 +656,7 @@ testRollback()
 ```
 
 #### Example for sqlite
-> **Link:** [[dev source code](https://github.com/yuda-lyu/w-orm-reladb/blob/master/sp-sqlite.mjs)]
+> **Link:** [[dev source code](https://github.com/yuda-lyu/w-orm-reladb/blob/master/g-sqlite.mjs)]
 ```alias
 import wo from 'w-orm-reladb'
 import fs from 'fs'
@@ -864,7 +864,7 @@ test()
 ```
 
 #### Example commit transaction for sqlite
-> **Link:** [[dev source code](https://github.com/yuda-lyu/w-orm-reladb/blob/master/sp-sqlite-transaction-commit.mjs)]
+> **Link:** [[dev source code](https://github.com/yuda-lyu/w-orm-reladb/blob/master/g-sqlite-transaction-commit.mjs)]
 ```alias
 import wo from 'w-orm-reladb'
 import fs from 'fs'
@@ -1087,7 +1087,7 @@ testCommit()
 ```
 
 #### Example rollback transaction for sqlite
-> **Link:** [[dev source code](https://github.com/yuda-lyu/w-orm-reladb/blob/master/sp-sqlite-transaction-rollback.mjs)]
+> **Link:** [[dev source code](https://github.com/yuda-lyu/w-orm-reladb/blob/master/g-sqlite-transaction-rollback.mjs)]
 ```alias
 import wo from 'w-orm-reladb'
 import fs from 'fs'
@@ -1304,7 +1304,7 @@ testRollback()
 ```
 
 #### Example of sqlcipher for sqlite
-> **Link:** [[dev source code](https://github.com/yuda-lyu/w-orm-reladb/blob/master/sp-sqlite-encryption.mjs)]
+> **Link:** [[dev source code](https://github.com/yuda-lyu/w-orm-reladb/blob/master/g-sqlite-encryption.mjs)]
 ```alias
 import wo from 'w-orm-reladb'
 import fs from 'fs'
