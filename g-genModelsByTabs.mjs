@@ -70,4 +70,4 @@ test()
 // generate file:  ./models/tb2.json
 // generate file:  ./models/tb3.json
 
-//node --experimental-modules --es-module-specifier-resolution=node sp-genModelsByTabs.mjs
+//node --experimental-modules --es-module-specifier-resolution=node g-genModelsByTabs.mjs

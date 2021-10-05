@@ -13,7 +13,7 @@ import isarr from 'wsemi/src/isarr.mjs'
 import isobj from 'wsemi/src/isobj.mjs'
 import isbol from 'wsemi/src/isbol.mjs'
 import isestr from 'wsemi/src/isestr.mjs'
-import arrhas from 'wsemi/src/arrhas.mjs'
+import arrHas from 'wsemi/src/arrHas.mjs'
 import pmSeries from 'wsemi/src/pmSeries.mjs'
 import pm2resolve from 'wsemi/src/pm2resolve.mjs'
 import pmQueue from 'wsemi/src/pmQueue.mjs'
@@ -103,7 +103,7 @@ function WOrmReladb(opt = {}) {
         console.log('no dialect in opt.url')
         return ee
     }
-    if (!arrhas(dialect, ['mssql', 'sqlite', 'mysql', 'mariadb', 'postgres'])) {
+    if (!arrHas(dialect, ['mssql', 'sqlite', 'mysql', 'mariadb', 'postgres'])) {
         console.log('invalid dialect in opt.url')
         return ee
     }
@@ -463,7 +463,7 @@ function WOrmReladb(opt = {}) {
             //bulkCreate
             await md.bulkCreate(data, setting)
                 .then((res) => {
-                    res = { n, ok: 1 }
+                    res = { n, nInserted: n, ok: 1 }
                     pm.resolve(res)
                     ee.emit('change', 'insert', data, res)
                 })
@@ -883,7 +883,7 @@ function WOrmReladb(opt = {}) {
             //destroy
             await md.destroy(setting)
                 .then((res) => {
-                    res = { n: res, ok: 1 }
+                    res = { n: res, nDeleted: res, ok: 1 }
                     pm.resolve(res)
                     ee.emit('change', 'delAll', null, res)
                 })
