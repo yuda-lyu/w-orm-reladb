@@ -1,7 +1,7 @@
 {
   "name": "w-orm-reladb",
   "version": "1.0.35",
-  "description": "An object of operator for relational database in nodejs, like a simple ORM.",
+  "description": "An object of operator for relational database in nodejs.",
   "main": "dist/w-orm-reladb.umd.js",
   "dependencies": {
     "json5": "^2.2.0",

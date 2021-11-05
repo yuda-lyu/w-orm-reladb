@@ -1,5 +1,5 @@
 # w-orm-reladb
-An object of operator for relational database in nodejs, like a simple ORM.
+An object of operator for relational database in nodejs.
 
 ![language](https://img.shields.io/badge/language-JavaScript-orange.svg) 
 [![npm version](http://img.shields.io/npm/v/w-orm-reladb.svg?style=flat)](https://npmjs.org/package/w-orm-reladb) 
