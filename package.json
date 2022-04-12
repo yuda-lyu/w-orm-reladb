@@ -1,22 +1,23 @@
 {
   "name": "w-orm-reladb",
   "version": "1.0.36",
-  "description": "An object of operator for relational database in nodejs.",
+  "description": "An operator for relational database in nodejs.",
   "main": "dist/w-orm-reladb.umd.js",
   "dependencies": {
-    "json5": "^2.2.0",
+    "@journeyapps/sqlcipher": "^5.3.1",
+    "json5": "^2.2.1",
     "lodash": "^4.17.21",
-    "mssql": "^7.3.0",
+    "mssql": "^8.1.0",
     "sqlite3": "^5.0.2",
-    "w-auto-sequelize": "^1.0.17",
-    "wsemi": "^1.6.34"
+    "w-auto-sequelize": "^1.0.20",
+    "wsemi": "^1.6.54"
   },
   "dependenciesTemp": {
     "msg": "install sqlcipher for protection when db=sqlite",
     "@journeyapps/sqlcipher": "^5.2.0"
   },
   "devDependencies": {
-    "w-package-tools": "^1.0.59"
+    "w-package-tools": "^1.0.65"
   },
   "scripts": {
     "test": "mocha --parallel --timeout 60000 --experimental-modules --es-module-specifier-resolution=node",
