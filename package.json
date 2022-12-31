@@ -5,7 +5,7 @@
   "main": "dist/w-orm-reladb.umd.js",
   "dependencies": {
     "@journeyapps/sqlcipher": "^5.3.1",
-    "json5": "^2.2.1",
+    "json5": "^2.2.2",
     "lodash": "^4.17.21",
     "mssql": "^8.1.0",
     "sqlite3": "^5.0.2",
