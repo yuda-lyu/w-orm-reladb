@@ -1,23 +1,22 @@
 {
   "name": "w-orm-reladb",
-  "version": "1.0.36",
-  "description": "An operator for relational database in nodejs.",
+  "version": "1.0.37",
   "main": "dist/w-orm-reladb.umd.js",
   "dependencies": {
     "@journeyapps/sqlcipher": "^5.3.1",
-    "json5": "^2.2.1",
+    "json5": "^2.2.3",
     "lodash": "^4.17.21",
-    "mssql": "^8.1.0",
+    "mssql": "^9.1.1",
     "sqlite3": "^5.0.2",
-    "w-auto-sequelize": "^1.0.20",
-    "wsemi": "^1.6.54"
+    "w-auto-sequelize": "^1.0.21",
+    "wsemi": "^1.6.87"
   },
   "dependenciesTemp": {
     "msg": "install sqlcipher for protection when db=sqlite",
     "@journeyapps/sqlcipher": "^5.2.0"
   },
   "devDependencies": {
-    "w-package-tools": "^1.0.65"
+    "w-package-tools": "^1.0.66"
   },
   "scripts": {
     "test": "mocha --parallel --timeout 60000 --experimental-modules --es-module-specifier-resolution=node",
@@ -37,9 +36,5 @@
     "nodejs"
   ],
   "author": "yuda-lyu(semisphere)",
-  "license": "MIT",
-  "bugs": {
-    "url": "https://github.com/yuda-lyu/w-orm-reladb/issues"
-  },
-  "homepage": "https://github.com/yuda-lyu/w-orm-reladb#readme"
+  "license": "MIT"
 }
