@@ -1,9 +1,9 @@
 import fs from 'fs'
 import JSON5 from 'json5'
-import get from 'lodash/get'
-import each from 'lodash/each'
-import trim from 'lodash/trim'
-import join from 'lodash/join'
+import get from 'lodash-es/get'
+import each from 'lodash-es/each'
+import trim from 'lodash-es/trim'
+import join from 'lodash-es/join'
 import iseobj from 'wsemi/src/iseobj.mjs'
 import sep from 'wsemi/src/sep.mjs'
 

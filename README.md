@@ -6,6 +6,7 @@ An operator for relational database in nodejs.
 [![license](https://img.shields.io/npm/l/w-orm-reladb.svg?style=flat)](https://npmjs.org/package/w-orm-reladb) 
 [![gzip file size](http://img.badgesize.io/yuda-lyu/w-orm-reladb/master/dist/w-orm-reladb.umd.js.svg?compression=gzip)](https://github.com/yuda-lyu/w-orm-reladb)
 [![npm download](https://img.shields.io/npm/dt/w-orm-reladb.svg)](https://npmjs.org/package/w-orm-reladb) 
+[![npm download](https://img.shields.io/npm/dm/w-orm-reladb.svg)](https://npmjs.org/package/w-orm-reladb) 
 [![jsdelivr download](https://img.shields.io/jsdelivr/npm/hm/w-orm-reladb.svg)](https://www.jsdelivr.com/package/npm/w-orm-reladb)
 
 ## Documentation
