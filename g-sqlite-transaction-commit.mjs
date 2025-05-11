@@ -59,7 +59,7 @@ async function testCommit() {
     let w = wo(opt)
 
 
-    //createStorage, create table for mssql
+    //createStorage, create table for sqlite
     await w.createStorage()
     console.log('createStorage')
 
@@ -199,6 +199,9 @@ async function testCommit() {
 
 }
 testCommit()
+    .catch((err) => {
+        console.log(err)
+    })
 // createStorage
 // change delAll
 // delAll then { n: 0, nDeleted: 0, ok: 1 }
@@ -228,4 +231,4 @@ testCommit()
 // ]
 // commit success
 
-//node --experimental-modules --es-module-specifier-resolution=node g-sqlite-transaction-commit.mjs
+//node g-sqlite-transaction-commit.mjs

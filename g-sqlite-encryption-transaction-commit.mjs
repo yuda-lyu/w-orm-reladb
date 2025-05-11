@@ -60,7 +60,7 @@
 //     let w = wo(opt)
 
 
-//     //createStorage, create table for mssql
+//     //createStorage, create table for sqlite
 //     await w.createStorage()
 //     console.log('createStorage')
 
@@ -190,7 +190,10 @@
 
 // }
 // testCommit()
+//     .catch((err) => {
+//         console.log(err)
+//     })
 
 // @journeyapps/sqlcipher can not support transaction.
 
-//node --experimental-modules --es-module-specifier-resolution=node g-sqlite-encryption-transaction-commit.mjs
+//node g-sqlite-encryption-transaction-commit.mjs

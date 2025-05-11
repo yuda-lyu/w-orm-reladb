@@ -156,6 +156,9 @@ async function test() {
 
 }
 test()
+    .catch((err) => {
+        console.log(err)
+    })
 // createStorage
 // change delAll
 // delAll then { n: 0, nDeleted: 0, ok: 1 }
@@ -195,4 +198,4 @@ test()
 //   { n: 1, nDeleted: 1, ok: 1 }
 // ]
 
-//node --experimental-modules --es-module-specifier-resolution=node g-mssql.mjs
+//node g-mssql.mjs

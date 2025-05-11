@@ -59,7 +59,7 @@ async function testRollback() {
     let w = wo(opt)
 
 
-    //createStorage, create table for mssql
+    //createStorage, create table for sqlite
     await w.createStorage()
     console.log('createStorage')
 
@@ -196,6 +196,9 @@ async function testRollback() {
 
 }
 testRollback()
+    .catch((err) => {
+        console.log(err)
+    })
 // createStorage
 // change delAll
 // delAll then { n: 0, nDeleted: 0, ok: 1 }
@@ -222,4 +225,4 @@ testRollback()
 // select all (final) []
 // rollback success
 
-//node --experimental-modules --es-module-specifier-resolution=node g-sqlite-transaction-rollback.mjs
+//node g-sqlite-transaction-rollback.mjs

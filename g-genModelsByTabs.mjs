@@ -63,6 +63,9 @@ async function test() {
 
 }
 test()
+    .catch((err) => {
+        console.log(err)
+    })
 // generate file:  ./models/tb1.js
 // generate file:  ./models/tb2.js
 // generate file:  ./models/tb3.js
@@ -70,4 +73,4 @@ test()
 // generate file:  ./models/tb2.json
 // generate file:  ./models/tb3.json
 
-//node --experimental-modules --es-module-specifier-resolution=node g-genModelsByTabs.mjs
+//node g-genModelsByTabs.mjs

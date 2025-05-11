@@ -4,7 +4,6 @@ An operator for relational database in nodejs.
 ![language](https://img.shields.io/badge/language-JavaScript-orange.svg) 
 [![npm version](http://img.shields.io/npm/v/w-orm-reladb.svg?style=flat)](https://npmjs.org/package/w-orm-reladb) 
 [![license](https://img.shields.io/npm/l/w-orm-reladb.svg?style=flat)](https://npmjs.org/package/w-orm-reladb) 
-[![gzip file size](http://img.badgesize.io/yuda-lyu/w-orm-reladb/master/dist/w-orm-reladb.umd.js.svg?compression=gzip)](https://github.com/yuda-lyu/w-orm-reladb)
 [![npm download](https://img.shields.io/npm/dt/w-orm-reladb.svg)](https://npmjs.org/package/w-orm-reladb) 
 [![npm download](https://img.shields.io/npm/dm/w-orm-reladb.svg)](https://npmjs.org/package/w-orm-reladb) 
 [![jsdelivr download](https://img.shields.io/jsdelivr/npm/hm/w-orm-reladb.svg)](https://www.jsdelivr.com/package/npm/w-orm-reladb)
@@ -21,7 +20,6 @@ To view documentation or get support, visit [docs](https://yuda-lyu.github.io/w-
 
 ## Installation
 ### Using npm(ES6 module):
-> **Note:** `w-orm-reladb` is mainly dependent on `sequelize`, `mssql`, `sqlite3` and `w-auto-sequelize`.
 
 > **Note:** `@journeyapps/sqlcipher` is not compiled into the *.umd file by default, and it is not tied to the dependents for general use in package.json.
 
@@ -735,7 +733,7 @@ async function test() {
     // })
 
 
-    //createStorage, create table for mssql
+    //createStorage, create table for sqlite
     await w.createStorage()
     console.log('createStorage')
 
@@ -931,7 +929,7 @@ async function testCommit() {
     let w = wo(opt)
 
 
-    //createStorage, create table for mssql
+    //createStorage, create table for sqlite
     await w.createStorage()
     console.log('createStorage')
 
@@ -1155,7 +1153,7 @@ async function testRollback() {
     let w = wo(opt)
 
 
-    //createStorage, create table for mssql
+    //createStorage, create table for sqlite
     await w.createStorage()
     console.log('createStorage')
 
@@ -1393,7 +1391,7 @@ async function test() {
     // })
 
 
-    //createStorage, create table for mssql
+    //createStorage, create table for sqlite
     await w.createStorage()
     console.log('createStorage')
 

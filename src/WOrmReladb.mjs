@@ -10,7 +10,9 @@ import split from 'lodash-es/split.js'
 import genPm from 'wsemi/src/genPm.mjs'
 import genID from 'wsemi/src/genID.mjs'
 import isarr from 'wsemi/src/isarr.mjs'
+import isearr from 'wsemi/src/isearr.mjs'
 import isobj from 'wsemi/src/isobj.mjs'
+import iseobj from 'wsemi/src/iseobj.mjs'
 import isbol from 'wsemi/src/isbol.mjs'
 import isestr from 'wsemi/src/isestr.mjs'
 import arrHas from 'wsemi/src/arrHas.mjs'
@@ -403,6 +405,15 @@ function WOrmReladb(opt = {}) {
      */
     async function insert(data, option = {}) {
 
+        //check
+        if (!iseobj(data) && !isearr(data)) {
+            return {
+                n: 0,
+                nInserted: 0,
+                ok: 1,
+            }
+        }
+
         //instance
         let instance = get(option, 'instance', null)
 
@@ -498,6 +509,11 @@ function WOrmReladb(opt = {}) {
      * @returns {Promise} 回傳Promise，resolve回傳儲存結果，reject回傳錯誤訊息
      */
     async function save(data, option = {}) {
+
+        //check
+        if (!iseobj(data) && !isearr(data)) {
+            return []
+        }
 
         //cloneDeep
         data = cloneDeep(data)
@@ -693,6 +709,11 @@ function WOrmReladb(opt = {}) {
      * @returns {Promise} 回傳Promise，resolve回傳刪除結果，reject回傳錯誤訊息
      */
     async function del(data, option = {}) {
+
+        //check
+        if (!iseobj(data) && !isearr(data)) {
+            return []
+        }
 
         //cloneDeep
         data = cloneDeep(data)

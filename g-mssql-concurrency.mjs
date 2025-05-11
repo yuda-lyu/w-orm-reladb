@@ -96,6 +96,9 @@ async function test() {
 
 }
 test()
+    .catch((err) => {
+        console.log(err)
+    })
 // createStorage
 // call save 1
 // call select 2
@@ -106,4 +109,4 @@ test()
 // save then 3 msg= [ { n: 1, nInserted: 1, ok: 1 } ]
 // select then 4 len= 2
 
-//node --experimental-modules --es-module-specifier-resolution=node g-mssql-concurrency.mjs
+//node g-mssql-concurrency.mjs

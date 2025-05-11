@@ -45,5 +45,8 @@ async function test() {
 
 }
 test()
+    .catch((err) => {
+        console.log(err)
+    })
 
-//node --experimental-modules --es-module-specifier-resolution=node g-mssql-timerQuery.mjs
+//node g-mssql-timerQuery.mjs

@@ -79,7 +79,7 @@ async function test() {
     // })
 
 
-    //createStorage, create table for mssql
+    //createStorage, create table for sqlite
     await w.createStorage()
     console.log('createStorage')
 
@@ -171,6 +171,9 @@ async function test() {
 
 }
 test()
+    .catch((err) => {
+        console.log(err)
+    })
 // createStorage
 // change delAll
 // delAll then { n: 0, nDeleted: 0, ok: 1 }
@@ -210,4 +213,4 @@ test()
 //   { n: 1, nDeleted: 1, ok: 1 }
 // ]
 
-//node --experimental-modules --es-module-specifier-resolution=node g-sqlite-encryption.mjs
+//node g-sqlite-encryption.mjs

@@ -189,6 +189,9 @@ async function testRollback() {
 
 }
 testRollback()
+    .catch((err) => {
+        console.log(err)
+    })
 // createStorage
 // change delAll
 // delAll then { n: 0, nDeleted: 0, ok: 1 }
@@ -215,4 +218,4 @@ testRollback()
 // select all (final) []
 // rollback success
 
-//node --experimental-modules --es-module-specifier-resolution=node g-mssql-transaction-rollback.mjs
+//node g-mssql-transaction-rollback.mjs

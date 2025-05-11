@@ -192,6 +192,9 @@ async function testCommit() {
 
 }
 testCommit()
+    .catch((err) => {
+        console.log(err)
+    })
 // createStorage
 // change delAll
 // delAll then { n: 2, ok: 1 }
@@ -221,4 +224,4 @@ testCommit()
 // ]
 // commit success
 
-//node --experimental-modules --es-module-specifier-resolution=node g-mssql-transaction-commit.mjs
+//node g-mssql-transaction-commit.mjs
