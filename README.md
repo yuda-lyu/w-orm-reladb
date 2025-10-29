@@ -19,6 +19,7 @@ To view documentation or get support, visit [docs](https://yuda-lyu.github.io/w-
 >4. Install `@journeyapps/sqlcipher` second, use command to install: `npm i @journeyapps/sqlcipher`.
 
 ## Installation
+
 ### Using npm(ES6 module):
 
 > **Note:** `@journeyapps/sqlcipher` is not compiled into the *.umd file by default, and it is not tied to the dependents for general use in package.json.
