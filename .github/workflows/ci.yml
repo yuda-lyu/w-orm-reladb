@@ -1,0 +1,52 @@
+name: test
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      mssql:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: Y
+          MSSQL_SA_PASSWORD: Worm#Mssql2026
+        ports:
+          - 1433:1433
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Wait for MSSQL ready
+        run: |
+          for i in $(seq 1 30); do
+            if docker exec ${{ job.services.mssql.id }} /opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P 'Worm#Mssql2026' -b -Q "SELECT 1" >/dev/null 2>&1; then
+              echo "mssql ready"
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "mssql not ready in time"
+          exit 1
+
+      - name: Provision worm database and login
+        run: |
+          docker exec ${{ job.services.mssql.id }} /opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P 'Worm#Mssql2026' -b -Q "CREATE DATABASE worm;"
+          docker exec ${{ job.services.mssql.id }} /opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P 'Worm#Mssql2026' -b -Q "CREATE LOGIN username WITH PASSWORD='password', CHECK_POLICY=OFF, CHECK_EXPIRATION=OFF, DEFAULT_DATABASE=worm;"
+          docker exec ${{ job.services.mssql.id }} /opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P 'Worm#Mssql2026' -b -d worm -Q "CREATE USER username FOR LOGIN username; ALTER ROLE db_owner ADD MEMBER username;"
+
+      - name: Run tests
+        run: npm test
