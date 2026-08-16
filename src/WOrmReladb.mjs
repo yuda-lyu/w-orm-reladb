@@ -44,7 +44,7 @@ let pmq = pmQueue(1)
  * @param {String} [opt.modelType='js'] 輸入資料表設定檔類型字串，可有'js'、'json'，預設'js'
  * @param {Boolean} [opt.logging=false] 輸入是否輸出實際執行的sql指令布林值，預設false
  * @param {String} [opt.pk='id'] 輸入數據主鍵字串，預設'id'
- * @param {Boolean} [opt.autoGenPK=true] 輸入若數據pk(id)欄位沒給時則自動給予隨機uuid，型別為布林值，預設true
+ * @param {Boolean} [opt.autoGenPk=true] 輸入若數據pk(id)欄位沒給時則自動給予隨機uuid，型別為布林值，預設true
  * @param {Boolean} [opt.useStable=true] 輸入是否使用穩定模式，使用佇列管理同時只能進行一種操作故會犧牲效能，sqlite需開啟穩定模式才不會有非預期錯誤，型別為布林值，預設true
  * @returns {Object} 回傳操作資料庫物件，各事件功能詳見說明
  */
@@ -74,8 +74,8 @@ function WOrmReladb(opt = {}) {
     if (!isestr(opt.pk)) {
         opt.pk = 'id'
     }
-    if (!isbol(opt.autoGenPK)) {
-        opt.autoGenPK = true
+    if (!isbol(opt.autoGenPk)) {
+        opt.autoGenPk = true
     }
     if (!isbol(opt.useStable)) {
         opt.useStable = true
@@ -456,7 +456,7 @@ function WOrmReladb(opt = {}) {
             let n = size(data)
 
             //check
-            if (opt.autoGenPK) {
+            if (opt.autoGenPk) {
                 data = map(data, function(v) {
                     if (!v[opt.pk]) {
                         v[opt.pk] = genID()
@@ -557,7 +557,7 @@ function WOrmReladb(opt = {}) {
             }
 
             //check
-            if (opt.autoGenPK) {
+            if (opt.autoGenPk) {
                 data = map(data, function(v) {
                     if (!v[opt.pk]) {
                         v[opt.pk] = genID()

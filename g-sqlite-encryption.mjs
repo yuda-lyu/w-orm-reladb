@@ -10,7 +10,7 @@ let opt = {
     cl: 'users',
     fdModels: './models',
     // modelType: 'json',
-    // autoGenPK: false,
+    // autoGenPk: false,
     storage: './worm.sqlite',
     useEncryption: true,
 }

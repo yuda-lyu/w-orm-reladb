@@ -42,7 +42,7 @@ let opt = {
     cl: 'users',
     fdModels: './models',
     // modelType: 'json',
-    // autoGenPK: false,
+    // autoGenPk: false,
 }
 
 let rs = [
@@ -243,7 +243,7 @@ let opt = {
     cl: 'users',
     fdModels: './models',
     // modelType: 'json',
-    // autoGenPK: false,
+    // autoGenPk: false,
 }
 
 let rs = [
@@ -460,7 +460,7 @@ let opt = {
     cl: 'users',
     fdModels: './models',
     // modelType: 'json',
-    // autoGenPK: false,
+    // autoGenPk: false,
 }
 
 let rs = [
@@ -672,7 +672,7 @@ let opt = {
     cl: 'users',
     fdModels: './models',
     // modelType: 'json',
-    // autoGenPK: false,
+    // autoGenPk: false,
     storage: './worm.sqlite',
 }
 
@@ -881,7 +881,7 @@ let opt = {
     cl: 'users',
     fdModels: './models',
     // modelType: 'json',
-    // autoGenPK: false,
+    // autoGenPk: false,
     storage: './worm.sqlite',
 }
 
@@ -1105,7 +1105,7 @@ let opt = {
     cl: 'users',
     fdModels: './models',
     // modelType: 'json',
-    // autoGenPK: false,
+    // autoGenPk: false,
     storage: './worm.sqlite',
 }
 
@@ -1323,7 +1323,7 @@ let opt = {
     cl: 'users',
     fdModels: './models',
     // modelType: 'json',
-    // autoGenPK: false,
+    // autoGenPk: false,
     storage: './worm.sqlite',
     useEncryption: true,
 }
@@ -1538,7 +1538,7 @@ let opt = {
     cl: 'users',
     fdModels: './models',
     // modelType: 'json',
-    // autoGenPK: false,
+    // autoGenPk: false,
 }
 
 let fd = opt.fdModels

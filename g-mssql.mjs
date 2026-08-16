@@ -9,7 +9,7 @@ let opt = {
     cl: 'users',
     fdModels: './models',
     // modelType: 'json',
-    // autoGenPK: false,
+    // autoGenPk: false,
 }
 
 let rs = [
