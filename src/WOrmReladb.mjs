@@ -261,6 +261,66 @@ function WOrmReladb(opt = {}) {
 
 
     /**
+     * 檢查呼叫端所給之實例是否已關閉，已關閉者拋出令各函數於入口快速失敗
+     * 註: 實例已關閉為終態，後續操作必然失敗，屬影響全部數據之整批性錯誤，
+     * 故不得降為逐筆ok為0而整批resolve，亦不得以正常空結果(null、未命中、空陣列)回應——
+     * 後者使[已關閉]與[查無資料]同形，去重類呼叫端將把每筆判為未存在而靜默fail-open
+     * 註: closeSequelize於關閉後將sequelize設為null，故據此判定即為精確訊號，
+     * 不須倚賴驅動層之錯誤訊息比對(連線管理器關閉後所拋者為原生Error而非sequelize之錯誤類別)
+     * 註: 內部自行初始化者(instance為null)每次呼叫各自開關連線，不受本檢查影響
+     *
+     * @ignore
+     * @param {Object|null} instance 輸入呼叫端所給之實例物件
+     * @returns {undefined} 無回傳值
+     */
+    function procClosed(instance) {
+
+        //check
+        if (instance === null) {
+            return
+        }
+
+        //check
+        if (sequelize === null) {
+            throw new Error(`instance is closed, need to use init() to get a new instance`)
+        }
+
+    }
+
+
+    /**
+     * 判定錯誤是否影響後續所有筆數而應視為整批性錯誤
+     * 註: 依T4之判別原則，錯誤只影響該筆資料者為逐筆失敗，影響後續所有筆數者為整批性錯誤；
+     * 連線層錯誤屬後者，故於逐筆函數內攔得時須往外拋而不得降為該筆ok為0
+     * 註: 連線管理器關閉後所拋者為原生Error而非sequelize之ConnectionError，故另以訊息辨識
+     *
+     * @ignore
+     * @param {Error} err 輸入錯誤物件
+     * @returns {Boolean} 回傳是否為整批性錯誤布林值
+     */
+    function isBatchLevelError(err) {
+
+        //check, sequelize之連線層錯誤家族
+        if (err instanceof Sequelize.ConnectionError) {
+            return true
+        }
+
+        //msg
+        let msg = getErrMsg(err)
+
+        //check
+        if (msg.indexOf('connection manager was closed') >= 0) {
+            return true
+        }
+        if (msg.indexOf('SQLITE_MISUSE') >= 0) {
+            return true
+        }
+
+        return false
+    }
+
+
+    /**
      * 檢查並補齊單筆數據之主鍵
      * autoGenPk為true時未帶有效主鍵者自動產生，為false時往外拋
      * 註: 未帶有效主鍵屬呼叫端未履行契約而非某一筆資料本身之問題，故為整批性錯誤而不降級為該筆ok為0，
@@ -573,16 +633,25 @@ function WOrmReladb(opt = {}) {
      */
     async function selectByPk(pk, option = {}) {
 
-        //check, 未給有效主鍵值視為查無數據, 不送查詢以免無效值被轉為null而誤中其他數據
-        if (!isEffPk(pk)) {
-            return null
-        }
-
         //instance
         let instance = get(option, 'instance', null)
 
         //transaction
         let transaction = get(option, 'transaction', null)
+
+        //check, 實例已關閉之判定須先於[主鍵值無效回null], 否則兩者同形而使[已關閉]被誤讀為[查無資料]
+        try {
+            procClosed(instance)
+        }
+        catch (err) {
+            emitError('selectByPk', null, err)
+            return Promise.reject(err)
+        }
+
+        //check, 未給有效主鍵值視為查無數據, 不送查詢以免無效值被轉為null而誤中其他數據
+        if (!isEffPk(pk)) {
+            return null
+        }
 
         //check
         if (opt.useEncryption && dialect === 'sqlite') {
@@ -602,6 +671,9 @@ function WOrmReladb(opt = {}) {
         }
 
         try {
+
+            //check, 實例已關閉屬整批性錯誤, 於入口快速失敗
+            procClosed(instance)
 
             //check
             if (si.err) {
@@ -664,18 +736,29 @@ function WOrmReladb(opt = {}) {
      * 註: n為輸入筆數即本次嘗試插入之基準，nInserted為實際插入筆數，全數已存在而nInserted為0屬正常結果
      * 註: 同批含重複主鍵時僅首筆計入nInserted，其餘視為已存在
      * 註: opt.autoGenPk為true(預設)時未帶有效主鍵者自動產生，為false時未帶有效主鍵即reject且同批皆不寫入
+     * 註: option.returnList開啟時改回與輸入等長且保序之逐筆結果陣列[{n,nInserted,ok}]，
+     * 聚合計數只答得出[有幾筆是新的]而答不出[是哪幾筆]，而後者正是去重之產出物；
+     * 逐筆元素之n與ok恆為1，資訊由nInserted承載，不變式為
+     * 陣列長度等於輸入筆數且filter(v => v.nInserted === 1).length等於聚合模式之nInserted
      *
      * @memberOf WOrmReladb
      * @param {Object|Array} data 輸入數據物件或陣列
      * @param {Object} [option={}] 輸入設定物件，預設為{}
      * @param {Object} [option.instance=null] 輸入實例instance物件，預設為null
      * @param {Object} [option.transaction=null] 輸入交易(transaction)物件，預設為null
-     * @returns {Promise} 回傳Promise，resolve回傳插入結果{n,nInserted,ok}，reject回傳錯誤訊息
+     * @param {Boolean} [option.returnList=false] 輸入是否改回逐筆結果陣列布林值，預設false
+     * @returns {Promise} 回傳Promise，resolve回傳插入結果{n,nInserted,ok}，或於returnList開啟時回傳[{n,nInserted,ok}]，reject回傳錯誤訊息
      */
     async function insert(data, option = {}) {
 
+        //returnList, 回傳形式之切換為靜態, 僅由本選項之取值決定, 不因數據內容或執行結果而變
+        let returnList = get(option, 'returnList', false) === true
+
         //check
         if (!iseobj(data) && !isearr(data)) {
+            if (returnList) {
+                return []
+            }
             return {
                 n: 0,
                 nInserted: 0,
@@ -711,6 +794,9 @@ function WOrmReladb(opt = {}) {
 
         try {
 
+            //check, 實例已關閉屬整批性錯誤, 於入口快速失敗
+            procClosed(instance)
+
             //check
             if (si.err) {
                 throw si.err
@@ -741,8 +827,8 @@ function WOrmReladb(opt = {}) {
             //create, 逐筆插入以取得精確之nInserted
             //註: 不採bulkCreate配合ignoreDuplicates, 因mssql未宣告該能力而選項會被靜默忽略仍撞唯一約束,
             //且bulkCreate無從回報實際插入筆數; 單筆INSERT本即由主鍵之唯一約束原子完成檢查與寫入
-            let nInserted = 0
-            await pmSeries(data, async(v) => {
+            //註: bIns即逐筆判定, 與輸入等長且保序, 供returnList直接包裝而不須另行推導
+            let bInss = await pmSeries(data, async(v) => {
 
                 //bIns, 撞既有主鍵者視為已存在而跳過, 其餘錯誤影響全部數據須往外拋
                 let bIns = await md.create(v, setting)
@@ -756,19 +842,31 @@ function WOrmReladb(opt = {}) {
                         throw err
                     })
 
-                //nInserted
-                if (bIns) {
-                    nInserted += 1
-                }
-
                 return bIns
             })
 
-            //res, 全數已存在而nInserted為0屬正常結果, 不視為錯誤
-            res = {
-                n: nAll,
-                nInserted,
-                ok: 1,
+            if (returnList) {
+
+                //res, 與輸入等長且保序之逐筆結果; 各筆之n恆為1(該筆主鍵或為命中既有或經插入而產生),
+                //ok恆為1(insert之任何錯誤皆屬整批性錯誤而reject), 資訊由nInserted承載
+                res = map(bInss, (bIns) => {
+                    return {
+                        n: 1,
+                        nInserted: bIns ? 1 : 0,
+                        ok: 1,
+                    }
+                })
+
+            }
+            else {
+
+                //res, 全數已存在而nInserted為0屬正常結果, 不視為錯誤
+                res = {
+                    n: nAll,
+                    nInserted: size(bInss.filter((v) => v === true)),
+                    ok: 1,
+                }
+
             }
 
         }
@@ -859,6 +957,9 @@ function WOrmReladb(opt = {}) {
         }
 
         try {
+
+            //check, 實例已關閉屬整批性錯誤, 於入口快速失敗
+            procClosed(instance)
 
             //check
             if (si.err) {
@@ -1086,6 +1187,11 @@ function WOrmReladb(opt = {}) {
             }
             catch (err) {
 
+                //check, 連線層錯誤影響後續所有筆數, 依T4屬整批性錯誤, 往外拋而不降為本筆ok為0
+                if (isBatchLevelError(err)) {
+                    throw err
+                }
+
                 //其餘錯誤視為本筆失敗, 不中斷整批, 由呼叫端以ok與err判讀
                 rest = {
                     n: 1,
@@ -1177,6 +1283,9 @@ function WOrmReladb(opt = {}) {
         }
 
         try {
+
+            //check, 實例已關閉屬整批性錯誤, 於入口快速失敗
+            procClosed(instance)
 
             //check
             if (si.err) {
@@ -1282,6 +1391,9 @@ function WOrmReladb(opt = {}) {
 
         try {
 
+            //check, 實例已關閉屬整批性錯誤, 於入口快速失敗
+            procClosed(instance)
+
             //check
             if (si.err) {
                 throw si.err
@@ -1345,6 +1457,11 @@ function WOrmReladb(opt = {}) {
 
                     })
                     .catch((err) => {
+
+                        //check, 連線層錯誤影響後續所有筆數, 依T4屬整批性錯誤, 往外拋而不降為本筆ok為0
+                        if (isBatchLevelError(err)) {
+                            throw err
+                        }
 
                         //rest, 本筆失敗不中斷整批
                         rest = {
@@ -1434,6 +1551,9 @@ function WOrmReladb(opt = {}) {
         }
 
         try {
+
+            //check, 實例已關閉屬整批性錯誤, 於入口快速失敗
+            procClosed(instance)
 
             //check
             if (si.err) {

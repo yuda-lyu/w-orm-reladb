@@ -307,6 +307,151 @@ export function defineSuites(label, getOpt) {
     })
 
 
+    describe(`${label} insert returnList`, function() {
+
+        let w = null
+
+        before(async function() {
+            w = wo(getOpt())
+            await w.createStorage()
+        })
+
+        beforeEach(async function() {
+            await w.delAll()
+        })
+
+        it('兩種取值下之形狀: 預設回單一物件, 開啟回陣列', async function() {
+            let m1 = await w.insert([{ id: 'k1' }, { id: 'k2' }])
+            assert.ok(!Array.isArray(m1))
+            await w.delAll()
+            let m2 = await w.insert([{ id: 'k1' }, { id: 'k2' }], { returnList: true })
+            assert.ok(Array.isArray(m2))
+        })
+
+        it('開啟時與輸入等長保序且對位正確', async function() {
+            await w.insert({ id: 'k2', name: 'pre' })
+            let msg = await w.insert([{ id: 'k1' }, { id: 'k2' }, { id: 'k3' }], { returnList: true })
+            assert.strictEqual(msg.length, 3)
+            assert.deepStrictEqual(msg, [
+                { n: 1, nInserted: 1, ok: 1 },
+                { n: 1, nInserted: 0, ok: 1 }, //k2已存在
+                { n: 1, nInserted: 1, ok: 1 },
+            ])
+        })
+
+        it('同批重複主鍵僅首筆nInserted為1', async function() {
+            let msg = await w.insert([{ id: 'k1' }, { id: 'k1' }, { id: 'k2' }], { returnList: true })
+            assert.deepStrictEqual(msg, [
+                { n: 1, nInserted: 1, ok: 1 },
+                { n: 1, nInserted: 0, ok: 1 },
+                { n: 1, nInserted: 1, ok: 1 },
+            ])
+        })
+
+        it('filter計數等於聚合模式之nInserted', async function() {
+            await w.insert({ id: 'k2', name: 'pre' })
+            let rs = [{ id: 'k1' }, { id: 'k2' }, { id: 'k3' }, { id: 'k1' }]
+            let ml = await w.insert(rs, { returnList: true })
+            await w.delAll()
+            await w.insert({ id: 'k2', name: 'pre' })
+            let ma = await w.insert(rs)
+            assert.strictEqual(ml.filter((v) => v.nInserted === 1).length, ma.nInserted)
+            assert.strictEqual(ml.length, ma.n)
+        })
+
+        it('輸入無效時開啟回[], 關閉回聚合空結果', async function() {
+            for (let v of [null, undefined, '', 0, [], {}]) {
+                assert.deepStrictEqual(await w.insert(v, { returnList: true }), [])
+                assert.deepStrictEqual(await w.insert(v), { n: 0, nInserted: 0, ok: 1 })
+            }
+        })
+
+        it('逐筆元素鍵集合恰為{n,nInserted,ok}', async function() {
+            let msg = await w.insert([{ id: 'k1' }], { returnList: true })
+            assert.deepStrictEqual(Object.keys(msg[0]).sort(), ['n', 'nInserted', 'ok'])
+        })
+
+        it('change事件之res即實際回傳值', async function() {
+            let evs = []
+            let fn = (mode, data, res) => evs.push(res)
+            w.on('change', fn)
+            let msg = await w.insert([{ id: 'k1' }], { returnList: true })
+            w.off('change', fn)
+            assert.strictEqual(evs.length, 1)
+            assert.deepStrictEqual(evs[0], msg)
+            assert.ok(Array.isArray(evs[0]))
+        })
+
+        it('autoGenPk為false且未帶主鍵時仍為整批reject而不降為逐筆', async function() {
+            let wNoGen = wo(getOpt({ autoGenPk: false }))
+            let r = await wNoGen.insert([{ id: 'k1' }, { name: 'no-pk' }], { returnList: true })
+                .then(() => null)
+                .catch((err) => err)
+            assert.ok(r !== null, '未reject')
+            assert.ok(String(r.message || r).indexOf('autoGenPk is false') >= 0)
+        })
+
+    })
+
+
+    describe(`${label} closed instance`, function() {
+
+        let w = null
+
+        before(async function() {
+            w = wo(getOpt())
+            await w.createStorage()
+            await w.delAll()
+            await w.insert([{ id: 'k1', name: 'A' }, { id: 'k2', name: 'B' }])
+        })
+
+        it('close後七函數皆須以整批性錯誤reject, 不得以正常空結果或逐筆ok為0回應', async function() {
+            let instance = await w.init()
+            await instance.close()
+            let cs = { instance }
+
+            let chk = async (t, fn) => {
+                let r = await fn()
+                    .then((v) => ({ RESOLVE: v }))
+                    .catch((err) => ({ REJECT: String(err.message || err) }))
+                assert.ok(r.REJECT !== undefined, `${t} 未reject, 實得 ${JSON.stringify(r.RESOLVE)}`)
+                assert.ok(r.REJECT.indexOf('closed') >= 0, `${t} 之錯誤訊息未指明已關閉: ${r.REJECT}`)
+            }
+
+            await chk('select', () => w.select(null, cs))
+            await chk('selectByPk', () => w.selectByPk('k1', cs))
+            await chk('insert', () => w.insert({ id: 'k9' }, cs))
+            await chk('insertBulk', () => w.insertBulk({ id: 'k8' }, cs))
+            await chk('save', () => w.save({ id: 'k1', name: 'Z' }, cs))
+            await chk('del', () => w.del({ id: 'k1' }, cs))
+            await chk('delAll', () => w.delAll({}, cs))
+        })
+
+        it('close後selectByPk給無效主鍵亦須reject而非回null', async function() {
+            let instance = await w.init()
+            await instance.close()
+            let r = await w.selectByPk(null, { instance })
+                .then((v) => ({ RESOLVE: v }))
+                .catch((err) => ({ REJECT: String(err.message || err) }))
+            assert.ok(r.REJECT !== undefined, `未reject, 實得 ${JSON.stringify(r.RESOLVE)}`)
+        })
+
+        it('close後亦須發出error事件', async function() {
+            let instance = await w.init()
+            await instance.close()
+            let evs = []
+            let fn = (mode, data, err) => evs.push({ mode, err })
+            w.on('error', fn)
+            await w.del({ id: 'k1' }, { instance }).catch(() => {})
+            w.off('error', fn)
+            assert.strictEqual(evs.length, 1)
+            assert.strictEqual(evs[0].mode, 'del')
+            assert.ok(evs[0].err.indexOf('closed') >= 0)
+        })
+
+    })
+
+
     describe(`${label} insertBulk`, function() {
 
         let w = null

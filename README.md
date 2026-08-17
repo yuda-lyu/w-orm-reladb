@@ -11,6 +11,20 @@ An operator for relational database in nodejs.
 ## Documentation
 To view documentation or get support, visit [docs](https://yuda-lyu.github.io/w-orm-reladb/WOrm.html).
 
+### `insert` with `option.returnList`
+
+An aggregate count answers "how many rows were new", but not **which ones** — and the latter is what deduplication actually needs, when only new rows should trigger an expensive downstream action. Setting `returnList` hands back the per row verdict that `insert` already computes internally:
+
+```alias
+let rs = await w.insert(data, { returnList: true })
+// => [ { n: 1, nInserted: 1, ok: 1 }, { n: 1, nInserted: 0, ok: 1 }, ... ]
+let fresh = data.filter((v, k) => rs[k].nInserted === 1)
+```
+
+The returned array is the same length as the input and in the same order. Each element carries `n: 1` and `ok: 1` — any failure in `insert` is a batch level error and rejects, so a per row element never reports a failure. `rs.filter(v => v.nInserted === 1).length` equals the `nInserted` of the default aggregate form, and invalid input returns `[]` instead of the aggregate empty result.
+
+The switch is static: the shape is decided solely by the value you write at the call site, never by the data or by what happened at run time. Treat the two values as two separate contracts and do not share result handling code between call sites that use different ones.
+
 ### `insert` and `insertBulk`
 
 Both write rows that do not yet exist, and both return `{ n, nInserted, ok }`. They differ in what happens on a conflict, so `insertBulk` is **not** a faster `insert`:
@@ -32,6 +46,12 @@ With no conflict the two are indistinguishable, so you may swap them under that 
 | 5000 | 29825 ms → 50 ms (592x) | 44116 ms → 489 ms (90x) |
 
 The all-or-nothing guarantee is provided by a transaction, not by the batch statement alone: mssql splits a large batch into several statements because of its bind parameter limit, so without one an interrupted batch would leave earlier rows behind. When you pass `option.transaction`, a SAVEPOINT is used instead, so a failure rolls back only this call and leaves the rest of your transaction untouched.
+
+### Closed instances
+
+`init()` hands you an instance you can share across calls through `option.instance`, and `instance.close()` ends it. Once closed, **every function rejects immediately** with a message naming the closed state — including `selectByPk`, which does not fall back to its usual `null`. This matters because a closed instance and "no such row" would otherwise look identical, and a deduplication caller reading that as "not present yet" would re-run the whole batch downstream. Do not keep using an instance after closing it; call `init()` again for a new one.
+
+Note also that a plain call made without `option.instance` opens and closes its own connection, so it ends any instance you are holding. Do not mix the two styles against the same `WOrmReladb` object.
 
 ### Concurrency
 
