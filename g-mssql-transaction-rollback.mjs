@@ -73,8 +73,8 @@ async function testRollback() {
     w.on('change', function(mode, data, res) {
         console.log('change', mode)
     })
-    w.on('error', function(err) {
-        console.log('error', err)
+    w.on('error', function(mode, data, err) {
+        console.log('error', mode, err)
     })
 
 
@@ -200,10 +200,10 @@ testRollback()
 // insert then { n: 3, nInserted: 3, ok: 1 }
 // change save
 // save then [
-//   { n: 1, nModified: 1, ok: 1 },
-//   { n: 1, nModified: 1, ok: 1 },
-//   { n: 0, nModified: 0, ok: 1 } //autoInsert=false
-//   { n: 1, nInserted: 1, ok: 1 } //autoInsert=true
+//   { n: 1, nInserted: 0, nModified: 1, ok: 1 },
+//   { n: 1, nInserted: 0, nModified: 1, ok: 1 },
+//   { n: 0, nInserted: 0, nModified: 0, ok: 1 } //autoInsert=false
+//   { n: 1, nInserted: 1, nModified: 0, ok: 1 } //autoInsert=true
 // ]
 // change del
 // del then [

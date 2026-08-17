@@ -81,8 +81,8 @@
 //     w.on('change', function(mode, data, res) {
 //         console.log('change', mode)
 //     })
-//     w.on('error', function(err) {
-//         console.log('error', err)
+//     w.on('error', function(mode, data, err) {
+//         console.log('error', mode, err)
 //     })
 
 

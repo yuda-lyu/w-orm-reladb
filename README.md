@@ -11,6 +11,42 @@ An operator for relational database in nodejs.
 ## Documentation
 To view documentation or get support, visit [docs](https://yuda-lyu.github.io/w-orm-reladb/WOrm.html).
 
+### `insert` and `insertBulk`
+
+Both write rows that do not yet exist, and both return `{ n, nInserted, ok }`. They differ in what happens on a conflict, so `insertBulk` is **not** a faster `insert`:
+
+| Situation | `insert` | `insertBulk` |
+|---|---|---|
+| Primary key already exists | that row is skipped, the batch still returns `ok: 1` | the whole call **rejects, and not a single row is written** |
+| Duplicate primary keys inside one batch | only the first one counts toward `nInserted` | treated as a conflict, the whole call rejects |
+| `nInserted` | rows actually inserted, `0 ≤ nInserted ≤ n` | equals `n` whenever the call succeeds |
+| Use it for | ordinary writes against a table that may already hold data | bulk import where no conflict is expected |
+
+With no conflict the two are indistinguishable, so you may swap them under that assumption — and if the assumption is wrong, `insertBulk` tells you by rejecting rather than silently skipping.
+
+`insertBulk` is considerably faster here, because `insert` has to write row by row to report an exact `nInserted` (measured on this machine, Windows 11 / Node 24 / sequelize 6):
+
+| Rows | sqlite `insert` → `insertBulk` | mssql `insert` → `insertBulk` |
+|---|---|---|
+| 1000 | 5549 ms → 25 ms (226x) | 6802 ms → 190 ms (36x) |
+| 5000 | 29825 ms → 50 ms (592x) | 44116 ms → 489 ms (90x) |
+
+The all-or-nothing guarantee is provided by a transaction, not by the batch statement alone: mssql splits a large batch into several statements because of its bind parameter limit, so without one an interrupted batch would leave earlier rows behind. When you pass `option.transaction`, a SAVEPOINT is used instead, so a failure rolls back only this call and leaves the rest of your transaction untouched.
+
+### Concurrency
+
+The scope of the atomicity guarantee, by range:
+
+| Range | Guaranteed | Provided by |
+|---|---|---|
+| Cross process — several processes against the same database | Yes | The database itself. `insert` and `save` write through single conditional statements, and the primary key unique constraint decides the winner. Independent of `opt.useStable`. |
+| Single process — several parallel calls in one process | Yes **when `opt.useStable` is `true`** (the default) | A built-in queue that runs one operation at a time. |
+| Single process, with `opt.useStable` set to `false` | **No** | — |
+
+**Do not issue parallel calls from one process while `opt.useStable` is `false`.** Each instance holds one shared connection, opened at the start of a call and closed at its end, so a second call running in parallel closes the connection the first one is still using. Measured on 30 parallel calls in a single process: sqlite raised `SQLITE_MISUSE: Database handle is closed` and rejected 12 of the batches, mssql reported `ConnectionManager.getConnection was called after the connection manager was closed!` as a per row failure; both ended with 29 of the 30 rows written, so writes are silently lost. Keep the default `true`, or serialize the calls yourself (for example `await` them one by one).
+
+Cross process was measured with 2 independent processes against the same 20 primary keys: `nInserted` summed to exactly 20 with 20 rows in the table, and with each process writing a different column to those keys all 40 operations returned `ok: 1` with both columns preserved on all 20 rows. sqlite was repeated over 6 rounds to rule out timing dependent `SQLITE_BUSY`. Platform: Windows 11, Node 24, sequelize 6, MSSQL 2022.
+
 ## Before Installation
 > If you need to use encrypted sqlite, you need to manually install `@journeyapps/sqlcipher`, as follows:
 >1. Open visual studio code by system administrator.
@@ -106,8 +142,8 @@ async function test() {
     w.on('change', function(mode, data, res) {
         console.log('change', mode)
     })
-    w.on('error', function(err) {
-        console.log('error', err)
+    w.on('error', function(mode, data, err) {
+        console.log('error', mode, err)
     })
 
 
@@ -196,10 +232,10 @@ test()
 // insert then { n: 3, nInserted: 3, ok: 1 }
 // change save
 // save then [
-//   { n: 1, nModified: 1, ok: 1 },
-//   { n: 1, nModified: 1, ok: 1 },
-//   { n: 0, nModified: 0, ok: 1 } //autoInsert=false
-//   { n: 1, nInserted: 1, ok: 1 } //autoInsert=true
+//   { n: 1, nInserted: 0, nModified: 1, ok: 1 },
+//   { n: 1, nInserted: 0, nModified: 1, ok: 1 },
+//   { n: 0, nInserted: 0, nModified: 0, ok: 1 } //autoInsert=false
+//   { n: 1, nInserted: 1, nModified: 0, ok: 1 } //autoInsert=true
 // ]
 // select all [
 //   { id: 'id-peter', name: 'peter(modify)', value: 123 },
@@ -307,8 +343,8 @@ async function testCommit() {
     w.on('change', function(mode, data, res) {
         console.log('change', mode)
     })
-    w.on('error', function(err) {
-        console.log('error', err)
+    w.on('error', function(mode, data, err) {
+        console.log('error', mode, err)
     })
 
 
@@ -424,10 +460,10 @@ testCommit()
 // insert then { n: 3, nInserted: 3, ok: 1 }
 // change save
 // save then [
-//   { n: 1, nModified: 1, ok: 1 },
-//   { n: 1, nModified: 1, ok: 1 },
-//   { n: 0, nModified: 0, ok: 1 } //autoInsert=false
-//   { n: 1, nInserted: 1, ok: 1 } //autoInsert=true
+//   { n: 1, nInserted: 0, nModified: 1, ok: 1 },
+//   { n: 1, nInserted: 0, nModified: 1, ok: 1 },
+//   { n: 0, nInserted: 0, nModified: 0, ok: 1 } //autoInsert=false
+//   { n: 1, nInserted: 1, nModified: 0, ok: 1 } //autoInsert=true
 // ]
 // change del
 // del then [
@@ -524,8 +560,8 @@ async function testRollback() {
     w.on('change', function(mode, data, res) {
         console.log('change', mode)
     })
-    w.on('error', function(err) {
-        console.log('error', err)
+    w.on('error', function(mode, data, err) {
+        console.log('error', mode, err)
     })
 
 
@@ -638,10 +674,10 @@ testRollback()
 // insert then { n: 3, nInserted: 3, ok: 1 }
 // change save
 // save then [
-//   { n: 1, nModified: 1, ok: 1 },
-//   { n: 1, nModified: 1, ok: 1 },
-//   { n: 0, nModified: 0, ok: 1 } //autoInsert=false
-//   { n: 1, nInserted: 1, ok: 1 } //autoInsert=true
+//   { n: 1, nInserted: 0, nModified: 1, ok: 1 },
+//   { n: 1, nInserted: 0, nModified: 1, ok: 1 },
+//   { n: 0, nInserted: 0, nModified: 0, ok: 1 } //autoInsert=false
+//   { n: 1, nInserted: 1, nModified: 0, ok: 1 } //autoInsert=true
 // ]
 // change del
 // del then [
@@ -743,8 +779,8 @@ async function test() {
     w.on('change', function(mode, data, res) {
         console.log('change', mode)
     })
-    w.on('error', function(err) {
-        console.log('error', err)
+    w.on('error', function(mode, data, err) {
+        console.log('error', mode, err)
     })
 
 
@@ -833,10 +869,10 @@ test()
 // insert then { n: 3, nInserted: 3, ok: 1 }
 // change save
 // save then [
-//   { n: 1, nModified: 1, ok: 1 },
-//   { n: 1, nModified: 1, ok: 1 },
-//   { n: 0, nModified: 0, ok: 1 } //autoInsert=false
-//   { n: 1, nInserted: 1, ok: 1 } //autoInsert=true
+//   { n: 1, nInserted: 0, nModified: 1, ok: 1 },
+//   { n: 1, nInserted: 0, nModified: 1, ok: 1 },
+//   { n: 0, nInserted: 0, nModified: 0, ok: 1 } //autoInsert=false
+//   { n: 1, nInserted: 1, nModified: 0, ok: 1 } //autoInsert=true
 // ]
 // select all [
 //   { id: 'id-peter', name: 'peter(modify)', value: 123 },
@@ -951,8 +987,8 @@ async function testCommit() {
     w.on('change', function(mode, data, res) {
         console.log('change', mode)
     })
-    w.on('error', function(err) {
-        console.log('error', err)
+    w.on('error', function(mode, data, err) {
+        console.log('error', mode, err)
     })
 
 
@@ -1068,10 +1104,10 @@ testCommit()
 // insert then { n: 3, nInserted: 3, ok: 1 }
 // change save
 // save then [
-//   { n: 1, nModified: 1, ok: 1 },
-//   { n: 1, nModified: 1, ok: 1 },
-//   { n: 0, nModified: 0, ok: 1 } //autoInsert=false
-//   { n: 1, nInserted: 1, ok: 1 } //autoInsert=true
+//   { n: 1, nInserted: 0, nModified: 1, ok: 1 },
+//   { n: 1, nInserted: 0, nModified: 1, ok: 1 },
+//   { n: 0, nInserted: 0, nModified: 0, ok: 1 } //autoInsert=false
+//   { n: 1, nInserted: 1, nModified: 0, ok: 1 } //autoInsert=true
 // ]
 // change del
 // del then [
@@ -1175,8 +1211,8 @@ async function testRollback() {
     w.on('change', function(mode, data, res) {
         console.log('change', mode)
     })
-    w.on('error', function(err) {
-        console.log('error', err)
+    w.on('error', function(mode, data, err) {
+        console.log('error', mode, err)
     })
 
 
@@ -1289,10 +1325,10 @@ testRollback()
 // insert then { n: 3, nInserted: 3, ok: 1 }
 // change save
 // save then [
-//   { n: 1, nModified: 1, ok: 1 },
-//   { n: 1, nModified: 1, ok: 1 },
-//   { n: 0, nModified: 0, ok: 1 } //autoInsert=false
-//   { n: 1, nInserted: 1, ok: 1 } //autoInsert=true
+//   { n: 1, nInserted: 0, nModified: 1, ok: 1 },
+//   { n: 1, nInserted: 0, nModified: 1, ok: 1 },
+//   { n: 0, nInserted: 0, nModified: 0, ok: 1 } //autoInsert=false
+//   { n: 1, nInserted: 1, nModified: 0, ok: 1 } //autoInsert=true
 // ]
 // change del
 // del then [
@@ -1401,8 +1437,8 @@ async function test() {
     w.on('change', function(mode, data, res) {
         console.log('change', mode)
     })
-    w.on('error', function(err) {
-        console.log('error', err)
+    w.on('error', function(mode, data, err) {
+        console.log('error', mode, err)
     })
 
 
@@ -1491,10 +1527,10 @@ test()
 // insert then { n: 3, nInserted: 3, ok: 1 }
 // change save
 // save then [
-//   { n: 1, nModified: 1, ok: 1 },
-//   { n: 1, nModified: 1, ok: 1 },
-//   { n: 0, nModified: 0, ok: 1 } //autoInsert=false
-//   { n: 1, nInserted: 1, ok: 1 } //autoInsert=true
+//   { n: 1, nInserted: 0, nModified: 1, ok: 1 },
+//   { n: 1, nInserted: 0, nModified: 1, ok: 1 },
+//   { n: 0, nInserted: 0, nModified: 0, ok: 1 } //autoInsert=false
+//   { n: 1, nInserted: 1, nModified: 0, ok: 1 } //autoInsert=true
 // ]
 // select all [
 //   { id: 'id-peter', name: 'peter(modify)', value: 123 },

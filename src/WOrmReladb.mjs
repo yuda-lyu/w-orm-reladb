@@ -1,5 +1,4 @@
 import path from 'path'
-import events from 'events'
 import Sequelize from 'sequelize'
 import cloneDeep from 'lodash-es/cloneDeep.js'
 import get from 'lodash-es/get.js'
@@ -7,13 +6,19 @@ import map from 'lodash-es/map.js'
 import each from 'lodash-es/each.js'
 import size from 'lodash-es/size.js'
 import split from 'lodash-es/split.js'
+import keys from 'lodash-es/keys.js'
+import pick from 'lodash-es/pick.js'
+import omit from 'lodash-es/omit.js'
+import isEqual from 'lodash-es/isEqual.js'
+import evem from 'wsemi/src/evem.mjs'
 import genPm from 'wsemi/src/genPm.mjs'
-import genID from 'wsemi/src/genID.mjs'
+import genIDSeq from 'wsemi/src/genIDSeq.mjs'
 import isarr from 'wsemi/src/isarr.mjs'
 import isearr from 'wsemi/src/isearr.mjs'
 import isobj from 'wsemi/src/isobj.mjs'
 import iseobj from 'wsemi/src/iseobj.mjs'
 import isbol from 'wsemi/src/isbol.mjs'
+import isnum from 'wsemi/src/isnum.mjs'
 import isestr from 'wsemi/src/isestr.mjs'
 import arrHas from 'wsemi/src/arrHas.mjs'
 import pmSeries from 'wsemi/src/pmSeries.mjs'
@@ -93,8 +98,18 @@ function WOrmReladb(opt = {}) {
     let Op = Sequelize.Op
 
 
-    //ee
-    let ee = new events.EventEmitter()
+    //ee, 採wsemi之evem(即eventemitter3), 其於'error'無監聽者時僅回傳false而不拋出,
+    //故本套件之操作行為不因呼叫端有無註冊監聽而改變; Node內建之EventEmitter具該拋出語義, 不可用
+    let ee = evem()
+
+
+    //opt.url解析失敗一律拋出, 因其屬呼叫端未履行契約, 且解析失敗後各函數皆無從運作,
+    //建構為同步而無從以Promise.reject回報, 拋出即為reject之同步對應;
+    //若僅console.log而回傳未綁定各函數之ee, 錯誤不經任何管道抵達呼叫端, 呼叫端僅得到
+    //[w.select is not a function]之無關訊息, 與本規格[錯誤不得靜默]之通則相違
+    let throwUrlErr = (msg) => {
+        throw new Error(`${msg}, opt.url[${opt.url}]`)
+    }
 
 
     //dialect
@@ -102,12 +117,10 @@ function WOrmReladb(opt = {}) {
     ss = split(opt.url, '://')
     dialect = get(ss, 0, null)
     if (!dialect) {
-        console.log('no dialect in opt.url')
-        return ee
+        throwUrlErr('no dialect in opt.url')
     }
     if (!arrHas(dialect, ['mssql', 'sqlite', 'mysql', 'mariadb', 'postgres'])) {
-        console.log('invalid dialect in opt.url')
-        return ee
+        throwUrlErr('invalid dialect in opt.url')
     }
     u = get(ss, 1, '') //另存給後面使用
 
@@ -120,19 +133,16 @@ function WOrmReladb(opt = {}) {
     ss = get(ss, 0, '')
     ss = split(ss, ':')
     if (size(ss) !== 2) {
-        console.log('invalid username or password in opt.url')
-        return ee
+        throwUrlErr('invalid username or password in opt.url')
     }
     username = get(ss, 0, '')
     password = get(ss, 1, '')
     if (dialect !== 'sqlite' || (dialect === 'sqlite' && opt.useEncryption)) {
         if (username === '') {
-            console.log('invalid username in opt.url')
-            return ee
+            throwUrlErr('invalid username in opt.url')
         }
         if (password === '') {
-            console.log('invalid password in opt.url')
-            return ee
+            throwUrlErr('invalid password in opt.url')
         }
     }
 
@@ -141,21 +151,158 @@ function WOrmReladb(opt = {}) {
     let host
     let port
     ss = split(u, ':')
-    // if (size(ss) !== 2) {
-    //     console.log('invalid host or port in opt.url')
-    //     return ee
-    // }
     host = get(ss, 0, null)
     port = get(ss, 1, null)
     if (dialect !== 'sqlite') {
         if (!host) {
-            console.log('invalid host in opt.url')
-            return ee
+            throwUrlErr('invalid host in opt.url')
         }
         if (!port) {
-            console.log('invalid port in opt.url')
-            return ee
+            throwUrlErr('invalid port in opt.url')
         }
+    }
+
+
+    /**
+     * 取錯誤訊息字串，供逐筆結果之err欄位與error事件使用
+     *
+     * @ignore
+     * @param {Error|String} err 輸入錯誤物件或字串
+     * @returns {String} 回傳錯誤訊息字串
+     */
+    function getErrMsg(err) {
+
+        //message
+        let message = get(err, 'message')
+        if (isestr(message)) {
+            return message
+        }
+
+        return String(err)
+    }
+
+
+    /**
+     * 發出change事件，訂閱函數拋錯不得影響本次操作之結果，故另包try並自行吞掉
+     *
+     * @ignore
+     * @param {String} mode 輸入操作別字串
+     * @param {Object|Array|null} data 輸入本次操作之數據
+     * @param {Object|Array} res 輸入本次操作之結果
+     * @returns {undefined} 無回傳值
+     */
+    function emitChange(mode, data, res) {
+        try {
+            ee.emit('change', mode, data, res)
+        }
+        catch (err) {
+            console.log(err)
+        }
+    }
+
+
+    /**
+     * 發出error事件，操作發生錯誤時發出，錯誤訊息一律轉為字串
+     * 註: 事件僅為附加通知，所送出之資訊必另有正規管道——整批性錯誤經Promise.reject，逐筆失敗經該筆之err欄位
+     * 註: 訂閱函數拋錯不得影響本次操作之結果，故另包try並自行吞掉
+     * 註: 正常結果不得發出本事件，如insert全數已存在、save合併後內容相同、del主鍵未命中、selectByPk查無數據
+     *
+     * @ignore
+     * @param {String} mode 輸入操作別字串
+     * @param {Object|Array|null} data 輸入本次操作之數據
+     * @param {Error|String} err 輸入錯誤物件或字串
+     * @returns {undefined} 無回傳值
+     */
+    function emitError(mode, data, err) {
+        try {
+            ee.emit('error', mode, data, getErrMsg(err))
+        }
+        catch (errEmit) {
+            console.log(errEmit)
+        }
+    }
+
+
+    /**
+     * 判定主鍵值是否有效
+     * 註: select以外之五函數對主鍵之認定一律以本函數為準，令selectByPk之[命中]與insert、save、del內對既有數據之認定一致
+     *
+     * @ignore
+     * @param {*} v 輸入主鍵值
+     * @returns {Boolean} 回傳主鍵值是否有效布林值
+     */
+    function isEffPk(v) {
+
+        //非空字串
+        if (isestr(v)) {
+            return true
+        }
+
+        //數值, 含0, 供整數型主鍵使用
+        if (isnum(v)) {
+            return true
+        }
+
+        return false
+    }
+
+
+    /**
+     * 判定是否為主鍵重複之錯誤
+     * 註: sequelize於mssql、sqlite、mysql、mariadb、postgres皆將唯一鍵衝突轉為UniqueConstraintError，故此判定與dialect無關
+     *
+     * @ignore
+     * @param {Error} err 輸入錯誤物件
+     * @returns {Boolean} 回傳是否為主鍵重複錯誤布林值
+     */
+    function isDupPkError(err) {
+        return err instanceof Sequelize.UniqueConstraintError
+    }
+
+
+    /**
+     * 檢查並補齊單筆數據之主鍵
+     * autoGenPk為true時未帶有效主鍵者自動產生，為false時往外拋
+     * 註: 未帶有效主鍵屬呼叫端未履行契約而非某一筆資料本身之問題，故為整批性錯誤而不降級為該筆ok為0，
+     * 若降級為逐筆結果，呼叫端易於整批resolve之下漏看，使[忘了給主鍵]靜默變成[少寫了幾筆]
+     * 註: 本函數須於任何寫入之前一次對全部數據完成，令拋錯時同批之有效筆數亦不會被寫入
+     * 註: 自動產生之主鍵值為字串，故補值前檢查主鍵欄位確為字串類型，不符者以明確訊息拋出，
+     * 而非任由資料庫回報型別錯誤; 本套件之model定義於手上得知主鍵型別，故不適用T6之[套件無從得知主鍵型別]例外
+     *
+     * @ignore
+     * @param {Object} md 輸入資料表model物件
+     * @param {Object} v 輸入數據物件
+     * @param {Number} k 輸入數據於陣列內之索引
+     * @returns {Object} 回傳補齊主鍵之數據物件
+     */
+    function procPk(md, v, k) {
+
+        //check
+        if (isEffPk(get(v, opt.pk))) {
+            return v
+        }
+
+        //check, autoGenPk為false時主鍵須由呼叫端自備
+        if (!opt.autoGenPk) {
+            throw new Error(`invalid data[${k}].${opt.pk}, autoGenPk is false`)
+        }
+
+        //at
+        let at = get(md, `rawAttributes.${opt.pk}`)
+        if (!iseobj(at)) {
+            throw new Error(`can not find pk column [${opt.pk}] in model [${opt.cl}]`)
+        }
+
+        //check, 自動產生之主鍵值為字串, 主鍵欄位須為字串類型方能容納
+        let tp = get(at, 'type.key', '')
+        if (!arrHas(tp, ['STRING', 'TEXT', 'CHAR', 'UUID', 'CITEXT'])) {
+            throw new Error(`autoGenPk is true but pk column [${opt.pk}] in model [${opt.cl}] is [${tp}], auto generated pk is a string, need to set autoGenPk to false and supply pk by caller`)
+        }
+
+        //genIDSeq, 為UUIDv7格式而具單調遞增性, 主鍵接近順序遞增可減少索引頁面分裂
+        v[opt.pk] = genIDSeq()
+
+        return v
     }
 
 
@@ -351,23 +498,27 @@ function WOrmReladb(opt = {}) {
             }
         }
 
+        //isErr, res
+        let isErr = false
+        let res = null
+
         //si
         let si = instance
         if (instance === null) {
             si = await initSequelize()
         }
-        // else {
-        //     console.log('select use instance', instance)
-        // }
 
-        //rs
-        let rs = null
-        if (!si.err) {
+        try {
+
+            //check, 連線或匯入models失敗影響本次操作之全部數據, 屬整批性錯誤
+            if (si.err) {
+                throw si.err
+            }
 
             //md
             let md = si.mds[opt.cl]
 
-            //setting
+            //setting, raw令回傳純數據物件而不含資料庫內部欄位
             let setting = {
                 where: useFind,
                 raw: true,
@@ -376,32 +527,150 @@ function WOrmReladb(opt = {}) {
                 setting.transaction = transaction
             }
 
-            //findAll
-            rs = await md.findAll(setting)
+            //findAll, 恆回傳陣列, 無符合數據為空陣列
+            res = await md.findAll(setting)
+            if (!isarr(res)) {
+                res = []
+            }
 
         }
-        else {
-            ee.emit('error', si.err)
+        catch (err) {
+            isErr = true
+            res = err
+        }
+        finally {
+
+            //closeSequelize
+            if (instance === null) { //內部自動初始化得close
+                await closeSequelize('select')
+            }
+
         }
 
-        //closeSequelize
-        if (instance === null) { //內部自動初始化得close
-            await closeSequelize('select')
+        //check
+        if (isErr) {
+            emitError('select', null, res)
+            return Promise.reject(res)
         }
 
-        return rs
+        return res
     }
 
 
     /**
-     * 插入數據，插入同樣數據會自動產生不同_id，故insert前需自行判斷有無重複
+     * 由主鍵查詢單筆數據，因由資料庫依主鍵索引取值且僅回傳單筆，不需如select提取全部符合數據再處理，故數據量大時效能較佳
+     *
+     * 註: 主鍵欄位取自opt.pk，預設為id，支援由呼叫端指定
+     * 註: 主鍵未命中或主鍵值無效皆回傳null而不reject，[命中]之判定基準與insert、save、del內對既有數據之認定一致
+     * 註: 本函數不得有副作用，故不創建資料表
+     *
+     * @memberOf WOrmReladb
+     * @param {String|Number} pk 輸入主鍵值，即數據內opt.pk欄位之值
+     * @param {Object} [option={}] 輸入設定物件，預設為{}
+     * @param {Object} [option.instance=null] 輸入實例instance物件，預設為null
+     * @param {Object} [option.transaction=null] 輸入交易(transaction)物件，預設為null
+     * @returns {Promise} 回傳Promise，resolve回傳數據物件，若無此主鍵或主鍵值無效則回傳null，reject回傳錯誤訊息
+     */
+    async function selectByPk(pk, option = {}) {
+
+        //check, 未給有效主鍵值視為查無數據, 不送查詢以免無效值被轉為null而誤中其他數據
+        if (!isEffPk(pk)) {
+            return null
+        }
+
+        //instance
+        let instance = get(option, 'instance', null)
+
+        //transaction
+        let transaction = get(option, 'transaction', null)
+
+        //check
+        if (opt.useEncryption && dialect === 'sqlite') {
+            if (transaction !== null) {
+                console.log('@journeyapps/sqlcipher can not support transaction.')
+            }
+        }
+
+        //isErr, res
+        let isErr = false
+        let res = null
+
+        //si
+        let si = instance
+        if (instance === null) {
+            si = await initSequelize()
+        }
+
+        try {
+
+            //check
+            if (si.err) {
+                throw si.err
+            }
+
+            //md
+            let md = si.mds[opt.cl]
+
+            //setting
+            let setting = {
+                where: { [opt.pk]: pk },
+                raw: true,
+            }
+            if (transaction !== null) {
+                setting.transaction = transaction
+            }
+
+            //findOne
+            let v = await md.findOne(setting)
+
+            //check, 判定基準與insert、save、del內對既有數據之認定一致
+            if (iseobj(v)) {
+                res = v
+            }
+            else {
+                //不存在主鍵, 回傳null
+                res = null
+            }
+
+        }
+        catch (err) {
+            isErr = true
+            res = err
+        }
+        finally {
+
+            //closeSequelize
+            if (instance === null) { //內部自動初始化得close
+                await closeSequelize('selectByPk')
+            }
+
+        }
+
+        //check
+        if (isErr) {
+            emitError('selectByPk', null, res)
+            return Promise.reject(res)
+        }
+
+        return res
+    }
+
+
+    /**
+     * 插入數據，僅於主鍵不存在時寫入，已存在者跳過且不覆寫
+     *
+     * 由資料庫於主鍵之唯一約束上原子完成[檢查主鍵不存在]與[寫入]，併發時同一主鍵僅有一次成功
+     *
+     * 註: n為輸入筆數即本次嘗試插入之基準，nInserted為實際插入筆數，全數已存在而nInserted為0屬正常結果
+     * 註: 同批含重複主鍵時僅首筆計入nInserted，其餘視為已存在
+     * 註: opt.autoGenPk為true(預設)時未帶有效主鍵者自動產生，為false時未帶有效主鍵即reject且同批皆不寫入
      *
      * @memberOf WOrmReladb
      * @param {Object|Array} data 輸入數據物件或陣列
      * @param {Object} [option={}] 輸入設定物件，預設為{}
      * @param {Object} [option.instance=null] 輸入實例instance物件，預設為null
      * @param {Object} [option.transaction=null] 輸入交易(transaction)物件，預設為null
-     * @returns {Promise} 回傳Promise，resolve回傳插入結果，reject回傳錯誤訊息
+     * @returns {Promise} 回傳Promise，resolve回傳插入結果{n,nInserted,ok}，reject回傳錯誤訊息
      */
     async function insert(data, option = {}) {
 
@@ -430,19 +699,22 @@ function WOrmReladb(opt = {}) {
         //cloneDeep
         data = cloneDeep(data)
 
-        //pm
-        let pm = genPm()
+        //isErr, res
+        let isErr = false
+        let res = null
 
         //si
         let si = instance
         if (instance === null) {
             si = await initSequelize()
         }
-        // else {
-        //     console.log('insert use instance', instance)
-        // }
 
-        if (!si.err) {
+        try {
+
+            //check
+            if (si.err) {
+                throw si.err
+            }
 
             //md
             let md = si.mds[opt.cl]
@@ -452,18 +724,13 @@ function WOrmReladb(opt = {}) {
                 data = [data]
             }
 
-            //n
-            let n = size(data)
+            //procPk, 須於任何寫入之前一次完成, 令autoGenPk為false而拋錯時同批之有效筆數亦不會被寫入
+            data = map(data, (v, k) => {
+                return procPk(md, v, k)
+            })
 
-            //check
-            if (opt.autoGenPk) {
-                data = map(data, function(v) {
-                    if (!v[opt.pk]) {
-                        v[opt.pk] = genID()
-                    }
-                    return v
-                })
-            }
+            //nAll, n之基準為輸入筆數
+            let nAll = size(data)
 
             //setting
             let setting = { }
@@ -471,34 +738,399 @@ function WOrmReladb(opt = {}) {
                 setting.transaction = transaction
             }
 
-            //bulkCreate
-            await md.bulkCreate(data, setting)
-                .then((res) => {
-                    res = { n, nInserted: n, ok: 1 }
-                    pm.resolve(res)
-                    ee.emit('change', 'insert', data, res)
-                })
-                .catch(({ original }) => {
-                    ee.emit('error', original)
-                    pm.reject({ n: 0, ok: 0 })
-                })
+            //create, 逐筆插入以取得精確之nInserted
+            //註: 不採bulkCreate配合ignoreDuplicates, 因mssql未宣告該能力而選項會被靜默忽略仍撞唯一約束,
+            //且bulkCreate無從回報實際插入筆數; 單筆INSERT本即由主鍵之唯一約束原子完成檢查與寫入
+            let nInserted = 0
+            await pmSeries(data, async(v) => {
+
+                //bIns, 撞既有主鍵者視為已存在而跳過, 其餘錯誤影響全部數據須往外拋
+                let bIns = await md.create(v, setting)
+                    .then(() => {
+                        return true
+                    })
+                    .catch((err) => {
+                        if (isDupPkError(err)) {
+                            return false
+                        }
+                        throw err
+                    })
+
+                //nInserted
+                if (bIns) {
+                    nInserted += 1
+                }
+
+                return bIns
+            })
+
+            //res, 全數已存在而nInserted為0屬正常結果, 不視為錯誤
+            res = {
+                n: nAll,
+                nInserted,
+                ok: 1,
+            }
 
         }
-        else {
-            pm.reject(si.err)
+        catch (err) {
+            isErr = true
+            res = err
+        }
+        finally {
+
+            //closeSequelize
+            if (instance === null) { //內部自動初始化得close
+                await closeSequelize('insert')
+            }
+
         }
 
-        //closeSequelize
-        if (instance === null) { //內部自動初始化得close
-            await closeSequelize('insert')
+        //check
+        if (isErr) {
+            emitError('insert', data, res)
+            return Promise.reject(res)
         }
 
-        return pm
+        //emit, 須於結果定案後發出
+        emitChange('insert', data, res)
+
+        return res
     }
 
 
     /**
-     * 儲存數據
+     * 批次插入數據，全批視為一個單位：全部插入成功，或一筆都不寫入
+     *
+     * 本函數非insert之加速版，兩者衝突政策不同：insert於主鍵已存在時跳過該筆且整批ok為1，
+     * 本函數則整批reject且不寫入任何一筆，同批含重複主鍵者亦視為衝突。
+     * 確無衝突時兩者之可觀察結果完全相同，差異僅於有衝突時顯現。
+     *
+     * 註: n為輸入筆數即本次嘗試插入之基準；nInserted於成功時恆等於n，雖無額外資訊仍保留，
+     * 令呼叫端得與insert共用同一段結果處理程式碼
+     * 註: 不提供逐筆結果，故不出現ok為0與err；需要逐筆處置者改用insert
+     * 註: opt.autoGenPk為true(預設)時未帶有效主鍵者自動產生，為false時未帶有效主鍵即reject且同批皆不寫入
+     * 註: [全有全無]為獨立於T7之額外要求——T7僅保證每筆之[檢查主鍵不存在]與[寫入]為原子，不保證整批。
+     * mssql因綁定參數數量上限會由驅動層自動拆為多語句送出，實測1000筆之批次於末筆撞主鍵時已有946筆落盤，
+     * 故一律以交易包覆並於失敗時回滾；呼叫端已給transaction時改以巢狀交易(SAVEPOINT)包覆，
+     * 令回滾範圍限於本次呼叫而不影響呼叫端交易內先前之寫入
+     *
+     * @memberOf WOrmReladb
+     * @param {Object|Array} data 輸入數據物件或陣列
+     * @param {Object} [option={}] 輸入設定物件，預設為{}
+     * @param {Object} [option.instance=null] 輸入實例instance物件，預設為null
+     * @param {Object} [option.transaction=null] 輸入交易(transaction)物件，預設為null
+     * @returns {Promise} 回傳Promise，resolve回傳插入結果{n,nInserted,ok}，reject回傳錯誤訊息
+     */
+    async function insertBulk(data, option = {}) {
+
+        //check
+        if (!iseobj(data) && !isearr(data)) {
+            return {
+                n: 0,
+                nInserted: 0,
+                ok: 1,
+            }
+        }
+
+        //instance
+        let instance = get(option, 'instance', null)
+
+        //transaction
+        let transaction = get(option, 'transaction', null)
+
+        //check
+        if (opt.useEncryption && dialect === 'sqlite') {
+            if (transaction !== null) {
+                console.log('@journeyapps/sqlcipher can not support transaction.')
+            }
+        }
+
+        //cloneDeep
+        data = cloneDeep(data)
+
+        //isErr, res
+        let isErr = false
+        let res = null
+
+        //si
+        let si = instance
+        if (instance === null) {
+            si = await initSequelize()
+        }
+
+        try {
+
+            //check
+            if (si.err) {
+                throw si.err
+            }
+
+            //md
+            let md = si.mds[opt.cl]
+
+            //check
+            if (!isarr(data)) {
+                data = [data]
+            }
+
+            //procPk, 須於任何寫入之前一次完成, 令autoGenPk為false而拋錯時同批皆不會被寫入
+            data = map(data, (v, k) => {
+                return procPk(md, v, k)
+            })
+
+            //nAll, n之基準為輸入筆數
+            let nAll = size(data)
+
+            //useTx, sqlcipher不支援transaction, 該情形下改倚賴sqlite單一語句之原子性
+            let useTx = !(opt.useEncryption && dialect === 'sqlite')
+
+            //t, 呼叫端未給交易時自開; 已給時以巢狀交易(SAVEPOINT)包覆令回滾範圍限於本次呼叫
+            let t = null
+            if (useTx) {
+                t = (transaction !== null)
+                    ? await md.sequelize.transaction({ transaction })
+                    : await md.sequelize.transaction()
+            }
+
+            //setting
+            let setting = {}
+            if (t !== null) {
+                setting.transaction = t
+            }
+            else if (transaction !== null) {
+                setting.transaction = transaction
+            }
+
+            try {
+
+                //bulkCreate, 未加任何跳過選項, 故任一筆撞主鍵即整句失敗, 同批重複主鍵亦於此被偵測為衝突
+                await md.bulkCreate(data, setting)
+
+                if (t !== null) {
+                    await t.commit()
+                }
+
+            }
+            catch (err) {
+                if (t !== null) {
+                    await t.rollback().catch(() => {})
+                }
+                throw err
+            }
+
+            //res, 全有全無故成功時nInserted恆等於n
+            res = {
+                n: nAll,
+                nInserted: nAll,
+                ok: 1,
+            }
+
+        }
+        catch (err) {
+            isErr = true
+            res = err
+        }
+        finally {
+
+            //closeSequelize
+            if (instance === null) { //內部自動初始化得close
+                await closeSequelize('insertBulk')
+            }
+
+        }
+
+        //check
+        if (isErr) {
+            emitError('insertBulk', data, res)
+            return Promise.reject(res)
+        }
+
+        //emit, 須於結果定案後發出
+        emitChange('insertBulk', data, res)
+
+        return res
+    }
+
+
+    /**
+     * 儲存單筆數據
+     *
+     * 採條件寫入配合衝突偵測與重試: 每次寫入本身為單一條件式原子語句——插入由主鍵之唯一約束判定、
+     * 更新由WHERE主鍵之比對判定，皆非由預讀值決定其成敗；預讀僅用於選擇發出哪一條語句，
+     * 選錯不會產生錯誤結果，只會被偵測並重試(插入撞既有主鍵、更新未命中任何列)，故縱使預讀值已過期，
+     * 最終結果仍與該次操作單獨執行時相同。
+     * 註: 不採sequelize之upsert，因sqlite無從於單一語句內回報本次係插入或更新(其created恆為null)，
+     * 而insert與save之規格要求nInserted精確，兩者於sqlite互斥，故改採本形式
+     * 註: [內容相同]之判定基準為將待寫入物件合併進現值後與現值相同，相同則不寫入而nModified為0，
+     * 合併取淺層以與後端整欄取代之寫入行為一致，令nModified忠實反映資料庫端是否真的寫入
+     *
+     * @ignore
+     * @param {Object} md 輸入資料表model物件
+     * @param {Object} v 輸入數據物件
+     * @param {Boolean} autoInsert 輸入是否於查無數據時自動改以插入處理布林值
+     * @param {Object|null} transaction 輸入交易(transaction)物件
+     * @param {Array} ks 輸入model之欄位名陣列
+     * @returns {Promise} 回傳Promise，resolve回傳本筆儲存結果，本筆失敗時亦resolve並以ok為0回報
+     */
+    async function saveOne(md, v, autoInsert, transaction, ks) {
+
+        //nTry, 預測錯誤時重試, 給予有限次數令其收斂
+        let nTry = 3
+
+        //rest
+        let rest = null
+
+        //inserted, 供結果定案後發出insert事件用
+        let inserted = false
+
+        //pkv
+        let pkv = get(v, opt.pk)
+
+        //setting
+        let settingRead = {
+            where: { [opt.pk]: pkv },
+            raw: true,
+        }
+        let settingUpd = {
+            where: { [opt.pk]: pkv },
+        }
+        let settingIns = {}
+        if (transaction !== null) {
+            settingRead.transaction = transaction
+            settingUpd.transaction = transaction
+            settingIns.transaction = transaction
+        }
+
+        for (let i = 0; i < nTry; i++) {
+
+            try {
+
+                //預讀, 供判斷內容是否相同之快速路徑, 其結果不用於決定寫入內容
+                let _v = await md.findOne(settingRead)
+
+                if (iseobj(_v)) {
+                    //主鍵存在
+
+                    //_vt, vt, 以待寫入物件之非主鍵欄位淺層覆蓋現值後與現值比對
+                    let _vt = omit(_v, opt.pk)
+                    let vt = {
+                        ..._vt,
+                        ...pick(omit(v, opt.pk), ks),
+                    }
+
+                    //check, 內容相同者不寫入
+                    if (isEqual(vt, _vt)) {
+                        rest = {
+                            n: 1,
+                            nInserted: 0,
+                            nModified: 0,
+                            ok: 1,
+                        }
+                        break
+                    }
+
+                    //update, 單一UPDATE語句由WHERE主鍵原子完成查找與更新
+                    let rr = await md.update(v, settingUpd)
+                    let nAff = get(rr, 0, 0)
+
+                    if (nAff > 0) {
+                        rest = {
+                            n: 1,
+                            nInserted: 0,
+                            nModified: 1,
+                            ok: 1,
+                        }
+                        break
+                    }
+
+                    //該列已被他方刪除, 重試改走插入
+                    continue
+                }
+
+                //主鍵不存在且未開啟autoInsert則不寫入以免無中生有
+                if (!autoInsert) {
+                    rest = {
+                        n: 0,
+                        nInserted: 0,
+                        nModified: 0,
+                        ok: 1,
+                    }
+                    break
+                }
+
+                //create, 單一INSERT語句由主鍵之唯一約束原子完成檢查與寫入
+                let bIns = await md.create(v, settingIns)
+                    .then(() => {
+                        return true
+                    })
+                    .catch((err) => {
+                        if (isDupPkError(err)) {
+                            return false
+                        }
+                        throw err
+                    })
+
+                if (bIns) {
+                    rest = {
+                        n: 1,
+                        nInserted: 1,
+                        nModified: 0,
+                        ok: 1,
+                    }
+                    inserted = true
+                    break
+                }
+
+                //他方已插入同一主鍵, 重試改走更新
+                continue
+            }
+            catch (err) {
+
+                //其餘錯誤視為本筆失敗, 不中斷整批, 由呼叫端以ok與err判讀
+                rest = {
+                    n: 1,
+                    nInserted: 0,
+                    nModified: 0,
+                    ok: 0,
+                    err: getErrMsg(err),
+                }
+                break
+            }
+
+        }
+
+        //check, 重試耗盡仍未定案
+        if (rest === null) {
+            rest = {
+                n: 1,
+                nInserted: 0,
+                nModified: 0,
+                ok: 0,
+                err: `can not save data by ${opt.pk}[${pkv}] in ${nTry} tries`,
+            }
+        }
+
+        //emit, 須於本筆結果定案後發出, 避免訂閱函數拋錯影響本筆結果
+        if (inserted) {
+            emitChange('insert', [v], rest)
+        }
+        if (rest.ok === 0) {
+            emitError('save', [v], rest.err)
+        }
+
+        return rest
+    }
+
+
+    /**
+     * 儲存數據，以主鍵為準更新既有數據，未給之欄位保留；主鍵不存在且option.autoInsert為true(預設)時改為插入
+     *
+     * 註: 回傳陣列恆與輸入等長，輸入單一物件亦回傳長度1之陣列
+     * 註: n為主鍵命中筆數，值為0或1，命中(不論內容有無變更)或經插入而產生皆為1；nInserted與nModified恆同時出現
+     * 註: [內容相同]之判定基準為將待寫入物件合併進現值後與現值相同，非待寫入物件與現值全等，
+     * 故只給部份欄位且該些欄位值皆與現值相同時，合併結果等於現值，nModified為0
+     * 註: 本筆失敗不中斷整批，該筆以ok為0並附err回報
+     * 註: opt.autoGenPk為true(預設)時未帶有效主鍵者自動產生，為false時未帶有效主鍵即reject且同批皆不寫入
      *
      * @memberOf WOrmReladb
      * @param {Object|Array} data 輸入數據物件或陣列
@@ -506,7 +1138,7 @@ function WOrmReladb(opt = {}) {
      * @param {Object} [option.instance=null] 輸入實例instance物件，預設為null
      * @param {Object} [option.transaction=null] 輸入交易(transaction)物件，預設為null
      * @param {boolean} [option.autoInsert=true] 輸入是否於儲存時發現原本無數據，則自動改以插入處理，預設為true
-     * @returns {Promise} 回傳Promise，resolve回傳儲存結果，reject回傳錯誤訊息
+     * @returns {Promise} 回傳Promise，resolve回傳與輸入等長之儲存結果陣列[{n,nInserted,nModified,ok}]，reject回傳錯誤訊息
      */
     async function save(data, option = {}) {
 
@@ -534,19 +1166,22 @@ function WOrmReladb(opt = {}) {
         //autoInsert
         let autoInsert = get(option, 'autoInsert', true)
 
-        //pm
-        let pm = genPm()
+        //isErr, res
+        let isErr = false
+        let res = null
 
         //si
         let si = instance
         if (instance === null) {
             si = await initSequelize()
         }
-        // else {
-        //     console.log('save use instance', instance)
-        // }
 
-        if (!si.err) {
+        try {
+
+            //check
+            if (si.err) {
+                throw si.err
+            }
 
             //md
             let md = si.mds[opt.cl]
@@ -556,157 +1191,61 @@ function WOrmReladb(opt = {}) {
                 data = [data]
             }
 
-            //check
-            if (opt.autoGenPk) {
-                data = map(data, function(v) {
-                    if (!v[opt.pk]) {
-                        v[opt.pk] = genID()
-                    }
-                    return v
-                })
-            }
+            //procPk, 須於任何寫入之前一次完成, 令autoGenPk為false而拋錯時同批之有效筆數亦不會被寫入
+            data = map(data, (v, k) => {
+                return procPk(md, v, k)
+            })
 
-            // //tr
-            // let t = null
-            // let tr = {}
-            // if (atomic) {
-            //     t = await sequelize.transaction() //使用Unmanaged transaction (then-callback)
-            //     tr = {
-            //         transaction: t
-            //     }
-            // }
+            //ks, model之欄位名, 供合併後比對時濾除非欄位之鍵
+            let ks = keys(get(md, 'rawAttributes', {}))
 
             //pmSeries
-            await pmSeries(data, async function(v) {
-                let pmm = genPm()
-
-                //err
-                let err = null
-
-                //r
-                let r
-                if (v[opt.pk]) {
-                    //有id
-
-                    //setting
-                    let setting = {
-                        where: { [opt.pk]: v[opt.pk] },
-                        raw: true,
-                    }
-                    if (transaction !== null) {
-                        setting.transaction = transaction
-                    }
-
-                    //findOne
-                    r = await md.findOne(setting)
-                        .catch((error) => {
-                            ee.emit('error', error)
-                            err = error
-                        })
-
-                }
-                else {
-                    //沒有id
-                    err = `${opt.pk} is invalid`
-                }
-
-                if (r) {
-                    //有找到資料
-
-                    //setting
-                    let setting = {
-                        where: { [opt.pk]: v[opt.pk] },
-                    }
-                    if (transaction !== null) {
-                        setting.transaction = transaction
-                    }
-
-                    let rr = await md.update(v, setting)
-                        .catch((error) => {
-                            ee.emit('error', error)
-                            err = error
-                        })
-
-                    if (rr) {
-                        //console.log('update 有更新資料', rr)
-                        pmm.resolve({ n: 1, nModified: 1, ok: 1 })
-                    }
-                    else {
-                        //console.log('update 沒有更新資料', err)
-                        pmm.resolve({ n: 1, nModified: 0, ok: 0 })
-                    }
-
-                }
-                else {
-                    //沒有找到資料
-
-                    //autoInsert
-                    if (autoInsert) {
-
-                        //setting
-                        let setting = { }
-                        if (transaction !== null) {
-                            setting.transaction = transaction
-                        }
-
-                        //create
-                        let rr = await md.create(v, setting)
-                            .catch((error) => {
-                                ee.emit('error', error)
-                                err = error
-                            })
-
-                        if (rr) {
-                            //console.log('create 有插入資料', rr)
-                            pmm.resolve({ n: 1, nInserted: 1, ok: 1 })
-                        }
-                        else {
-                            //console.log('create 沒有插入資料', err)
-                            pmm.resolve({ n: 1, nInserted: 0, ok: 0 })
-                        }
-
-                    }
-                    else {
-                        //console.log('findOne 沒有找到資料也不自動插入', err)
-                        pmm.resolve({ n: 0, nModified: 0, ok: 1 })
-                    }
-
-                }
-
-                pmm._err = err //避免eslint錯誤訊息
-                return pmm
+            res = await pmSeries(data, async(v) => {
+                return saveOne(md, v, autoInsert, transaction, ks)
             })
-                .then((res) => {
-                    pm.resolve(res)
-                    ee.emit('change', 'save', data, res)
-                })
-                .catch((error) => {
-                    pm.reject(error)
-                })
 
         }
-        else {
-            pm.reject(si.err)
+        catch (err) {
+            isErr = true
+            res = err
+        }
+        finally {
+
+            //closeSequelize
+            if (instance === null) { //內部自動初始化得close
+                await closeSequelize('save')
+            }
+
         }
 
-        //closeSequelize
-        if (instance === null) { //內部自動初始化得close
-            await closeSequelize('save')
+        //check
+        if (isErr) {
+            emitError('save', data, res)
+            return Promise.reject(res)
         }
 
-        return pm
+        //emit, 須於結果定案後發出
+        emitChange('save', data, res)
+
+        return res
     }
 
 
     /**
      * 刪除數據
      *
+     * 註: 回傳陣列恆與輸入等長，各筆之n與nDeleted皆為主鍵命中筆數，值為0或1，未命中為0且屬正常結果
+     * 註: 判斷某筆是否真的被刪除一律以nDeleted為準
+     * 註: 未帶有效主鍵者為該筆之輸入問題，回ok為0與err且不送查詢條件(以免無效值被轉為null而誤中其他數據)，
+     * 不中斷其餘筆數，以此與[主鍵未命中]之ok為1區辨
+     * 註: 本函數不受opt.autoGenPk影響，於任一設定下皆不補值
+     *
      * @memberOf WOrmReladb
      * @param {Object|Array} data 輸入數據物件或陣列，會查找各數據的opt.pk值，有存在者就刪除
      * @param {Object} [option={}] 輸入設定物件，預設為{}
      * @param {Object} [option.instance=null] 輸入實例instance物件，預設為null
      * @param {Object} [option.transaction=null] 輸入交易(transaction)物件，預設為null
-     * @returns {Promise} 回傳Promise，resolve回傳刪除結果，reject回傳錯誤訊息
+     * @returns {Promise} 回傳Promise，resolve回傳與輸入等長之刪除結果陣列[{n,nDeleted,ok}]，reject回傳錯誤訊息
      */
     async function del(data, option = {}) {
 
@@ -731,19 +1270,22 @@ function WOrmReladb(opt = {}) {
             }
         }
 
-        //pm
-        let pm = genPm()
+        //isErr, res
+        let isErr = false
+        let res = null
 
         //si
         let si = instance
         if (instance === null) {
             si = await initSequelize()
         }
-        // else {
-        //     console.log('del use instance', instance)
-        // }
 
-        if (!si.err) {
+        try {
+
+            //check
+            if (si.err) {
+                throw si.err
+            }
 
             //md
             let md = si.mds[opt.cl]
@@ -754,106 +1296,111 @@ function WOrmReladb(opt = {}) {
             }
 
             //pmSeries
-            await pmSeries(data, async function(v) {
-                let pmm = genPm()
+            res = await pmSeries(data, async(v) => {
 
-                //err
-                let err = null
+                //rest
+                let rest = null
 
-                //r
-                let r
-                if (v[opt.pk]) {
-                    //有id
+                //pkv
+                let pkv = get(v, opt.pk)
 
-                    //setting
-                    let setting = {
-                        where: { [opt.pk]: v[opt.pk] },
-                        raw: true,
+                //check, 未帶有效主鍵者不補值亦不送查詢, 直接視為該筆無法處理
+                if (!isEffPk(pkv)) {
+
+                    //rest
+                    rest = {
+                        n: 0,
+                        nDeleted: 0,
+                        ok: 0,
+                        err: `invalid ${opt.pk}[${pkv}]`,
                     }
-                    if (transaction !== null) {
-                        setting.transaction = transaction
-                    }
 
-                    //findOne
-                    r = await md.findOne(setting)
-                        .catch((error) => {
-                            ee.emit('error', error)
-                            err = error
-                        })
+                    //emit
+                    emitError('del', [v], rest.err)
 
-                }
-                else {
-                    //沒有id
-                    err = `${opt.pk} is invalid`
+                    return rest
                 }
 
-                if (r) {
-                    //有找到資料
-
-                    //setting
-                    let setting = {
-                        where: { [opt.pk]: v[opt.pk] },
-                    }
-                    if (transaction !== null) {
-                        setting.transaction = transaction //destroy的說明寫不需transaction但實際需要 (2020/10/07)
-                    }
-
-                    //destroy
-                    let rr = await md.destroy(setting)
-                        .catch((error) => {
-                            ee.emit('error', error)
-                            err = error
-                        })
-
-                    if (rr) {
-                        //console.log('destroy 有刪除資料', rr)
-                        pmm.resolve({ n: 1, nDeleted: 1, ok: 1 })
-                    }
-                    else {
-                        //console.log('destroy 沒有刪除資料', err)
-                        pmm.resolve({ n: 1, nDeleted: 0, ok: 0 })
-                    }
-
+                //setting
+                let setting = {
+                    where: { [opt.pk]: pkv },
                 }
-                else {
-                    //console.log('findOne 沒有找到資料', err)
-                    pmm.resolve({ n: 0, nDeleted: 0, ok: 1 })
+                if (transaction !== null) {
+                    setting.transaction = transaction //destroy的說明寫不需transaction但實際需要 (2020/10/07)
                 }
 
-                pmm._err = err //避免eslint錯誤訊息
-                return pmm
+                //destroy, 單一DELETE語句即可取得命中筆數, 不另行findOne以免多一次往返且與刪除間存在競態
+                await md.destroy(setting)
+                    .then((r) => {
+
+                        //nDel, n與nDeleted皆為主鍵命中筆數, 未命中為0且屬正常結果
+                        let nDel = isnum(r) ? r : 0
+
+                        //rest
+                        rest = {
+                            n: nDel,
+                            nDeleted: nDel,
+                            ok: 1,
+                        }
+
+                    })
+                    .catch((err) => {
+
+                        //rest, 本筆失敗不中斷整批
+                        rest = {
+                            n: 1,
+                            nDeleted: 0,
+                            ok: 0,
+                            err: getErrMsg(err),
+                        }
+
+                        //emit
+                        emitError('del', [v], rest.err)
+
+                    })
+
+                return rest
             })
-                .then((res) => {
-                    pm.resolve(res)
-                    ee.emit('change', 'del', data, res)
-                })
-                .catch((res) => {
-                    pm.reject(res)
-                })
 
         }
-        else {
-            pm.reject(si.err)
+        catch (err) {
+            isErr = true
+            res = err
+        }
+        finally {
+
+            //closeSequelize
+            if (instance === null) { //內部自動初始化得close
+                await closeSequelize('del')
+            }
+
         }
 
-        //closeSequelize
-        if (instance === null) { //內部自動初始化得close
-            await closeSequelize('del')
+        //check
+        if (isErr) {
+            emitError('del', data, res)
+            return Promise.reject(res)
         }
 
-        return pm
+        //emit, 須於結果定案後發出
+        emitChange('del', data, res)
+
+        return res
     }
 
 
     /**
-     * 刪除數據，需與del分開，避免未傳數據導致直接刪除全表
+     * 依條件刪除多筆數據，需與del分開，避免未傳數據導致直接刪除全表
+     *
+     * 註: n與nDeleted皆為實際刪除筆數，兩者恆相等，n不得取全表筆數
+     * 註: find未給或為空物件時刪除全部數據；條件無命中時回{n:0,nDeleted:0,ok:1}，不視為錯誤
      *
      * @memberOf WOrmReladb
      * @param {Object} [find={}] 輸入刪除條件物件，不給予find則代表刪除全部數據
      * @param {Object} [option={}] 輸入設定物件，預設為{}
      * @param {Object} [option.instance=null] 輸入實例instance物件，預設為null
      * @param {Object} [option.transaction=null] 輸入交易(transaction)物件，預設為null
-     * @returns {Promise} 回傳Promise，resolve回傳刪除結果，reject回傳錯誤訊息
+     * @returns {Promise} 回傳Promise，resolve回傳刪除結果{n,nDeleted,ok}，reject回傳錯誤訊息
      */
     async function delAll(find = {}, option = {}) {
 
@@ -876,19 +1423,22 @@ function WOrmReladb(opt = {}) {
             }
         }
 
-        //pm
-        let pm = genPm()
+        //isErr, res
+        let isErr = false
+        let res = null
 
         //si
         let si = instance
         if (instance === null) {
             si = await initSequelize()
         }
-        // else {
-        //     console.log('delAll use instance', instance)
-        // }
 
-        if (!si.err) {
+        try {
+
+            //check
+            if (si.err) {
+                throw si.err
+            }
 
             //md
             let md = si.mds[opt.cl]
@@ -901,29 +1451,41 @@ function WOrmReladb(opt = {}) {
                 setting.transaction = transaction //destroy的說明寫不需transaction但實際需要 (2020/10/07)
             }
 
-            //destroy
-            await md.destroy(setting)
-                .then((res) => {
-                    res = { n: res, nDeleted: res, ok: 1 }
-                    pm.resolve(res)
-                    ee.emit('change', 'delAll', null, res)
-                })
-                .catch((error) => {
-                    ee.emit('error', error)
-                    pm.reject({ n: 0, ok: 0 })
-                })
+            //destroy, n與nDeleted皆為實際刪除筆數, 條件無命中時為0且屬正常結果
+            let r = await md.destroy(setting)
+            let nDel = isnum(r) ? r : 0
+
+            //res
+            res = {
+                n: nDel,
+                nDeleted: nDel,
+                ok: 1,
+            }
 
         }
-        else {
-            pm.reject(si.err)
+        catch (err) {
+            isErr = true
+            res = err
+        }
+        finally {
+
+            //closeSequelize
+            if (instance === null) { //內部自動初始化得close
+                await closeSequelize('delAll')
+            }
+
         }
 
-        //closeSequelize
-        if (instance === null) { //內部自動初始化得close
-            await closeSequelize('delAll')
+        //check
+        if (isErr) {
+            emitError('delAll', null, res)
+            return Promise.reject(res)
         }
 
-        return pm
+        //emit, 須於結果定案後發出
+        emitChange('delAll', null, res)
+
+        return res
     }
 
 
@@ -1045,8 +1607,14 @@ function WOrmReladb(opt = {}) {
         ee.select = function() {
             return pmq(select, ...arguments)
         }
+        ee.selectByPk = function() {
+            return pmq(selectByPk, ...arguments)
+        }
         ee.insert = function() {
             return pmq(insert, ...arguments)
+        }
+        ee.insertBulk = function() {
+            return pmq(insertBulk, ...arguments)
         }
         ee.save = function() {
             return pmq(save, ...arguments)
@@ -1060,7 +1628,9 @@ function WOrmReladb(opt = {}) {
     }
     else {
         ee.select = select
+        ee.selectByPk = selectByPk
         ee.insert = insert
+        ee.insertBulk = insertBulk
         ee.save = save
         ee.del = del
         ee.delAll = delAll
