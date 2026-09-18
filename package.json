@@ -1,13 +1,13 @@
 {
   "name": "w-orm-reladb",
-  "version": "1.0.60",
+  "version": "1.1.1",
   "main": "dist/w-orm-reladb.umd.js",
   "dependencies": {
     "json5": "^2.2.3",
     "sqlite3": "^6.0.1",
     "tedious": "^19.2.2",
-    "w-auto-sequelize": "^1.0.42",
-    "wsemi": "^1.8.92"
+    "w-auto-sequelize": "^1.0.43",
+    "wsemi": "^1.9.0"
   },
   "dependenciesTemp": {
     "@journeyapps/sqlcipher": "^5.3.1",
