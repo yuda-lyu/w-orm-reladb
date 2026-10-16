@@ -1,6 +1,7 @@
 import assert from 'assert'
 import Sequelize from 'sequelize'
 import wo from '../src/WOrmReladb.mjs'
+import cvFind from '../src/cvFind.mjs'
 
 
 //本檔為mssql與sqlite共用之測試套組, 令兩種後端以同一組斷言驗證, 避免各自漂移
@@ -1003,6 +1004,27 @@ export function defineSuites(label, getOpt) {
             ['DATE 以epoch數值比較', { d: { $lt: Date.parse('2020-01-01T00:00:00Z') } }, ['r1']],
             ['同義之$lt與Op.lt', { i: { $lt: 3, [Op.lt]: 100 } }, ['r1', 'r2']],
             ['$not $in [null]為非null', { i: { $not: { $in: [null] } } }, NN],
+
+            //審計02(規格句 R5): 欄名正確時, 空集合之各入口語意不變——$in:[]恆假、$nin:[]恆真且含NULL列(r6)、$not:{$in:[]}為全部;
+            //空集合改為引用其欄位(f IS NULL AND 1 = 0 / f IS NULL OR 1 = 1)後, 命中集合須與原常數形式相同; select命中 = delAll刪除(R1)
+            ['TEXT $in 空陣列為無', { t: { $in: [] } }, []],
+            ['TEXT $nin 空陣列為全部(含NULL列)', { t: { $nin: [] } }, ALL],
+            ['TEXT 陣列值[]為無', { t: [] }, []],
+            ['Op.in 空陣列為無', { i: { [Op.in]: [] } }, []],
+            ['Op.notIn 空陣列為全部', { i: { [Op.notIn]: [] } }, ALL],
+            ['$not $nin 空陣列為無', { t: { $not: { $nin: [] } } }, []],
+            ['Symbol Op.not 包 Op.notIn 空陣列為無', { i: { [Op.not]: { [Op.notIn]: [] } } }, []],
+            ['$in空與$nin空並存為無', { t: { $in: [], $nin: [] } }, []],
+            ['$or 含空$nin 為全部', { $or: [{ t: { $nin: [] } }, { s: 'zz' }] }, ALL],
+            ['$and 含空$in 為無', { $and: [{ t: { $in: [] } }, { s: 's1' }] }, []],
+            ['$nor 含空$in 為全部', { $nor: [{ t: { $in: [] } }] }, ALL],
+            ['$nor 含空$nin 為無', { $nor: [{ t: { $nin: [] } }] }, []],
+            ['文件層Op.not 包空$in 為全部', { [Op.not]: { t: { $in: [] } } }, ALL],
+            ['主鍵欄 $nin 空陣列為全部', { id: { $nin: [] } }, ALL],
+            ['主鍵欄 $in 空陣列為無', { id: { $in: [] } }, []],
+            ['DATE 欄 $nin 空陣列為全部', { d: { $nin: [] } }, ALL],
+            ['BOOLEAN 欄 $in 空陣列為無', { b: { $in: [] } }, []],
+            ['空$nin 與其他欄條件AND', { $and: [{ t: { $nin: [] } }, { i: { $gt: 3 } }] }, ['r4', 'r5']],
             //BOOLEAN之比較依1/0
             ['BOOLEAN $gt false', { b: { $gt: false } }, ['r1', 'r3', 'r5']],
             ['BOOLEAN $not $gt true', { b: { $not: { $gt: true } } }, NN],
@@ -1076,6 +1098,30 @@ export function defineSuites(label, getOpt) {
             ['原型上之條件', Object.create({ s: 's1' }), 'find must be a plain object'],
             ['帶toStringTag之物件', { s: 's1', [Symbol.toStringTag]: 'Q' }, 'unsupported symbol operator'],
             ['欄位層Op.or空陣列', { i: { [Sequelize.Op.or]: [] } }, 'unsupported symbol operator'],
+
+            //run04(規格句 R4欄名解析 嚴格鍵): 鍵須與屬性名或資料庫欄名完全相符, 其餘一律於轉譯階段reject, 不倚賴資料庫之識別字解析(兩方言同結果、兩函數訊息相同);
+            //原sqlite下型別不符之變體鍵使delAll刪除全部非NULL列, 並有sqlite隱含欄rowid、引號被sequelize刪除而成既有欄、mssql之全形/尾端空白/可忽略字元等價之繞過
+            ['欄名大小寫變體 × 非數值字串', { I: { $lt: 'abc' } }, 'unknown column name [I]'],
+            ['欄名大小寫變體 × 非日期字串', { D: { $lt: 'garbage' } }, 'unknown column name [D]'],
+            ['欄名全形變體(mssql預設定序視為同一識別字)', { 'ｉ': { $lt: 'abc' } }, 'unknown column name'],
+            ['欄名尾端空白(mssql忽略識別字尾端空白)', { 'i ': { $lt: 'abc' } }, 'unknown column name'],
+            ['欄名尾端全形空白', { ['i' + String.fromCharCode(0x3000)]: { $lt: 'abc' } }, 'unknown column name'],
+            ['欄名附加可忽略字元(mssql預設定序視為同一識別字)', { ['i' + String.fromCharCode(0xFEFF)]: { $lt: 'abc' } }, 'unknown column name'],
+            ['欄名以mssql預設定序之等價字元(U+026A)取代i', { [String.fromCharCode(0x26A)]: { $lt: 'abc' } }, 'unknown column name'],
+            ['sqlite隱含欄rowid(attrs未列)', { rowid: { $lt: 'abc' } }, 'unknown column name [rowid]'],
+            ['欄名含反引號(sqlite之quoteIdentifier刪除之而成i)', { 'i`': { $lt: 'abc' } }, 'unsupported column name'],
+            ['欄名含方括號(mssql之quoteIdentifier刪除之而成i)', { 'i[]': { $lt: 'abc' } }, 'unsupported column name'],
+            ['欄名含單引號', { 'i\'': { $lt: 'abc' } }, 'unsupported column name'],
+            ['欄名含雙引號', { 'i"': { $lt: 'abc' } }, 'unsupported column name'],
+            ['欄名含點(JSON路徑/表.欄)', { 'i.x': { $lt: 'abc' } }, 'unsupported column name'],
+            ['Object.prototype成員名', { constructor: { $lt: 'abc' } }, 'unsupported column name [constructor]'],
+            //run04(sol H1): 僅有值為undefined之$options不產生任何子式, 條件消失而成恆真, delAll刪全表
+            ['僅$options為undefined', { s: { $options: undefined } }, 'operator object has no operator'],
+            //審計02 外審 opus [2](規格句 R4 DATE: 換算UTC後年份須在1–9999): 年10000起 sequelize 以5位數格式化, sqlite 以文字比較致 $gt 命中並刪除全部日期列
+            ['DATE欄收UTC年10000之Date', { d: { $gt: new Date(253402300800000) } }, 'does not match column type [date]'],
+            ['DATE欄收UTC年10000之epoch', { d: { $gt: 253402300800000 } }, 'does not match column type [date]'],
+            ['DATE欄收UTC年10000之ISO字串', { d: { $gt: '9999-12-31T23:30:00-05:00' } }, 'does not match column type [date]'],
+            ['DATE欄收UTC年0000之epoch', { d: { $lt: -62135596800001 } }, 'does not match column type [date]'],
             ['讀值拋錯之getter', Object.defineProperty({}, 's', {
                 enumerable: true,
                 get: () => {
@@ -1083,6 +1129,31 @@ export function defineSuites(label, getOpt) {
                 }
             }), 'getter boom'],
         ]
+
+        //run04(規格句 R3欄位引用不變式、R4嚴格鍵、系列最低要求②③): attrs已給時不存在之欄 × 空集合各入口於轉譯階段reject(原常數形式使delAll清空全表;
+        //HEAD改為引用欄位後仰賴資料庫回報, 現由嚴格鍵直接reject, 兩函數訊息相同, mssql同一語句多次引用不存在之欄而err.message為空之情形不再可達)
+        for (let [t, col, find] of [
+            ['空$in', 'nocol', { nocol: { $in: [] } }],
+            ['空$nin', 'nocol', { nocol: { $nin: [] } }],
+            ['陣列值[]', 'nocol', { nocol: [] }],
+            ['Op.in空陣列', 'nocol', { nocol: { [Sequelize.Op.in]: [] } }],
+            ['Op.notIn空陣列', 'nocol', { nocol: { [Sequelize.Op.notIn]: [] } }],
+            ['$not包空$in', 'nocol', { nocol: { $not: { $in: [] } } }],
+            ['$not包空$nin', 'nocol', { nocol: { $not: { $nin: [] } } }],
+            ['Symbol Op.not包Op.notIn空陣列', 'nocol', { nocol: { [Sequelize.Op.not]: { [Sequelize.Op.notIn]: [] } } }],
+            ['$in空與$nin空並存', 'nocol', { nocol: { $in: [], $nin: [] } }],
+            ['$or含空$nin', 'nocol', { $or: [{ nocol: { $nin: [] } }, { id: 'zz' }] }],
+            ['$and含空$in', 'nocol', { $and: [{ nocol: { $in: [] } }, { id: 'r1' }] }],
+            ['$nor含空$in', 'nocol', { $nor: [{ nocol: { $in: [] } }] }],
+            ['文件層Op.not包空$in', 'nocol', { [Sequelize.Op.not]: { nocol: { $in: [] } } }],
+            ['欄名打錯且排除清單恰為空', 'sttus', { sttus: { $nin: [] } }],
+        ]) {
+            bads.push([`不存在之欄 × ${t}`, find, `unknown column name [${col}]`])
+        }
+        //合法值 × 各欄型之大小寫變體鍵: 不論型別相符與否一律reject(原與屬性名鍵同結果, 見帳本〈破壞性變更紀錄〉)
+        for (let [col, val] of [['s', 's1'], ['t', 'peter'], ['i', 1], ['f', 1.5], ['p', 1.5], ['dec', 1.25], ['b', true], ['d', new Date('2019-01-01T00:00:00Z')], ['d', '2019-01-01T00:00:00Z'], ['d', { $gt: Date.parse('2030-01-01T00:00:00Z') }]]) {
+            bads.push([`欄名大小寫變體(${col}) × 合法值`, { [col.toUpperCase()]: val }, `unknown column name [${col.toUpperCase()}]`])
+        }
 
         for (let [t, find, msg] of bads) {
             it(`不合法條件兩函數皆reject且資料不變: ${t}`, async function() {
@@ -1315,6 +1386,37 @@ export function defineSuites(label, getOpt) {
                 })
             }
 
+
+            //run04(規格句 R4欄名解析 嚴格鍵、R8): 主鍵欄之非完全相符鍵一律於轉譯階段reject, 不倚賴資料庫之識別字解析(原大小寫變體於兩方言、
+            //mssql之全形/尾端空白/可忽略字元等價皆繞過R8而命中並刪除id=12; 合法值之變體亦reject, 見帳本〈破壞性變更紀錄〉)
+            let ws = String.fromCharCode(0x3000)
+            let fe = String.fromCharCode(0xFEFF)
+            let ip = String.fromCharCode(0x26A)
+            let badKeys = [
+                ['欄名大小寫變體+前導零', { ID: '012' }, 'unknown column name [ID]'],
+                ['欄名大小寫變體+整數寫法字串', { ID: '12' }, 'unknown column name [ID]'],
+                ['欄名大小寫變體+$in字串', { Id: { $in: ['12', '5'] } }, 'unknown column name [Id]'],
+                ['欄名大小寫變體+非整數', { Id: 12.4 }, 'unknown column name [Id]'],
+                ['欄名全形變體+前導零', { 'ＩＤ': '012' }, 'unknown column name'],
+                ['欄名尾端空白+前導零', { 'id ': '012' }, 'unknown column name'],
+                ['欄名大寫+尾端空白+前導零', { 'ID  ': '012' }, 'unknown column name'],
+                ['欄名尾端全形空白+前導零', { ['id' + ws]: '012' }, 'unknown column name'],
+                ['欄名附加可忽略字元+前導零', { ['id' + fe]: '012' }, 'unknown column name'],
+                ['欄名以U+026A取代i+前導零', { [ip + 'd']: '012' }, 'unknown column name'],
+                ['欄名含反引號+前導零', { 'i`d': '012' }, 'unsupported column name'],
+                ['欄名含方括號+前導零', { 'i[d]': '012' }, 'unsupported column name'],
+                ['欄名含單引號+前導零', { 'i\'d': '012' }, 'unsupported column name'],
+            ]
+            for (let [t, find, msg] of badKeys) {
+                it(`select與delAll 主鍵欄之非完全相符鍵皆reject且不刪除: ${t}`, async function() {
+                    let rs = await errOf(wi.select(find))
+                    let rd = await errOf(wi.delAll(find))
+                    assert.ok(rs !== null && rs.indexOf(msg) >= 0, `select: ${rs}`)
+                    assert.strictEqual(rd, rs)
+                    assert.deepStrictEqual(await ids(), [5, 12])
+                })
+            }
+
         })
 
         describe('DECIMAL主鍵欄', function() {
@@ -1355,6 +1457,429 @@ export function defineSuites(label, getOpt) {
                 })
             }
 
+        })
+
+    })
+
+    describe(`${label} dateNoTz`, function() {
+
+        //審計02(規格句 R4 ctx.dateNoTz②④⑤): cvFind之ctx.dateNoTz='local'(由呼叫端明示, 供w-orm-mdb等無時區日期後端)——
+        //無時區字串依主機時區解析, select與delAll之命中須等於以本地時間分量建構之Date之命中(命中集合由JS端獨立算出); 不合法值仍reject且資料不變; 未給時維持reject
+        //以cvFind直接轉譯後交sequelize執行(WOrmReladb本身不設定該選項, R4③)
+
+        let sq = null
+        let md = null
+
+        //withTz, 暫時切換主機時區; 還原須以賦值而非delete: Windows上delete process.env.TZ不會還原主機時區(實測仍停在最後設定之時區), 故載入時先記下主機時區名稱
+        let hostTz = Intl.DateTimeFormat().resolvedOptions().timeZone
+        let withTz = async (tz, fn) => {
+            let old = process.env.TZ
+            if (tz !== null) {
+                process.env.TZ = tz
+            }
+            try {
+                return await fn()
+            }
+            finally {
+                if (tz !== null) {
+                    if (old !== undefined) {
+                        process.env.TZ = old
+                    }
+                    else if (process.platform === 'win32') {
+                        process.env.TZ = hostTz
+                    }
+                    else {
+                        delete process.env.TZ
+                    }
+                }
+            }
+        }
+
+        let L = (a) => new Date(a[0], a[1] - 1, a[2], a[3] || 0, a[4] || 0, a[5] || 0, a[6] || 0)
+        let rowsDef = {
+            r1: [2026, 1, 1, 0, 0, 0, 0],
+            r2: [2026, 6, 15, 8, 30, 15, 123],
+            r3: [2026, 6, 15, 8, 30, 15, 0],
+            r4: [2026, 12, 31, 23, 59, 59, 999],
+        }
+        let ALL = ['r1', 'r2', 'r3', 'r4', 'r5']
+        let ctx = (ex = {}) => ({ escape: (v) => sq.escape(v), attrs: md.rawAttributes, dialect: label, pk: 'id', ...ex })
+        let ids = async () => (await md.findAll({ raw: true })).map((v) => v.id).sort()
+        let orc = (fn) => Object.entries(rowsDef).filter(([, a]) => fn(L(a).getTime())).map(([id]) => id).sort()
+        let T = (a) => L(a).getTime()
+        let S0 = [2026, 6, 15, 8, 30, 15, 0]
+
+        before(async function() {
+            let o = getOpt()
+            if (label === 'sqlite') {
+                sq = new Sequelize({ dialect: 'sqlite', storage: ':memory:', logging: false })
+            }
+            else {
+                let u = new URL(o.url)
+                sq = new Sequelize(o.db, decodeURIComponent(u.username), decodeURIComponent(u.password), { dialect: 'mssql', host: u.hostname, port: Number(u.port), logging: false })
+            }
+            md = sq.define('tdtz', { id: { type: Sequelize.STRING, primaryKey: true }, d: { type: Sequelize.DATE } }, { tableName: 'tdtz', timestamps: false })
+            await md.sync({ force: true })
+        })
+
+        after(async function() {
+            if (md) {
+                await md.drop()
+            }
+            if (sq) {
+                await sq.close()
+            }
+        })
+
+        let seed = async () => {
+            await md.destroy({ where: {} })
+            let rs = Object.entries(rowsDef).map(([id, a]) => ({ id, d: L(a) }))
+            rs.push({ id: 'r5', d: null })
+            await md.bulkCreate(rs)
+        }
+
+        //[說明, find, 預期命中之id的述詞(t: 該列之毫秒時間; 於withTz內以當下時區之本地時間分量求值, 與被測實作無共用程式碼)或id陣列]
+        let cases = [
+            ['等值(T分隔,秒)', { d: '2026-01-01T00:00:00' }, (t) => t === T([2026, 1, 1])],
+            ['等值(空白分隔)', { d: '2026-06-15 08:30:15' }, (t) => t === T(S0)],
+            ['等值(省秒)', { d: '2026-01-01T00:00' }, (t) => t === T([2026, 1, 1])],
+            ['等值(毫秒.123)', { d: '2026-06-15T08:30:15.123' }, (t) => t === T([2026, 6, 15, 8, 30, 15, 123])],
+            ['等值(.123456截斷至123ms)', { d: '2026-06-15T08:30:15.123456' }, (t) => t === T([2026, 6, 15, 8, 30, 15, 123])],
+            ['$gt', { d: { $gt: '2026-06-15T08:30:15' } }, (t) => t > T(S0)],
+            ['$gte', { d: { $gte: '2026-06-15T08:30:15' } }, (t) => t >= T(S0)],
+            ['$lt', { d: { $lt: '2026-06-15T08:30:15' } }, (t) => t < T(S0)],
+            ['$lte', { d: { $lte: '2026-06-15T08:30:15' } }, (t) => t <= T(S0)],
+            ['$ne(SQL三值不含NULL列)', { d: { $ne: '2026-06-15T08:30:15' } }, (t) => t !== T(S0)],
+            ['$in', { d: { $in: ['2026-01-01T00:00:00', '2026-12-31T23:59:59.999'] } }, (t) => t === T([2026, 1, 1]) || t === T([2026, 12, 31, 23, 59, 59, 999])],
+            ['$nin(SQL三值不含NULL列)', { d: { $nin: ['2026-01-01T00:00:00', '2026-12-31T23:59:59.999'] } }, (t) => t !== T([2026, 1, 1]) && t !== T([2026, 12, 31, 23, 59, 59, 999])],
+            ['陣列值即$in', { d: ['2026-01-01T00:00:00', '2026-06-15T08:30:15'] }, (t) => t === T([2026, 1, 1]) || t === T(S0)],
+            ['$not.$gt(SQL三值不含NULL列)', { d: { $not: { $gt: '2026-06-15T08:30:15' } } }, (t) => !(t > T(S0))],
+            ['範圍$gte+$lt', { d: { $gte: '2026-06-15T00:00:00', $lt: '2026-06-16T00:00:00' } }, (t) => t >= T([2026, 6, 15]) && t < T([2026, 6, 16])],
+            ['Op.between', { d: { [Sequelize.Op.between]: ['2026-06-15T08:30:15', '2026-12-31T23:59:59.999'] } }, (t) => t >= T(S0) && t <= T([2026, 12, 31, 23, 59, 59, 999])],
+            ['Op.in', { d: { [Sequelize.Op.in]: ['2026-01-01T00:00:00'] } }, (t) => t === T([2026, 1, 1])],
+            ['$in混有帶時區字串', { d: { $in: ['2026-01-01T00:00:00', '2026-06-15T00:30:15.123Z'] } }, (t) => t === T([2026, 1, 1]) || t === Date.parse('2026-06-15T00:30:15.123Z')],
+            ['null照舊', { d: null }, ['r5']],
+        ]
+
+        for (let tz of [null, 'UTC', 'America/New_York']) {
+            for (let [t, find, pe] of cases) {
+                it(`dateNoTz=local 之 select 與 delAll 命中一致且等於本地時間分量之命中 [TZ=${tz === null ? 'host' : tz}]: ${t}`, async function() {
+                    await withTz(tz, async () => {
+                        //預期值於該時區下以本地時間分量獨立求出(非經被測實作)
+                        let exp = typeof pe === 'function' ? orc(pe) : pe
+                        await seed()
+                        let w = cvFind(find, ctx({ dateNoTz: 'local' }))
+                        let hit = (await md.findAll({ where: w, raw: true })).map((v) => v.id).sort()
+                        assert.deepStrictEqual(hit, exp, 'select之命中')
+                        let r = await md.destroy({ where: w })
+                        let left = await ids()
+                        let gone = ALL.filter((v) => left.indexOf(v) < 0)
+                        assert.deepStrictEqual(gone, hit, 'delAll之刪除')
+                        assert.strictEqual(r, hit.length)
+                    })
+                })
+            }
+        }
+
+        //不合法值與未給時之拒收, 於轉譯階段即拋錯(不交給資料庫), 屬純函數行為, 由test/unit-cvfind.test.mjs之「審計02」組逐案斷言
+        //WOrmReladb未接線dateNoTz, 故不在此以select/delAll重述
+    })
+
+
+    describe(`${label} 欄名別名與撞名`, function() {
+
+        //審計02 外審修正輪2、run04 重構(規格句 R4欄名解析〔嚴格鍵〕、R4 DATE通過檢核者轉Date送出; 系列最低要求①②): 屬性名≠欄名之model於資料庫上實跑——
+        //(1)資料庫欄名 ≡ 屬性名: select命中 = delAll刪除 = 由seed數據獨立推得之id集合(大小寫變體等非完全相符之鍵一律reject, 見bads); (2)型別不符reject且資料不變;
+        //(3)撞名(屬性ra之欄名rb恰為屬性rb之名稱, sequelize把鍵ra映射為rb後以rawAttributes.rb之型別序列化值): 反查所得非本屬性者reject(不論型別類別), 資料不變
+        //以cvFind直接轉譯後交sequelize之findAll/destroy執行(與WOrmReladb之select/delAll同一路徑), 同dateNoTz段
+
+        let sq = null
+        let md = null
+        let ALL = ['r1', 'r2', 'r3', 'r4']
+        let ctx = () => ({ escape: (v) => sq.escape(v), attrs: md.rawAttributes, dialect: label, pk: 'id' })
+        let ids = async () => (await md.findAll({ raw: true })).map((v) => v.id).sort()
+        let hit = async (find) => (await md.findAll({ where: cvFind(find, ctx()), raw: true })).map((v) => v.id).sort()
+        //errOf, 執行fn並回傳其拋出之訊息(未拋錯為null); cvFind於轉譯階段同步拋錯, 故須包在函數內
+        let errOf = async (fn) => {
+            try {
+                await fn()
+                return null
+            }
+            catch (e) {
+                return String(e.message)
+            }
+        }
+
+        before(async function() {
+            let o = getOpt()
+            if (label === 'sqlite') {
+                sq = new Sequelize({ dialect: 'sqlite', storage: ':memory:', logging: false })
+            }
+            else {
+                let u = new URL(o.url)
+                sq = new Sequelize(o.db, decodeURIComponent(u.username), decodeURIComponent(u.password), { dialect: 'mssql', host: u.hostname, port: Number(u.port), logging: false })
+            }
+            md = sq.define('talias', {
+                id: { type: Sequelize.STRING, primaryKey: true },
+                ageNum: { type: Sequelize.INTEGER, field: 'age_num' },
+                title: { type: Sequelize.TEXT, field: 'physical_title' },
+                at: { type: Sequelize.DATE, field: 'at_col' },
+                ra: { type: Sequelize.DATE, field: 'rb' }, //欄名rb, 恰為下一屬性之名稱
+                rb: { type: Sequelize.INTEGER, field: 'rc' },
+            }, { tableName: 'talias', timestamps: false })
+            await md.sync({ force: true })
+        })
+
+        after(async function() {
+            if (md) {
+                await md.drop()
+            }
+            if (sq) {
+                await sq.close()
+            }
+        })
+
+        let seed = async () => {
+            await md.destroy({ where: {} })
+            await md.bulkCreate([
+                { id: 'r1', ageNum: 5, title: 'rose_mary', at: new Date('2019-01-01T00:00:00Z'), ra: new Date('2019-01-01T00:00:00Z'), rb: 5 },
+                { id: 'r2', ageNum: 6, title: 'Peter', at: new Date('2026-06-15T00:00:00Z'), ra: new Date('2026-06-15T00:00:00Z'), rb: 6 },
+                { id: 'r3', ageNum: 7, title: '100%', at: new Date('2026-06-01T00:00:00Z'), ra: new Date('2026-06-01T00:00:00Z'), rb: 7 },
+                { id: 'r4' },
+            ])
+        }
+
+        //[說明, 屬性名, 資料庫欄名, 值, 預期命中之id]; 預期命中由seed()之數據獨立推得(非取自同一實作之屬性名鍵命中, run05 sol F08、opus [8]):
+        //ageNum: r1=5 r2=6 r3=7 r4=NULL; title: r1='rose_mary' r2='Peter' r3='100%' r4=NULL; at: r1=2019-01-01 r2=2026-06-15 r3=2026-06-01 r4=NULL
+        let alias = [
+            ['INTEGER 等值', 'ageNum', 'age_num', 5, ['r1']],
+            ['INTEGER 等值(另一列)', 'ageNum', 'age_num', 6, ['r2']],
+            ['INTEGER $gt', 'ageNum', 'age_num', { $gt: 5 }, ['r2', 'r3']],
+            ['INTEGER 數值字串', 'ageNum', 'age_num', '7', ['r3']],
+            ['INTEGER 空$nin', 'ageNum', 'age_num', { $nin: [] }, ['r1', 'r2', 'r3', 'r4']], //A2: 空集合$nin為恆真(含NULL列)
+            ['INTEGER 空$in', 'ageNum', 'age_num', { $in: [] }, []],
+            ['TEXT 等值', 'title', 'physical_title', 'Peter', ['r2']],
+            ['TEXT $regex', 'title', 'physical_title', { $regex: '_' }, ['r1']], //底線為字面
+            ['TEXT $regex i', 'title', 'physical_title', { $regex: 'E', $options: 'i' }, ['r1', 'r2']],
+            ['DATE $lt ISO字串', 'at', 'at_col', { $lt: '2026-06-01T00:00:00Z' }, ['r1']],
+            ['DATE $gt epoch', 'at', 'at_col', { $gt: Date.parse('2020-01-01T00:00:00Z') }, ['r2', 'r3']],
+            ['DATE $in 混合', 'at', 'at_col', { $in: [new Date('2019-01-01T00:00:00Z'), '2026-06-15T00:00:00Z', Date.parse('2026-06-02T00:00:00Z')] }, ['r1', 'r2']],
+            ['DATE 等值Date', 'at', 'at_col', new Date('2019-01-01T00:00:00Z'), ['r1']],
+            ['DATE null', 'at', 'at_col', null, ['r4']],
+        ]
+        for (let [t, prop, col, val, exp] of alias) {
+            it(`資料庫欄名 ≡ 屬性名, select命中 = delAll刪除: ${t}`, async function() {
+                await seed()
+                let a = await hit({ [prop]: val })
+                assert.deepStrictEqual(a, exp, 'select: 屬性名鍵之命中須等於由seed數據獨立推得者')
+                let b = await hit({ [col]: val })
+                assert.deepStrictEqual(b, exp, 'select: 欄名鍵之命中須等於由seed數據獨立推得者')
+                await md.destroy({ where: cvFind({ [col]: val }, ctx()) })
+                let left = await ids()
+                assert.deepStrictEqual(ALL.filter((v) => left.indexOf(v) < 0), exp, 'delAll: 刪除者須等於由seed數據獨立推得者')
+            })
+        }
+
+        //未給attrs(深引用者可不給; 鍵不解析而交資料庫, R4)之空集合各入口經資料庫實跑: 原badsNoCol段於嚴格鍵改制後移除, 此處保留其資料庫實跑之證據(run05 opus [9])
+        //屬性名鍵仍由sequelize映射為資料庫欄名; 不存在之欄須由資料庫回報而不得清空或刪除
+        let ctx0 = () => ({ escape: (v) => sq.escape(v), dialect: label })
+        let hit0 = async (find) => (await md.findAll({ where: cvFind(find, ctx0()), raw: true })).map((v) => v.id).sort()
+        it('未給attrs: 空集合$in/$nin/陣列值於資料庫實跑之命中(A2), 欄名經sequelize映射', async function() {
+            await seed()
+            assert.deepStrictEqual(await hit0({ ageNum: { $in: [] } }), [])
+            assert.deepStrictEqual(await hit0({ ageNum: [] }), [])
+            assert.deepStrictEqual(await hit0({ ageNum: { $nin: [] } }), ALL)
+            assert.deepStrictEqual(await hit0({ ageNum: { $not: { $in: [] } } }), ALL)
+            assert.deepStrictEqual(await hit0({ age_num: { $nin: [] } }), ALL)
+            assert.deepStrictEqual(await hit0({ ageNum: 5 }), ['r1'])
+        })
+        for (let [t, find] of [
+            ['$nin:[]', { nocol: { $nin: [] } }],
+            ['$in:[]', { nocol: { $in: [] } }],
+            ['陣列值[]', { nocol: [] }],
+            ['$not:{$in:[]}', { nocol: { $not: { $in: [] } } }],
+            ['$or含空$nin', { $or: [{ nocol: { $nin: [] } }, { id: 'zz' }] }],
+        ]) {
+            it(`未給attrs: 不存在之欄 × 空集合由資料庫回報而reject, 資料不變: ${t}`, async function() {
+                await seed()
+                let rs = await errOf(() => md.findAll({ where: cvFind(find, ctx0()), raw: true }))
+                let rd = await errOf(() => md.destroy({ where: cvFind(find, ctx0()) }))
+                assert.ok(rs !== null, 'select未reject')
+                assert.ok(rd !== null, 'delAll未reject')
+                assert.deepStrictEqual(await ids(), ALL)
+            })
+        }
+
+        //型別不符須於轉譯階段reject: 原sqlite下 age_num < 'abc' 恆真而delAll刪除全部非NULL列
+        let bads = [
+            ['整數欄之欄名 × 非數值字串', { age_num: { $lt: 'abc' } }, '[int]'],
+            ['整數欄之欄名大小寫變體(不解析)', { AGE_NUM: 'abc' }, 'unknown column name [AGE_NUM]'],
+            ['DATE欄之欄名 × 非日期字串', { at_col: { $lt: 'garbage' } }, '[date]'],
+            ['整數欄之欄名 × $regex', { age_num: { $regex: '1' } }, 'requires a string column'],
+            ['DATE欄之欄名大小寫變體 × 合法epoch', { AT_COL: { $gt: Date.parse('2030-01-01T00:00:00Z') } }, 'unknown column name [AT_COL]'],
+            ['屬性rb(欄rc) × 非數值字串', { rb: { $lt: 'abc' } }, '[int]'],
+            ['欄名rc × 非數值字串', { rc: { $lt: 'abc' } }, '[int]'],
+        ]
+        for (let [t, find, msg] of bads) {
+            it(`型別不符reject且資料不變: ${t}`, async function() {
+                await seed()
+                let rs = await errOf(() => md.findAll({ where: cvFind(find, ctx()), raw: true }))
+                let rd = await errOf(() => md.destroy({ where: cvFind(find, ctx()) }))
+                assert.ok(rs !== null && rs.indexOf(msg) >= 0, `select: ${rs}`)
+                assert.ok(rd !== null && rd.indexOf(msg) >= 0, `delAll: ${rd}`)
+                assert.deepStrictEqual(await ids(), ALL)
+            })
+        }
+
+        //撞名: 屬性ra(DATE, 欄rb)之值若照常轉Date送出, sequelize把鍵ra映射為rb後取到屬性rb(INTEGER)之型別, 以NUMBER序列化而成Date.toString文字,
+        //sqlite以文字比較而命中並刪除全部非NULL之rb列(HEAD對直接給Date者即如此); 反查所得非本屬性者須reject(不論型別類別)
+        let clash = [
+            ['DATE $lt ISO字串', { ra: { $lt: '2026-01-01T00:00:00Z' } }],
+            ['DATE 等值Date', { ra: new Date('2019-01-01T00:00:00Z') }],
+            ['DATE $gt epoch', { ra: { $gt: Date.parse('2030-01-01T00:00:00Z') } }],
+            ['DATE $in', { ra: { $in: ['2019-01-01T00:00:00Z'] } }],
+            ['DATE $nin', { ra: { $nin: [new Date('2019-01-01T00:00:00Z')] } }],
+        ]
+        for (let [t, find] of clash) {
+            it(`屬性之欄名恰為他屬性之名稱而型別類別不同: 兩函數皆reject且資料不變: ${t}`, async function() {
+                await seed()
+                let rs = await errOf(() => md.findAll({ where: cvFind(find, ctx()), raw: true }))
+                let rd = await errOf(() => md.destroy({ where: cvFind(find, ctx()) }))
+                assert.ok(rs !== null && rs.indexOf('ambiguous column name [ra]') >= 0, `select: ${rs}`)
+                assert.ok(rd !== null && rd.indexOf('ambiguous column name [ra]') >= 0, `delAll: ${rd}`)
+                assert.deepStrictEqual(await ids(), ALL)
+            })
+        }
+
+        it('撞名之他屬性(rb, 欄rc)不受影響: 屬性名鍵、欄名鍵之命中一致', async function() {
+            await seed()
+            let a = await hit({ rb: { $gt: 5 } })
+            assert.deepStrictEqual(a, ['r2', 'r3'])
+            assert.deepStrictEqual(await hit({ rc: { $gt: 5 } }), a)
+            await md.destroy({ where: cvFind({ rc: { $gt: 5 } }, ctx()) })
+            assert.deepStrictEqual(await ids(), ['r1', 'r4'])
+        })
+
+    })
+
+
+    describe(`${label} 欄名邊界`, function() {
+
+        //run05 sol F01/F02、opus [1][2][4]、自查(規格句 R4欄名解析(b)(c), 系列最低要求①②③): 欄名恰為sequelize於轉成SQL前重新解讀之形態, 於資料庫實跑——
+        //(1)映射後之欄名為空字串: sync以field||name建欄(欄名為屬性名)而mapWhereFieldNames把鍵映射為'', _joinKeyValue遇空鍵只回值, 條件成常數(WHERE (5)), delAll刪全表;
+        //(2)首尾皆$且中間有換行: isColString只比首尾字元, 比對的是去掉$之另一欄; $regex加i時LOWER(col)卻引用完整欄名, 同一find因旗標而命中不同列;
+        //(3)共用一欄: 欄名恰為先定義者之名稱時, sequelize依先定義者之型別序列化, 實體欄之型別卻由最後定義者決定
+        let sq = null
+        let mdE = null
+        let mdV = null
+        let mdS = null
+        let ctx = (md) => ({ escape: (v) => sq.escape(v), attrs: md.rawAttributes, dialect: label, pk: 'id' })
+        let ids = async (md) => (await md.findAll({ raw: true, attributes: ['id'] })).map((v) => v.id).sort()
+        let errOf = async (fn) => {
+            try {
+                await fn()
+                return null
+            }
+            catch (e) {
+                return String(e.message)
+            }
+        }
+
+        before(async function() {
+            let o = getOpt()
+            if (label === 'sqlite') {
+                sq = new Sequelize({ dialect: 'sqlite', storage: ':memory:', logging: false })
+            }
+            else {
+                let u = new URL(o.url)
+                sq = new Sequelize(o.db, decodeURIComponent(u.username), decodeURIComponent(u.password), { dialect: 'mssql', host: u.hostname, port: Number(u.port), logging: false })
+            }
+            //(1)
+            mdE = sq.define('tempfd', {
+                id: { type: Sequelize.STRING, primaryKey: true },
+                a: { type: Sequelize.INTEGER, field: '' },
+            }, { tableName: 'tempfd', timestamps: false })
+            //(2)
+            mdV = sq.define('tdollar', {
+                id: { type: Sequelize.STRING, primaryKey: true },
+                t: { type: Sequelize.STRING, field: '\nname' },
+                w: { type: Sequelize.STRING, field: '$\nname$' },
+            }, { tableName: 'tdollar', timestamps: false })
+            //(3)
+            mdS = sq.define('tshare', {
+                id: { type: Sequelize.STRING, primaryKey: true },
+                sa: { type: Sequelize.DATE, field: 'sa' },
+                sb: { type: Sequelize.INTEGER, field: 'sa' },
+            }, { tableName: 'tshare', timestamps: false })
+            await mdE.sync({ force: true })
+            await mdV.sync({ force: true })
+            await mdS.sync({ force: true })
+        })
+
+        after(async function() {
+            for (let md of [mdE, mdV, mdS]) {
+                if (md) {
+                    await md.drop()
+                }
+            }
+            if (sq) {
+                await sq.close()
+            }
+        })
+
+        //rej, select與delAll(以cvFind直接轉譯後交sequelize之findAll/destroy, 同WOrmReladb之路徑)皆須於轉譯階段reject且資料不變
+        let rej = async (md, seed, find, msg) => {
+            await md.destroy({ where: {} })
+            await md.bulkCreate(seed)
+            let before = await ids(md)
+            let rs = await errOf(() => md.findAll({ where: cvFind(find, ctx(md)), raw: true }))
+            let rd = await errOf(() => md.destroy({ where: cvFind(find, ctx(md)) }))
+            assert.ok(rs !== null && rs.indexOf(msg) >= 0, `select: ${rs}`)
+            assert.ok(rd !== null && rd.indexOf(msg) >= 0, `delAll: ${rd}`)
+            assert.deepStrictEqual(await ids(md), before, '資料須不變')
+        }
+
+        for (let [t, find] of [
+            ['等值', { a: 5 }],
+            ['$gt', { a: { $gt: 100 } }],
+            ['$in', { a: { $in: [5] } }],
+            ['空$nin', { a: { $nin: [] } }],
+            ['$exists', { a: { $exists: true } }],
+        ]) {
+            it(`映射後之欄名為空字串: 兩函數皆reject且資料不變: ${t}`, async function() {
+                //mssql之sync會把rawAttributes.a.field由''正規化為'a'(2026-10-16實測), 該model於mssql無此形態; sqlite不正規化(實測 WHERE (5) 刪全表), 故僅sqlite實跑, 兩方言之轉譯階段拒收由單元測試涵蓋
+                if (label !== 'sqlite') {
+                    this.skip()
+                }
+                await rej(mdE, [{ id: 'r1', a: 0 }, { id: 'r2', a: 5 }, { id: 'r3' }], find, 'unsupported column name []')
+            })
+        }
+
+        for (let [t, find] of [
+            ['等值', { w: 'needle' }],
+            ['$in', { w: { $in: ['needle'] } }],
+            ['$regex', { w: { $regex: 'needle' } }],
+            ['$regex + i(原LOWER引用完整欄名而命中另一列)', { w: { $regex: 'needle', $options: 'i' } }],
+        ]) {
+            it(`首尾皆$且中間有換行之欄名: 兩函數皆reject且資料不變: ${t}`, async function() {
+                await rej(mdV, [{ id: 'r1', t: 'needle', w: 'x' }, { id: 'r2', t: 'x', w: 'needle' }, { id: 'r3' }], find, 'unsupported column name [$\nname$]')
+            })
+        }
+
+        for (let [t, find] of [
+            ['先定義者 × 日期字串', { sa: { $lt: '2030-01-01T00:00:00Z' } }],
+            ['先定義者 × epoch', { sa: { $gt: 1893456000000 } }],
+            ['先定義者 × Date', { sa: new Date(0) }],
+            ['先定義者 × 空$nin', { sa: { $nin: [] } }],
+        ]) {
+            it(`共用一欄且欄名恰為先定義者之名稱: 兩函數皆reject且資料不變: ${t}`, async function() {
+                await rej(mdS, [{ id: 'r1', sb: 1 }, { id: 'r2', sb: 2 }, { id: 'r3' }], find, 'ambiguous column name [sa]')
+            })
+        }
+
+        //後定義者sb之欄名sa恰為先定義者之名稱: sequelize以rawAttributes.sa(DATE)序列化sb之值, 同樣不可信, 亦reject(單元測試涵蓋共用非屬性名之欄時最後定義者照常)
+        it('共用一欄且欄名恰為先定義者之名稱: 後定義者亦reject(sequelize依先定義者之型別序列化其值), 資料不變', async function() {
+            await rej(mdS, [{ id: 'r1', sb: 1 }, { id: 'r2', sb: 2 }, { id: 'r3' }], { sb: { $lt: 2 } }, 'ambiguous column name [sb]')
         })
 
     })

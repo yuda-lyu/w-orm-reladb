@@ -328,6 +328,10 @@ function WOrmReladb(opt = {}) {
      * 檢查model之預設scope是否會使select與delAll之對象分歧
      * 註: defaultScope帶limit或offset時, select依其order取前幾筆, 而sequelize之限量刪除不採order(sqlite為rowid IN子查詢),
      * 兩者命中之數據不同而會刪錯列, 故delAll遇此類model即拒絕
+     * 註: defaultScope帶group或having時, findAll套用而destroy不套用(having過濾後只回部分列, 卻刪除全部符合where者);
+     * 帶非空之include時, findAll以INNER JOIN篩列(required)而destroy不JOIN; 兩者亦拒絕
+     * 註: defaultScope.where含Op.and時, sequelize以Object.assign合併scope與cvFind輸出之where, 後者頂層恆為Op.and而覆寫scope之條件(select與delAll皆然),
+     * delAll會刪到scope範圍外之列, 故拒絕; 其他鍵(含Op.or)與cvFind輸出之Op.and並存而以AND結合, 不受影響
      *
      * @ignore
      * @param {Object} md 輸入資料表model物件
@@ -335,8 +339,27 @@ function WOrmReladb(opt = {}) {
      */
     function chkScopeForDelAll(md) {
         let sc = get(md, '_scope', {})
-        if (get(sc, 'limit') !== undefined || get(sc, 'offset') !== undefined) {
-            throw new Error(`model [${opt.cl}] has defaultScope with limit or offset, delAll can not delete the same rows as select`)
+        let bads = []
+        for (let k of ['limit', 'offset']) {
+            if (get(sc, k) !== undefined) {
+                bads.push(k)
+            }
+        }
+        for (let k of ['group', 'having']) {
+            let v = get(sc, k)
+            if (v !== undefined && v !== null && !(Array.isArray(v) && v.length === 0)) {
+                bads.push(k)
+            }
+        }
+        if (isearr(get(sc, 'include'))) {
+            bads.push('include')
+        }
+        let w = get(sc, 'where')
+        if (w !== null && typeof w === 'object' && Object.prototype.hasOwnProperty.call(w, Sequelize.Op.and)) {
+            bads.push('where[Op.and]')
+        }
+        if (bads.length > 0) {
+            throw new Error(`model [${opt.cl}] has defaultScope with ${bads.join(', ')}, delAll can not delete the same rows as select`)
         }
     }
 

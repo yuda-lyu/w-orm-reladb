@@ -6,7 +6,7 @@ import cvFind, { getColKind, normPk } from '../src/cvFind.mjs'
 //cvFind為select與delAll共用之條件轉譯純函數, 本檔不連線資料庫
 //斷言分兩類: 拒收(reject之訊息)與方言專屬之SQL片段(ESCAPE、N前綴、LOWER內之實際欄名);
 //命中集合之語意由test/api-suite.mjs之find段於sqlite與mssql實際執行斷言, 本檔不以SQL之括號結構作斷言
-//對應CLAUDE_rulebook.md之R1–R6與R8(normPk)
+//對應CLAUDE_rulebook.md之R1–R6與R8(normPk);「審計02」組為R3欄位引用不變式(斷言SQL含欄名及引用次數, 非括號結構)、R4欄名解析、R4 ctx.dateNoTz
 
 
 let Op = Sequelize.Op
@@ -29,11 +29,11 @@ let defs = {
 }
 
 //離線之sequelize實例, 建構時不連線
-let mk = (dialect) => {
+let mk = (dialect, dfs = defs) => {
     let sq = dialect === 'sqlite'
         ? new Sequelize({ dialect: 'sqlite', storage: ':memory:', logging: false })
         : new Sequelize('worm', 'u', 'p', { dialect: 'mssql', host: 'localhost', port: 1, logging: false })
-    let md = sq.define('tcond', defs, { tableName: 'tcond', timestamps: false })
+    let md = sq.define('tcond', dfs, { tableName: 'tcond', timestamps: false })
     let qg = sq.getQueryInterface().queryGenerator
     let ctx = { escape: (v) => sq.escape(v), attrs: md.rawAttributes, dialect }
     let where = (find, ex = {}) => {
@@ -41,7 +41,22 @@ let mk = (dialect) => {
         let k = sql.indexOf(' WHERE ')
         return k >= 0 ? sql.slice(k + 7).replace(/;$/, '') : ''
     }
-    return { ctx, where }
+    //whereDb, 同where但先經sequelize之mapWhereFieldNames(findAll/destroy實際會做)把屬性名映射為資料庫欄名, 供斷言實際送出之欄名
+    let whereDb = (find, ex = {}) => {
+        let wh = Sequelize.Utils.mapWhereFieldNames(cvFind(find, { ...ctx, ...ex }), md)
+        let sql = qg.selectQuery('tcond', { where: wh }, md)
+        let k = sql.indexOf(' WHERE ')
+        return k >= 0 ? sql.slice(k + 7).replace(/;$/, '') : ''
+    }
+    //where0, 同where但不給attrs(欄位型別any、鍵不解析而交資料庫, R4), 供斷言「未給attrs」路徑之SQL(如欄位引用不變式R3)
+    let where0 = (find, ex = {}) => {
+        let sql = qg.selectQuery('tcond', { where: cvFind(find, { escape: ctx.escape, dialect, ...ex }) }, md)
+        let k = sql.indexOf(' WHERE ')
+        return k >= 0 ? sql.slice(k + 7).replace(/;$/, '') : ''
+    }
+    //q, 依方言引用識別字(sqlite為反引號, mssql為方括號), 供斷言SQL文字含某欄名
+    let q = (name) => (dialect === 'sqlite' ? `\`${name}\`` : `[${name}]`)
+    return { ctx, where, where0, whereDb, q, qg }
 }
 let LT = mk('sqlite')
 let MS = mk('mssql')
@@ -56,6 +71,28 @@ let throwsMsg = (fn, msg) => {
     }
     assert.ok(e !== null, `未拋錯, 應含[${msg}]`)
     assert.ok(String(e.message).indexOf(msg) >= 0, `訊息不含[${msg}]: ${e.message}`)
+}
+
+//withTz, 暫時切換主機時區(執行期設定process.env.TZ, Node會重設時區快取), 結束必還原
+//還原須以賦值而非delete: Windows上delete process.env.TZ不會還原主機時區(實測仍停在最後設定之時區), 故載入時先記下主機時區名稱
+let hostTz = Intl.DateTimeFormat().resolvedOptions().timeZone
+let withTz = (tz, fn) => {
+    let old = process.env.TZ
+    process.env.TZ = tz
+    try {
+        return fn()
+    }
+    finally {
+        if (old !== undefined) {
+            process.env.TZ = old
+        }
+        else if (process.platform === 'win32') {
+            process.env.TZ = hostTz
+        }
+        else {
+            delete process.env.TZ
+        }
+    }
 }
 
 
@@ -173,6 +210,8 @@ describe('cvFind', function() {
             [{ dec: '1.254' }, '[num] with scale [2]'],
             [{ d: { $lt: 1e16 } }, '[date]'],
             [{ d: -8.64e15 - 1 }, '[date]'],
+            [{ d: 8.64e15 }, '[date]'], //Date可表示但UTC年275760, 超出1–9999(審計02 外審 opus [2])
+            [{ d: '0000-01-01T00:00:00Z' }, '[date]'], //年0000不在1–9999(年0001–0099之ISO字串見「R4 DATE」ISO字串之年0001–0099)
             [{ i: Number('9007199254740993') }, '[int]'],
             [{ big: Number('9007199254740993') }, '[int]'],
             [{ f: { $lt: 'abc' } }, '[num]'],
@@ -193,7 +232,7 @@ describe('cvFind', function() {
         //Buffer只用於未分類型別之欄
         throwsMsg(() => cvFind({ s: Buffer.from('a') }, LT.ctx), 'value must be')
         //相符者放行
-        for (let f of [{ i: '2' }, { i: '-25' }, { f: '-2.5' }, { dec: '.5' }, { dec: '1.25' }, { dec: 1.254 }, { d: 8.64e15 }, { big: '9007199254740993' }, { p: 2.5 }, { d: { $lt: '2020-01-01T00:00:00Z' } }, { d: { $lt: '2020-01-01 08:00:00+08:00' } }, { d: { $lt: 1577836800000 } }, { do: '2020-01-01' }, { b: 1 }, { nocol: 1 }]) {
+        for (let f of [{ i: '2' }, { i: '-25' }, { f: '-2.5' }, { dec: '.5' }, { dec: '1.25' }, { dec: 1.254 }, { d: 253402300799999 }, { big: '9007199254740993' }, { p: 2.5 }, { d: { $lt: '2020-01-01T00:00:00Z' } }, { d: { $lt: '2020-01-01 08:00:00+08:00' } }, { d: { $lt: 1577836800000 } }, { do: '2020-01-01' }, { b: 1 }]) {
             assert.doesNotThrow(() => cvFind(f, LT.ctx), JSON.stringify(f))
         }
     })
@@ -310,6 +349,768 @@ describe('cvFind', function() {
         throwsMsg(() => cvFind({ s: 1 }, { ...LT.ctx, pk: 'id' }), 'does not match column type [str]')
         assert.doesNotThrow(() => cvFind({ i: '012' }, { ...LT.ctx, pk: 'id' }))
         throwsMsg(() => cvFind({ dec: '1.254' }, { ...LT.ctx, pk: 'id' }), 'with scale [2]')
+    })
+
+})
+
+
+describe('cvFind 審計02', function() {
+
+    //規格句(CLAUDE_rulebook.md):
+    //  [最低要求②] 〈條件(find)之支援範圍〉:不支援之運算子與無法轉譯之值必須reject, 不得靜默忽略、改變語意或擴大刪除範圍; ③不得因條件清單恰為空而刪全表
+    //  [R3]  欄位層運算子產生之每個子式, 其SQL必含該欄名(欄位引用不變式); 常數僅限文件層
+    //  [R5]  $in:[]恆假、$nin:[]恆真(含NULL列)、$not:{$in:[]}為全部; 空集合須引用其欄位且只引用一次
+    //  [R4欄名解析] 嚴格鍵: 型別與主鍵檢核作用於屬性名或資料庫欄名完全相符之欄(屬性名優先), attrs已給而其餘者reject, 未給attrs者鍵不解析而交資料庫
+    //  [R4 dateNoTz] ctx.dateNoTz值域、語意、驗證
+
+    //空集合之各入口(欄名以f代入)
+    let emptyFinds = (f) => [
+        ['$in:[]', { [f]: { $in: [] } }],
+        ['$nin:[]', { [f]: { $nin: [] } }],
+        ['陣列值[]', { [f]: [] }],
+        ['Op.in:[]', { [f]: { [Op.in]: [] } }],
+        ['Op.notIn:[]', { [f]: { [Op.notIn]: [] } }],
+        ['$not:{$in:[]}', { [f]: { $not: { $in: [] } } }],
+        ['$not:{$nin:[]}', { [f]: { $not: { $nin: [] } } }],
+        ['Op.not:{Op.notIn:[]}', { [f]: { [Op.not]: { [Op.notIn]: [] } } }],
+        ['$not:{$not:{$nin:[]}}', { [f]: { $not: { $not: { $nin: [] } } } }],
+        ['$in:[]+$nin:[]', { [f]: { $in: [], $nin: [] } }],
+        ['$or含空$nin', { $or: [{ [f]: { $nin: [] } }, { id: 'zz' }] }],
+        ['$and含空$in', { $and: [{ [f]: { $in: [] } }, { id: 'zz' }] }],
+        ['$nor含空$in', { $nor: [{ [f]: { $in: [] } }] }],
+        ['Op.or含空$in', { [Op.or]: [{ [f]: { $in: [] } }] }],
+        ['文件層Op.not包空$in', { [Op.not]: { [f]: { $in: [] } } }],
+    ]
+
+    it('[R3][最低要求②] 空集合之各入口產生之SQL皆引用其欄位, 使資料庫得以回報不存在之欄(attrs已給之欄與未給attrs之任意欄)', function() {
+        for (let M of [LT, MS]) {
+            for (let f of ['s', 'title']) {
+                for (let [lb, find] of emptyFinds(f)) {
+                    let w = M.where(find)
+                    assert.ok(w.indexOf(M.q(f)) >= 0, `${lb} × ${f}: SQL未引用欄位: ${w}`)
+                }
+            }
+            //未給attrs: 鍵不解析而交資料庫, 不存在之欄須由資料庫回報, 故SQL須含該欄名
+            for (let f of ['nocol', 'nane']) {
+                for (let [lb, find] of emptyFinds(f)) {
+                    let w = M.where0(find)
+                    assert.ok(w.indexOf(M.q(f)) >= 0, `${lb} × ${f}(未給attrs): SQL未引用欄位: ${w}`)
+                }
+            }
+        }
+    })
+
+    it('[R3][R4最低要求②③] attrs已給時不存在之欄於轉譯階段reject(含空集合各入口、遞迴與包覆), 不依賴資料庫回報', function() {
+        for (let M of [LT, MS]) {
+            for (let f of ['nocol', 'nane']) {
+                for (let [, find] of emptyFinds(f)) {
+                    throwsMsg(() => M.where(find), `unknown column name [${f}]`)
+                }
+            }
+        }
+    })
+
+    it('[R3][最低要求②] sequelize原生Op全集 × 各類值(未給attrs): 凡未被拒收者其SQL皆引用其欄位(防日後新增分支再犯)', function() {
+        let vals = [[], [1, 2], null, 1, 'x', '', true]
+        let n = 0
+        for (let M of [LT, MS]) {
+            for (let name of Object.keys(Op)) {
+                let sym = Op[name]
+                if (sym === Op.and || sym === Op.or) {
+                    continue //欄位層已拒收(R2)
+                }
+                for (let v of vals) {
+                    let w = null
+                    try {
+                        w = M.where0({ nocol: { [sym]: v } })
+                    }
+                    catch (e) {
+                        continue //拒收(或sequelize拒絕)者不產生SQL
+                    }
+                    n++
+                    assert.ok(w.indexOf(M.q('nocol')) >= 0, `Op.${name} × ${JSON.stringify(v)}: SQL未引用欄位: ${w}`)
+                }
+            }
+        }
+        assert.ok(n > 100, `被檢核之案數過少: ${n}`)
+    })
+
+    it('[R5] 空集合之欄位只引用一次: mssql驅動遇同一語句≥2個錯誤時err.message為空字串', function() {
+        //R5: $in:[]以f IS NULL AND 1 = 0、$nin:[]以f IS NULL OR 1 = 1表示, 不用f IS NULL AND f IS NOT NULL之雙引用形式
+        for (let M of [LT, MS]) {
+            for (let op of ['$in', '$nin']) {
+                let w = M.where({ s: { [op]: [] } })
+                assert.strictEqual(w.split(M.q('s')).length - 1, 1, `${op}:[]: 欄位引用次數不為1: ${w}`)
+            }
+        }
+    })
+
+    it('[R3] 屬性名≠欄名之空集合: 經sequelize映射後SQL含資料庫欄名physical_title(單元之where不經映射, 另以mapWhereFieldNames補)', function() {
+        //R3: 欄位層子式之SQL必含該欄名; 實際送出者為映射後之資料庫欄名, 非屬性名
+        for (let M of [LT, MS]) {
+            for (let [lb, find] of emptyFinds('title')) {
+                let w = M.whereDb(find)
+                assert.ok(w.indexOf(M.q('physical_title')) >= 0, `${lb}: 映射後SQL未含資料庫欄名: ${w}`)
+                assert.strictEqual(w.indexOf(M.q('title')), -1, `${lb}: 映射後SQL仍含屬性名: ${w}`)
+            }
+        }
+    })
+
+    it('[R5] 同一find含多個空集合時, 各空集合各引用其欄位一次(欄名自然出現多次)', function() {
+        for (let M of [LT, MS]) {
+            let w = M.where({ s: { $in: [], $nin: [] } })
+            assert.strictEqual(w.split(M.q('s')).length - 1, 2, w)
+        }
+    })
+
+    it('[R4欄名解析] 嚴格鍵: 屬性名或資料庫欄名完全相符者依其型別檢核, 其餘一律reject unknown column name(無折疊、不分大小寫亦不收、無關方言)', function() {
+        //規格句: R4欄名解析——鍵須與屬性名或資料庫欄名完全相符, 否則reject; 不模擬資料庫之識別字解析
+        let ws = String.fromCharCode(0x3000) //全形空白(mssql預設定序視同尾端空白)
+        let fe = String.fromCharCode(0xFEFF) //mssql CI定序下附加於id後仍等同id之可忽略字元(2026-10-16實測)
+        let ip = String.fromCharCode(0x26A) //U+026A, mssql CI定序下等同i(2026-10-16實測)
+        for (let M of [LT, MS]) {
+            //完全相符之屬性名與資料庫欄名(title → physical_title)依其型別檢核
+            throwsMsg(() => cvFind({ i: { $lt: 'abc' } }, M.ctx), '[int]')
+            throwsMsg(() => cvFind({ f: { $lt: 'abc' } }, M.ctx), '[num]')
+            throwsMsg(() => cvFind({ d: { $lt: 'garbage' } }, M.ctx), '[date]')
+            throwsMsg(() => cvFind({ title: 5 }, M.ctx), '[str]')
+            throwsMsg(() => cvFind({ physical_title: 5 }, M.ctx), '[str]')
+            assert.doesNotThrow(() => cvFind({ i: { $lt: 5 } }, M.ctx))
+            assert.doesNotThrow(() => cvFind({ physical_title: 'x' }, M.ctx))
+            //其餘一律reject: ASCII大小寫變體、全形、尾端空白(含全形空白)、可忽略字元、mssql等價字元、attrs未列之欄、sqlite隱含欄
+            for (let k of ['I', 'F', 'D', 'PHYSICAL_TITLE', 'TITLE', 'Title', 'ｉ', 'i ', `i${ws}`, `i${fe}`, `${ip}`, ` i`, 'nocol', 'rowid', 'oid', '_rowid_']) {
+                throwsMsg(() => cvFind({ [k]: { $lt: 'abc' } }, M.ctx), `unknown column name [${k}]`)
+                throwsMsg(() => cvFind({ [k]: 1 }, M.ctx), 'unknown column name')
+                throwsMsg(() => cvFind({ [k]: { $in: [] } }, M.ctx), 'unknown column name')
+                throwsMsg(() => cvFind({ [k]: { $not: { $gt: 1 } } }, M.ctx), 'unknown column name')
+                throwsMsg(() => cvFind({ $or: [{ s: 'a' }, { [k]: 1 }] }, M.ctx), 'unknown column name')
+            }
+        }
+    })
+
+    it('[R4欄名解析] 性質: 任一屬性名/資料庫欄名經各種變異(大小寫、全形、空白、可忽略字元、引號、方括號、點、前後$、等價字元、增刪字元)後, 凡不等於某完全相符名者一律reject', function() {
+        //規格句: R4欄名解析——只收完全相符者; 以變異窮舉取代逐例(三輪外審皆為再模擬一條規則而漏一個拼寫)
+        let cp = (n) => String.fromCharCode(n)
+        let full = (s) => s.replace(/[!-~]/g, (c) => cp(c.charCodeAt(0) + 0xFEE0)) //ASCII → 全形
+        let muts = [
+            (s) => s.toUpperCase(), (s) => s.toLowerCase(), (s) => s[0].toUpperCase() + s.slice(1), (s) => s[0].toLowerCase() + s.slice(1).toUpperCase(),
+            (s) => `${s} `, (s) => `${s}  `, (s) => ` ${s}`, (s) => `${s}${cp(0x3000)}`, (s) => `${s}${cp(0xFEFF)}`, (s) => `${s}${cp(0xAD)}`, (s) => `${s}${cp(0x200B)}`,
+            (s) => `${s}\t`, (s) => `${s}\n`, (s) => `${s}${cp(0)}`, (s) => `${s}${cp(0xA0)}`,
+            (s) => `${s.slice(0, 1)}\`${s.slice(1)}`, (s) => `${s}\``, (s) => `${s}"`, (s) => `${s}'`, (s) => `${s.slice(0, 1)}[${s.slice(1)}`, (s) => `${s}]`, (s) => `[${s}]`,
+            (s) => `${s}.x`, (s) => `x.${s}`, (s) => `$${s}$`, (s) => `$${s}`, (s) => `${s}$`,
+            (s) => full(s), (s) => s.replace(/i/g, cp(0x26A)).replace(/I/g, cp(0x26A)), (s) => s.replace(/e/g, cp(0xE9)), (s) => s.normalize('NFD'),
+            (s) => s + s.slice(-1), (s) => s.slice(0, -1), (s) => `x${s}`, (s) => `${s}x`, (s) => s.split('').reverse().join(''),
+        ]
+        let M0 = mk('sqlite', { ...defs, 'Éa': Sequelize.STRING, 'x y': Sequelize.INTEGER, '中文欄': Sequelize.STRING })
+        for (let M of [M0, mk('mssql', { ...defs, 'Éa': Sequelize.STRING, 'x y': Sequelize.INTEGER, '中文欄': Sequelize.STRING })]) {
+            let attrs = M.ctx.attrs
+            let ok = new Set()
+            Object.keys(attrs).forEach((k) => {
+                ok.add(k)
+                ok.add(attrs[k].field)
+            })
+            let nRej = 0
+            for (let base of ok) {
+                if (base.length === 0) {
+                    continue
+                }
+                for (let mu of muts) {
+                    let k = mu(base)
+                    if (ok.has(k) || k === '__proto__') {
+                        continue //變異後恰為另一完全相符名(合法)
+                    }
+                    for (let v of [{ $lt: 'abc' }, '012', { $in: [] }, { $not: { $gt: 1 } }]) {
+                        let e = null
+                        try {
+                            cvFind({ [k]: v }, M.ctx)
+                        }
+                        catch (err) {
+                            e = err
+                        }
+                        assert.ok(e !== null && /unknown column name|unsupported column name|invalid column name|unsupported operator/.test(e.message), `未reject: ${JSON.stringify(k)} (源自${JSON.stringify(base)}): ${e && e.message}`)
+                        nRej++
+                    }
+                }
+            }
+            assert.ok(nRej > 1000, `被檢核之案數過少: ${nRej}`)
+        }
+    })
+
+    it('[R4欄名解析] unknown column name 之提示僅供診斷: 不分大小寫相同者附did you mean, 解析結果不變(仍reject)', function() {
+        throwsMsg(() => cvFind({ I: 1 }, LT.ctx), 'unknown column name [I], did you mean [i]?')
+        throwsMsg(() => cvFind({ PHYSICAL_TITLE: 'x' }, MS.ctx), 'did you mean [title]?')
+        let e = null
+        try {
+            cvFind({ nocol: 1 }, LT.ctx)
+        }
+        catch (err) {
+            e = err
+        }
+        assert.ok(e !== null && e.message.indexOf('did you mean') < 0, '無相近者不附提示')
+    })
+
+    it('[R4欄名解析] 優先序與歧義: 屬性名完全相符 > 資料庫欄名完全相符; 欄名重複reject; 僅大小寫不同之屬性各依完全相符', function() {
+        //屬性a之欄名為b、屬性b之欄名為c: {b:..}依屬性名完全相符為屬性b(INTEGER, 其欄c反查即b)
+        let M1 = mk('sqlite', { id: pkStr, a: { type: Sequelize.STRING, field: 'b' }, b: { type: Sequelize.INTEGER, field: 'c' } })
+        throwsMsg(() => cvFind({ b: 'x' }, M1.ctx), '[int]')
+        assert.doesNotThrow(() => cvFind({ b: 5 }, M1.ctx))
+        //屬性名無相符時, 資料庫欄名完全相符者
+        throwsMsg(() => cvFind({ c: 'x' }, M1.ctx), '[int]')
+        //屬性a之欄b恰為屬性b之名稱: sequelize反查為屬性b, 見「撞名」
+        throwsMsg(() => cvFind({ a: 'x' }, M1.ctx), 'ambiguous column name [a]')
+        //僅大小寫不同之兩屬性(只可能存在於區分大小寫之資料庫; sqlite與mssql預設定序下無法建表, 此處僅驗證各依完全相符之純函數行為): 各依完全相符; 其他拼寫reject
+        let M2 = mk('sqlite', { id: pkStr, Ab: Sequelize.STRING, aB: Sequelize.INTEGER })
+        assert.doesNotThrow(() => cvFind({ Ab: 'x' }, M2.ctx))
+        assert.doesNotThrow(() => cvFind({ aB: 1 }, M2.ctx))
+        throwsMsg(() => cvFind({ Ab: 1 }, M2.ctx), '[str]')
+        throwsMsg(() => cvFind({ ab: 1 }, M2.ctx), 'unknown column name [ab]')
+        //資料庫欄名重複(兩屬性對應同一欄): 以欄名查無從判定, reject
+        let M3 = mk('sqlite', { id: pkStr, a: { type: Sequelize.STRING, field: 'x' }, b: { type: Sequelize.INTEGER, field: 'x' } })
+        throwsMsg(() => cvFind({ x: 'a' }, M3.ctx), 'ambiguous column name [x]')
+        //屬性名與他屬性之欄名: 屬性名之大小寫變體、欄名之大小寫變體皆不解析
+        let M4 = mk('sqlite', { id: pkStr, ab: { type: Sequelize.STRING, field: 'c' }, q: { type: Sequelize.INTEGER, field: 'AB' } })
+        throwsMsg(() => cvFind({ aB: 'x' }, M4.ctx), 'unknown column name [aB]')
+        assert.doesNotThrow(() => cvFind({ AB: 5 }, M4.ctx))
+        throwsMsg(() => cvFind({ AB: 'x' }, M4.ctx), '[int]')
+        throwsMsg(() => cvFind({ ab: 5 }, M4.ctx), '[str]')
+        //Object.prototype之成員名不是屬性(unsupported column name, 見「不安全欄名」)
+        for (let k of ['constructor', 'toString', 'hasOwnProperty', '__defineGetter__']) {
+            throwsMsg(() => cvFind({ [k]: 1 }, M1.ctx), `unsupported column name [${k}]`)
+        }
+        //未給attrs時不解析(型別any, 交資料庫)
+        assert.doesNotThrow(() => cvFind({ I: { $lt: 'abc' } }, { escape: M2.ctx.escape, dialect: 'sqlite' }))
+        assert.doesNotThrow(() => cvFind({ rowid: 1 }, { escape: M2.ctx.escape, dialect: 'sqlite' }))
+    })
+
+    it('[R4欄名解析][R8] 主鍵欄: 屬性名與資料庫欄名(屬性名≠欄名)皆依R8正規化; 非完全相符之鍵reject', function() {
+        //R8: 字串類主鍵欄之數字即String(v)
+        assert.ok(LT.where({ id: 123 }, { pk: 'id' }).indexOf('\'123\'') >= 0)
+        //整數類主鍵欄: '012'為型別不符, '12'為12; 非主鍵整數欄收'012'
+        throwsMsg(() => cvFind({ i: '012' }, { ...LT.ctx, pk: 'i' }), '[int]')
+        assert.ok(LT.where({ i: '12' }, { pk: 'i' }).indexOf('`i` = 12') >= 0)
+        assert.doesNotThrow(() => cvFind({ i: '012' }, { ...LT.ctx, pk: 'id' }))
+        //屬性名≠欄名之主鍵: 屬性id對應欄ID_COL, 兩種完全相符之鍵皆依R8; 變體鍵reject(原於不分大小寫之資料庫繞過R8而刪除id=12)
+        let M = mk('sqlite', { id: { type: Sequelize.INTEGER, primaryKey: true, field: 'ID_COL' }, name: Sequelize.STRING })
+        let cx = { ...M.ctx, pk: 'id' }
+        throwsMsg(() => cvFind({ id: '012' }, cx), '[int]')
+        throwsMsg(() => cvFind({ ID_COL: '012' }, cx), '[int]')
+        assert.ok(M.where({ ID_COL: '12' }, { pk: 'id' }).indexOf('`ID_COL` = 12') >= 0)
+        for (let k of ['ID', 'Id', 'id_col', 'ID_COL ']) {
+            throwsMsg(() => cvFind({ [k]: '012' }, cx), 'unknown column name')
+            throwsMsg(() => cvFind({ [k]: '12' }, cx), 'unknown column name')
+        }
+    })
+
+    it('[R4欄名解析] 不安全欄名: 鍵或其映射後之資料庫欄名會被sequelize改寫或重新解讀者reject(引號/方括號字元、點、前後$、Object.prototype成員名、__proto__)', function() {
+        //規格句: R4欄名解析(b)——sequelize之quoteIdentifier刪除引號與方括號字元(sqlite之val`ue成value)、點為JSON路徑與表.欄、$x$為欄引用、
+        //原型名使sequelize查到函數而不依欄型序列化、賦值__proto__使條件遺失而刪全表; 這些名稱之比對對象不是該名稱之欄
+        for (let dl of ['sqlite', 'mssql']) {
+            //使用者之鍵(attrs已給: 非完全相符之此類鍵亦為unsupported而非unknown, 以免依賴其是否碰巧解析)
+            let M = mk(dl)
+            //($開頭之鍵為運算子、__proto__為R2之invalid column name, 不在此)
+            for (let k of ['val`ue', 'i"d', 'i\'d', 'i[d]', 'i]', 'a.b', 'constructor', 'valueOf', 'hasOwnProperty']) {
+                throwsMsg(() => cvFind({ [k]: { $lt: 'abc' } }, M.ctx), `unsupported column name [${k}]`)
+                throwsMsg(() => cvFind({ [k]: '012' }, { ...M.ctx, pk: 'i' }), `unsupported column name [${k}]`)
+            }
+            //屬性名安全, 但其映射後之資料庫欄名不安全(model之field為此類名稱, 如既有資料表之欄)
+            for (let fd of ['meta.a', '$id$', 'a`b', 'x[y]', '__proto__', 'constructor', 'valueOf', 't.name', 'it\'s']) {
+                let M2 = mk(dl, { id: pkStr, v: { type: Sequelize.INTEGER, field: fd }, at: { type: Sequelize.DATE, field: fd === 'valueOf' ? fd : 'dt' } })
+                throwsMsg(() => cvFind({ v: 1 }, M2.ctx), `unsupported column name [${fd}]`)
+                throwsMsg(() => cvFind({ v: { $regex: 'a', $options: 'i' } }, M2.ctx), `unsupported column name [${fd}]`)
+            }
+            //DATE欄之欄名為valueOf: 以屬性名查亦reject(sequelize查到Object.prototype.valueOf而不依欄型序列化)
+            let M3 = mk(dl, { id: pkStr, ts: { type: Sequelize.DATE, field: 'valueOf' } })
+            throwsMsg(() => cvFind({ ts: { $gt: 1893456000000 } }, M3.ctx), 'unsupported column name [valueOf]')
+            throwsMsg(() => cvFind({ valueOf: { $gt: 1893456000000 } }, M3.ctx), 'unsupported column name [valueOf]')
+            //含$或點但非上述形態者照常(p$x為既有model之欄)
+            assert.doesNotThrow(() => cvFind({ 'p$x': 'a' }, M.ctx))
+        }
+    })
+
+    it('[R4欄名解析] VIRTUAL屬性非資料庫欄: 與資料庫欄僅大小寫不同之VIRTUAL屬性不得使其成為該欄之別名', function() {
+        //run04 opus [8]: model {value:INTEGER, Value:VIRTUAL}, {Value:{$lt:'abc'}} 原由完全相符收下而不檢型別, sqlite不分大小寫解析到value欄而全命中
+        for (let dl of ['sqlite', 'mssql']) {
+            let M = mk(dl, { id: pkStr, value: Sequelize.INTEGER, Value: Sequelize.VIRTUAL(Sequelize.STRING) })
+            throwsMsg(() => cvFind({ Value: { $lt: 'abc' } }, M.ctx), 'unknown column name [Value]')
+            throwsMsg(() => cvFind({ value: { $lt: 'abc' } }, M.ctx), '[int]')
+            assert.doesNotThrow(() => cvFind({ value: { $lt: 5 } }, M.ctx))
+            //VIRTUAL屬性有field時, 以其欄名為鍵亦非資料庫欄(與屬性名鍵同一判斷; run05 opus [9])
+            let M2 = mk(dl, { id: pkStr, v: { type: Sequelize.VIRTUAL(Sequelize.STRING), field: 'vc' } })
+            throwsMsg(() => cvFind({ vc: 'a' }, M2.ctx), 'unknown column name [vc]')
+            throwsMsg(() => cvFind({ v: 'a' }, M2.ctx), 'unknown column name [v]')
+        }
+    })
+
+    it('[R4] 欄位運算子物件須至少產生一個子式: 僅有值為undefined之$options者reject(原條件消失而成恆真, delAll刪全表)', function() {
+        for (let M of [LT, MS]) {
+            throwsMsg(() => cvFind({ s: { $options: undefined } }, M.ctx), 'operator object has no operator')
+            throwsMsg(() => cvFind({ $or: [{ s: { $options: undefined } }, { id: 'a' }] }, M.ctx), 'operator object has no operator')
+            throwsMsg(() => cvFind({ s: { $not: { $options: undefined } } }, M.ctx), 'operator object has no operator')
+            throwsMsg(() => cvFind({ s: { $options: 'i' } }, M.ctx), '$options requires $regex')
+            //$regex存在時$options為undefined視同未給(R6)
+            assert.doesNotThrow(() => cvFind({ s: { $regex: 'a', $options: undefined } }, M.ctx))
+        }
+    })
+
+    it('[R2][最低要求①] cvFind輸出之每個一般物件最多一個欄位字串鍵(sequelize之mapWhereFieldNames於同一物件內遇{屬性:..,欄名:..}會互相覆寫而丟掉條件)', function() {
+        let walk = (o, acc) => {
+            if (Array.isArray(o)) {
+                o.forEach((x) => walk(x, acc))
+            }
+            else if (o !== null && typeof o === 'object' && Object.getPrototypeOf(o) === Object.prototype) {
+                acc.push(Object.keys(o).length)
+                Reflect.ownKeys(o).forEach((k) => walk(o[k], acc))
+            }
+        }
+        for (let M of [LT, MS]) {
+            for (let find of [
+                { title: { $gt: 'a', $lt: 'z' }, physical_title: { $ne: 'q' } },
+                { title: { $in: ['a', null], $nin: ['b'], $regex: 'x', $options: 'i', $exists: true } },
+                { $or: [{ i: 1 }, { i: { $not: { $in: [] } } }], s: [] },
+                { d: { [Op.between]: [new Date(0), new Date(1)], [Op.gt]: 1 } },
+            ]) {
+                let acc = []
+                walk(cvFind(find, M.ctx), acc)
+                assert.ok(acc.length > 0 && acc.every((n) => n <= 1), JSON.stringify(acc))
+            }
+        }
+    })
+
+    it('[R4 DATE] 所有形式換算UTC後年份須在1–9999(sqlite以文字比較, 年10000起為5位數而命中全部日期列); 邊界放行', function() {
+        let bads = [
+            { d: { $gt: new Date(253402300800000) } }, //UTC 10000-01-01
+            { d: { $gt: 253402300800000 } },
+            { d: { $gt: '9999-12-31T23:30:00-05:00' } }, //UTC 10000-01-01T04:30
+            { d: { $lt: new Date(-62135596800001) } }, //UTC 0000-12-31T23:59:59.999
+            { d: { $lt: -62135596800001 } },
+        ]
+        for (let f of bads) {
+            throwsMsg(() => cvFind(f, LT.ctx), '[date]')
+        }
+        for (let f of [{ d: { $gt: '9999-12-31T23:59:59Z' } }, { d: { $gt: new Date(253402300799999) } }, { d: { $lt: new Date(-62135596800000) } }]) {
+            assert.doesNotThrow(() => cvFind(f, LT.ctx), JSON.stringify(f))
+        }
+        //dateNoTz: 本地時間通過回驗, 但換算UTC後年份超出者拒收
+        withTz('America/New_York', () => {
+            throwsMsg(() => cvFind({ d: { $gt: '9999-12-31T23:30:00' } }, { ...LT.ctx, dateNoTz: 'local' }), '[date]')
+            assert.doesNotThrow(() => cvFind({ d: { $gt: '9999-12-31T18:30:00' } }, { ...LT.ctx, dateNoTz: 'local' }))
+        })
+    })
+
+    it('[R4 DATE] 通過檢核之字串與epoch一律轉為Date送出: 與直接給同一瞬間之Date之SQL相同(令DATE值之SQL與sequelize之欄位查找無關)', function() {
+        //各入口(欄位直給、$eq…$lte、$in/$nin、陣列值、$not、原生Symbol)皆須經同一轉換, 任一入口漏轉則該入口之字串/epoch與Date之SQL不同; 預期之Date由同一瞬間獨立給出
+        let entries = [
+            ['等值', (k, v) => ({ [k]: v })],
+            ['$eq', (k, v) => ({ [k]: { $eq: v } })],
+            ['$ne', (k, v) => ({ [k]: { $ne: v } })],
+            ['$gt', (k, v) => ({ [k]: { $gt: v } })],
+            ['$gte', (k, v) => ({ [k]: { $gte: v } })],
+            ['$lt', (k, v) => ({ [k]: { $lt: v } })],
+            ['$lte', (k, v) => ({ [k]: { $lte: v } })],
+            ['$in', (k, v) => ({ [k]: { $in: [v, v] } })],
+            ['$nin', (k, v) => ({ [k]: { $nin: [v] } })],
+            ['陣列值', (k, v) => ({ [k]: [v] })],
+            ['$not.$gt', (k, v) => ({ [k]: { $not: { $gt: v } } })],
+            ['$not.$in', (k, v) => ({ [k]: { $not: { $in: [v] } } })],
+            ['Op.eq', (k, v) => ({ [k]: { [Op.eq]: v } })],
+            ['Op.gt', (k, v) => ({ [k]: { [Op.gt]: v } })],
+            ['Op.in', (k, v) => ({ [k]: { [Op.in]: [v] } })],
+            ['Op.notIn', (k, v) => ({ [k]: { [Op.notIn]: [v] } })],
+            ['Op.between', (k, v) => ({ [k]: { [Op.between]: [v, v] } })],
+            ['Op.not.Op.gt', (k, v) => ({ [k]: { [Op.not]: { [Op.gt]: v } } })],
+            ['$or內', (k, v) => ({ $or: [{ s: 'a' }, { [k]: v }] })],
+        ]
+        let t2019 = new Date('2019-01-01T00:00:00Z')
+        let t2030 = new Date(1893456000000)
+        for (let M of [LT, MS]) {
+            for (let [v, dt] of [['2019-01-01T00:00:00Z', t2019], ['2019-01-01 08:00:00+08:00', t2019], [1893456000000, t2030], [t2019, t2019]]) {
+                for (let [lb, mkf] of entries) {
+                    assert.strictEqual(M.where(mkf('d', v)), M.where(mkf('d', dt)), `${lb} ${String(v)}`)
+                }
+            }
+            //epoch與字串不以原樣送出
+            assert.strictEqual(M.where({ d: { $gt: 1893456000000 } }).indexOf('1893456000000'), -1)
+            assert.strictEqual(M.where({ d: '2019-01-01T00:00:00Z' }).indexOf('T00:00:00Z'), -1)
+        }
+
+        //run05 sol F09: 上列SQL比較不能鎖住「cvFind必須轉Date」——欄位型別可由sequelize查得時, 字串與epoch未轉換而原樣交出, sequelize亦依欄型序列化成相同SQL(實測76/76格相同);
+        //故直接斷言cvFind之輸出: 不含原樣之字串/epoch, 且含Date
+        let leaves = (o, acc) => {
+            if (Array.isArray(o)) {
+                o.forEach((x) => leaves(x, acc))
+            }
+            else if (o instanceof Date) {
+                acc.push(o)
+            }
+            else if (o !== null && typeof o === 'object' && Object.getPrototypeOf(o) === Object.prototype) {
+                Reflect.ownKeys(o).forEach((k) => leaves(o[k], acc))
+            }
+            else if (o === null || typeof o !== 'object') {
+                acc.push(o)
+            }
+        }
+        for (let [v, ms] of [['2019-01-01T00:00:00Z', 1546300800000], ['2019-01-01 08:00:00+08:00', 1546300800000], [1893456000000, 1893456000000]]) {
+            for (let [lb, mkf] of entries) {
+                let acc = []
+                leaves(cvFind(mkf('d', v), LT.ctx), acc)
+                assert.ok(acc.indexOf(v) < 0, `${lb} ${String(v)}: 輸出仍含原樣之字串/epoch`)
+                let ds = acc.filter((x) => x instanceof Date)
+                assert.ok(ds.length > 0 && ds.every((x) => x.getTime() === ms), `${lb} ${String(v)}: 輸出之Date不等於${ms}`)
+            }
+        }
+    })
+
+    it('[R4 dateNoTz] 值域: undefined或\'local\', 其餘拋錯(含find為空或非物件時)', function() {
+        assert.doesNotThrow(() => cvFind({ d: '2026-01-01T00:00:00Z' }, { ...LT.ctx, dateNoTz: undefined }))
+        assert.doesNotThrow(() => cvFind({ d: '2026-01-01T00:00:00Z' }, { ...LT.ctx, dateNoTz: 'local' }))
+        for (let v of ['Local', 'utc', 'UTC', null, false, true, '', 0, {}]) {
+            throwsMsg(() => cvFind({ d: '2026-01-01T00:00:00Z' }, { ...LT.ctx, dateNoTz: v }), 'invalid ctx: dateNoTz must be \'local\' or undefined')
+        }
+        //驗證早於提前返回, 拼錯不會被靜默忽略
+        throwsMsg(() => cvFind({}, { ...LT.ctx, dateNoTz: 'Local' }), 'invalid ctx')
+        throwsMsg(() => cvFind(undefined, { ...LT.ctx, dateNoTz: 'Local' }), 'invalid ctx')
+    })
+
+    it('[R4 dateNoTz] 未給時維持reject(R4:無時區者依主機時區解析而結果隨主機而變, 預設拒收)', function() {
+        for (let s of ['2026-01-01T00:00:00', '2026-01-01 00:00', '2026-01-01T00:00:00.123']) {
+            throwsMsg(() => cvFind({ d: s }, LT.ctx), '[date]')
+            throwsMsg(() => cvFind({ d: s }, { ...LT.ctx, dateNoTz: undefined }), '[date]')
+        }
+    })
+
+    //[字串, 本地時間分量[y,m,d,h,mi,s,ms]]
+    let okForms = [
+        ['2026-01-01T00:00:00', [2026, 1, 1, 0, 0, 0, 0]],
+        ['2026-01-01 00:00:00', [2026, 1, 1, 0, 0, 0, 0]],
+        ['2026-01-01T00:00', [2026, 1, 1, 0, 0, 0, 0]],
+        ['2026-06-15T08:30:15', [2026, 6, 15, 8, 30, 15, 0]],
+        ['2026-06-15T08:30:15.1', [2026, 6, 15, 8, 30, 15, 100]],
+        ['2026-06-15T08:30:15.123', [2026, 6, 15, 8, 30, 15, 123]],
+        ['2026-06-15T08:30:15.123456', [2026, 6, 15, 8, 30, 15, 123]], //Q-C C3: 截斷至毫秒
+        ['2024-02-29T12:00:00', [2024, 2, 29, 12, 0, 0, 0]],
+        ['2026-12-31T23:59:59.999', [2026, 12, 31, 23, 59, 59, 999]],
+    ]
+
+    it('[R4 dateNoTz] \'local\': 無時區字串 ≡ 以本地時間分量建構之Date(SQL相同), 於各主機時區', function() {
+        for (let tz of ['UTC', 'Asia/Taipei', 'America/New_York', 'Australia/Lord_Howe']) {
+            withTz(tz, () => {
+                for (let M of [LT, MS]) {
+                    for (let [s, a] of okForms) {
+                        let dt = new Date(a[0], a[1] - 1, a[2], a[3], a[4], a[5], a[6])
+                        for (let [lb, mkFind] of [
+                            ['等值', (v) => ({ d: v })],
+                            ['$eq', (v) => ({ d: { $eq: v } })],
+                            ['$gt', (v) => ({ d: { $gt: v } })],
+                            ['$gte', (v) => ({ d: { $gte: v } })],
+                            ['$lt', (v) => ({ d: { $lt: v } })],
+                            ['$lte', (v) => ({ d: { $lte: v } })],
+                            ['$ne', (v) => ({ d: { $ne: v } })],
+                            ['$in', (v) => ({ d: { $in: [v] } })],
+                            ['$nin', (v) => ({ d: { $nin: [v] } })],
+                            ['陣列值', (v) => ({ d: [v] })],
+                            ['$not.$gt', (v) => ({ d: { $not: { $gt: v } } })],
+                            ['$not.$in', (v) => ({ d: { $not: { $in: [v] } } })],
+                            ['Op.between', (v) => ({ d: { [Op.between]: [v, v] } })],
+                            ['Op.eq', (v) => ({ d: { [Op.eq]: v } })],
+                            ['Op.in', (v) => ({ d: { [Op.in]: [v] } })],
+                            ['Op.notIn', (v) => ({ d: { [Op.notIn]: [v] } })],
+                            ['Op.not.Op.gt', (v) => ({ d: { [Op.not]: { [Op.gt]: v } } })],
+                            ['$or內', (v) => ({ $or: [{ s: 'a' }, { d: v }] })],
+                        ]) {
+                            assert.strictEqual(M.where(mkFind(s), { dateNoTz: 'local' }), M.where(mkFind(dt)), `${tz} ${lb} ${s}`)
+                        }
+                    }
+                }
+            })
+        }
+    })
+
+    it('[R4 dateNoTz] \'local\': 結果隨主機時區而變(此即其語意)', function() {
+        let at = (tz, s) => withTz(tz, () => LT.where({ d: s }, { dateNoTz: 'local' }))
+        assert.ok(at('UTC', '2026-01-01T00:00:00').indexOf('2026-01-01 00:00:00.000 +00:00') >= 0)
+        assert.ok(at('America/New_York', '2026-01-01T00:00:00').indexOf('2026-01-01 05:00:00.000 +00:00') >= 0) //EST
+        assert.ok(at('America/New_York', '2026-07-01T00:00:00').indexOf('2026-07-01 04:00:00.000 +00:00') >= 0) //EDT
+        assert.ok(at('Asia/Tokyo', '2026-01-01T00:00:00').indexOf('2025-12-31 15:00:00.000 +00:00') >= 0)
+    })
+
+    it('[R4 dateNoTz] \'local\': 曆法上或主機時區下不存在之時刻拒收, 夏令重疊取較早者', function() {
+        let bads = [
+            '2026-02-30T00:00:00', '2026-02-29T12:00:00', '2026-13-01T00:00:00', '2026-00-10T00:00:00', '2026-01-01T24:00:00', '2026-01-01T23:60:00',
+            '2026-01-01T23:59:60', '2026-01-01T25:00:00',
+        ]
+        for (let s of bads) {
+            throwsMsg(() => cvFind({ d: s }, { ...LT.ctx, dateNoTz: 'local' }), '[date]')
+        }
+        withTz('America/New_York', () => {
+            throwsMsg(() => cvFind({ d: '2026-03-08T02:30:00' }, { ...LT.ctx, dateNoTz: 'local' }), '[date]') //夏令起始跳過之時刻
+            assert.ok(LT.where({ d: '2026-11-01T01:30:00' }, { dateNoTz: 'local' }).indexOf('2026-11-01 05:30:00.000 +00:00') >= 0) //重疊取EDT(較早)
+        })
+    })
+
+    it('[R4 dateNoTz] \'local\': 只放寬無時區之日期時間字串(Q-C C2:純日期仍拒收); 其餘格式與R4同', function() {
+        let bads = ['2026-01-01', '0026-01-01T00:00:00', '12026-01-01T00:00:00', '-002026-01-01T00:00:00', '2026-01-01t00:00:00', ' 2026-01-01T00:00:00', '2026-01-01T00:00:00 ', '2026-1-1T00:00:00', '', 'garbage', '2026-01-01T00:00:00.', '2026-01-01T00:00:00Zx',
+            '2026-01-00T00:00:00', '2026-00-01T00:00:00', '2026-01-01\t00:00:00', '2026-01-01  00:00:00', '2026-01-01T00:00.123', '2026-01-01T0:00:00', '０２０２６-01-01T00:00:00', '2026-01-01T00:00:00\n']
+        for (let s of bads) {
+            throwsMsg(() => cvFind({ d: s }, { ...LT.ctx, dateNoTz: 'local' }), '[date]')
+        }
+        //帶時區者與未給dateNoTz同(皆轉為Date送出)
+        for (let s of ['2026-01-01T00:00:00Z', '2026-01-01T00:00:00+08:00', '2026-01-01 00:00:00+0800']) {
+            assert.strictEqual(LT.where({ d: s }, { dateNoTz: 'local' }), LT.where({ d: s }))
+        }
+        //Date與epoch照舊
+        assert.doesNotThrow(() => cvFind({ d: new Date(0) }, { ...LT.ctx, dateNoTz: 'local' }))
+        assert.doesNotThrow(() => cvFind({ d: 0 }, { ...LT.ctx, dateNoTz: 'local' }))
+        //$in內含一個不合法者整體拒收
+        throwsMsg(() => cvFind({ d: { $in: ['2026-01-01T00:00:00', '2026-02-30T00:00:00'] } }, { ...LT.ctx, dateNoTz: 'local' }), '[date]')
+    })
+
+    it('[R4 dateNoTz] \'local\': 僅作用於DATE欄; DATEONLY、字串、整數欄與無法解析之欄不受影響', function() {
+        let cx = { ...LT.ctx, dateNoTz: 'local' }
+        throwsMsg(() => cvFind({ do: '2026-01-01T00:00:00' }, cx), '[dateonly]')
+        throwsMsg(() => cvFind({ i: '2026-01-01T00:00:00' }, cx), '[int]')
+        //字串欄與未給attrs(欄位型別any)之欄: 原字串送出, 不轉換
+        assert.ok(LT.where({ s: '2026-01-01T00:00:00' }, { dateNoTz: 'local' }).indexOf('\'2026-01-01T00:00:00\'') >= 0)
+        assert.ok(LT.where0({ nocol: '2026-01-01T00:00:00' }, { dateNoTz: 'local' }).indexOf('\'2026-01-01T00:00:00\'') >= 0)
+    })
+
+    //外審修正輪2(聚焦再審 run03): 以下為對resolveAttr、折疊、DATE年份與轉Date四處之再審所得
+    let pkStr = { type: Sequelize.STRING, primaryKey: true }
+
+    it('[R4欄名解析] 屬性之欄名恰為他屬性之名稱或與他屬性共欄: sequelize以映射後之欄名反查屬性而依他屬性之型別序列化值, 反查所得非本屬性者一律reject(不論型別類別)', function() {
+        for (let dl of ['sqlite', 'mssql']) {
+            let M = (dfs) => mk(dl, { id: pkStr, ...dfs })
+            let msg = 'ambiguous column name [a]'
+
+            //撞名: 屬性a之欄名b恰為屬性b之名稱(sequelize把鍵a映射為b後以rawAttributes.b之型別序列化: DATE值被INTEGER之NUMBER._stringify轉成Date.toString文字, sqlite以文字比較而命中全部非NULL列)
+            let M1 = M({ a: { type: Sequelize.DATE, field: 'b' }, b: { type: Sequelize.INTEGER, field: 'c' } })
+            for (let f of [{ a: { $lt: '2026-01-01T00:00:00Z' } }, { a: { $gt: 1893456000000 } }, { a: new Date(0) }, { a: { $in: ['2026-01-01T00:00:00Z'] } }, { a: { $not: { $gt: 1893456000000 } } }, { a: { [Op.between]: [0, 1893456000000] } }]) {
+                throwsMsg(() => cvFind(f, M1.ctx), msg)
+            }
+            //反向(A為INTEGER、B為DATE): {a:{$lt:5}}會被序列化為日期而語意全變
+            let M2 = M({ a: { type: Sequelize.INTEGER, field: 'b' }, b: { type: Sequelize.DATE, field: 'c' } })
+            throwsMsg(() => cvFind({ a: { $lt: 5 } }, M2.ctx), msg)
+            //不撞名之入口照常: 屬性b(欄c)、資料庫欄名c; 大小寫變體不解析
+            for (let f of [{ b: 5 }, { c: 5 }]) {
+                assert.doesNotThrow(() => cvFind(f, M1.ctx), JSON.stringify(f))
+            }
+            throwsMsg(() => cvFind({ b: 'abc' }, M1.ctx), '[int]')
+            throwsMsg(() => cvFind({ c: 'abc' }, M1.ctx), '[int]')
+            throwsMsg(() => cvFind({ C: 5 }, M1.ctx), 'unknown column name [C]')
+
+            //撞名但型別類別相同亦reject: 以「反查所得即本屬性」為唯一判準, 不倚賴型別類別相同即序列化相同(自訂DataType、any類別之序列化可能不同; run04 opus [7]、sol)
+            let M3 = M({ a: { type: Sequelize.DATE, field: 'b' }, b: { type: Sequelize.DATE, field: 'c' } })
+            throwsMsg(() => cvFind({ a: { $lt: '2026-01-01T00:00:00Z' } }, M3.ctx), msg)
+            let M3a = M({ a: { type: Sequelize.TIME, field: 'b' }, b: { type: Sequelize.BLOB, field: 'c' } })
+            throwsMsg(() => cvFind({ a: { $lt: '12:00' } }, M3a.ctx), msg)
+
+            //兩屬性共用一欄: sequelize取最後定義者(fieldRawAttributesMap), 先定義者reject, 最後定義者照常
+            let M4 = M({ a: { type: Sequelize.DATE, field: 'x' }, b: { type: Sequelize.INTEGER, field: 'x' } })
+            throwsMsg(() => cvFind({ a: { $lt: '2026-01-01T00:00:00Z' } }, M4.ctx), msg)
+            assert.doesNotThrow(() => cvFind({ b: { $lt: 5 } }, M4.ctx))
+            throwsMsg(() => cvFind({ x: 5 }, M4.ctx), 'ambiguous column name [x]')
+
+            //屬性名即欄名者不受影響(含屬性名大小寫不同之他屬性)
+            let M5 = M({ a: { type: Sequelize.DATE }, A: { type: Sequelize.INTEGER } })
+            assert.doesNotThrow(() => cvFind({ a: { $lt: '2026-01-01T00:00:00Z' } }, M5.ctx))
+            assert.doesNotThrow(() => cvFind({ A: { $lt: 5 } }, M5.ctx))
+        }
+    })
+
+    it('[R4 DATE] ISO字串之年0001–0099與Date、epoch同(曆法驗證不受Date.UTC對兩位數年之映射影響); 年0000與UTC年0000拒收', function() {
+        for (let M of [LT, MS]) {
+            assert.strictEqual(M.where({ d: '0001-01-01T00:00:00Z' }), M.where({ d: new Date(-62135596800000) }))
+            assert.strictEqual(M.where({ d: { $gt: '0001-01-01T00:00:00Z' } }), M.where({ d: { $gt: -62135596800000 } }))
+            let t50 = new Date(0) //0050-06-01T00:00:00Z, 以setUTCFullYear獨立求出(Date.UTC與new Date(y,..)皆把0–99年映射為1900–1999)
+            t50.setUTCFullYear(50, 5, 1)
+            assert.strictEqual(M.where({ d: '0050-06-01T00:00:00Z' }), M.where({ d: t50 }))
+            assert.ok(M.where({ d: '0050-06-01T00:00:00Z' }).indexOf('0050-06-01 00:00:00.000 +00:00') >= 0)
+            assert.ok(M.where({ d: '0099-12-31 23:59:59+00:00' }).indexOf('0099-12-31 23:59:59.000 +00:00') >= 0)
+            assert.doesNotThrow(() => cvFind({ d: '0004-02-29T00:00:00Z' }, M.ctx)) //閏年
+            for (let s of ['0000-01-01T00:00:00Z', '0001-01-01T00:00:00+00:01', '0100-02-29T00:00:00Z', '0001-02-29T00:00:00Z', '0050-13-01T00:00:00Z']) {
+                throwsMsg(() => cvFind({ d: s }, M.ctx), '[date]')
+            }
+            //DATEONLY同用曆法驗證: 年0001–0099放行, 年0000與不存在之日期拒收
+            assert.doesNotThrow(() => cvFind({ do: '0001-01-01' }, M.ctx))
+            assert.doesNotThrow(() => cvFind({ do: '0099-12-31' }, M.ctx))
+            for (let s of ['0000-01-01', '0001-02-29', '0100-02-29']) {
+                throwsMsg(() => cvFind({ do: s }, M.ctx), '[dateonly]')
+            }
+        }
+    })
+
+    it('[R4 DATE] 非整數epoch依new Date(v)截斷至整數毫秒, -0即0', function() {
+        for (let M of [LT, MS]) {
+            assert.strictEqual(M.where({ d: 1780272000000.9 }), M.where({ d: 1780272000000 }))
+            assert.strictEqual(M.where({ d: -0 }), M.where({ d: 0 }))
+            assert.strictEqual(M.where({ d: { $gte: 1780272000000.9 } }), M.where({ d: { $gte: 1780272000000 } }))
+        }
+    })
+
+    it('[R2][R4] 原生Op.startsWith/endsWith/substring不得用於DATE欄(sequelize以字串樣板插值, Date會成為隨主機時區與語系而變之文字)', function() {
+        for (let M of [LT, MS]) {
+            for (let op of [Op.startsWith, Op.endsWith, Op.substring]) {
+                for (let v of ['2026-01-01T00:00:00Z', 1893456000000, new Date(0)]) {
+                    throwsMsg(() => cvFind({ d: { [op]: v } }, M.ctx), 'not supported on a date column')
+                }
+                //其他欄型(字串欄)與未給attrs(欄位型別any)照舊
+                assert.doesNotThrow(() => cvFind({ s: { [op]: 'a' } }, M.ctx))
+                assert.doesNotThrow(() => M.where0({ nocol: { [op]: 'a' } }))
+            }
+        }
+    })
+
+    it('[R4欄名解析] 手造attrs(非define後之rawAttributes): field未設、屬性值為null或字串者不崩潰, 退化為以屬性名為欄名; field已設而非非空字串者reject(見「field須為非空字串」); 欄名含孤立代理字元不崩潰而依unknown column name reject', function() {
+        let attrs = { id: { type: Sequelize.STRING }, a: { type: Sequelize.INTEGER }, b: null, c: 'x', d: { type: Sequelize.DATE, field: undefined } }
+        let cx = { escape: LT.ctx.escape, attrs, dialect: 'sqlite' }
+        assert.doesNotThrow(() => cvFind({ a: 1, b: 2, c: 3, d: new Date(0) }, cx))
+        throwsMsg(() => cvFind({ a: 'abc' }, cx), '[int]')
+        throwsMsg(() => cvFind({ A: 'abc' }, cx), 'unknown column name [A]')
+        throwsMsg(() => cvFind({ d: 'garbage' }, cx), '[date]')
+        for (let dl of ['sqlite', 'mssql']) {
+            throwsMsg(() => cvFind({ '\uD800': 1 }, { ...cx, dialect: dl }), 'unknown column name')
+        }
+    })
+
+})
+
+
+describe('cvFind 最終審(run05)', function() {
+
+    //規格句(CLAUDE_rulebook.md R4欄名解析、R2、R4 原生Symbol):
+    //  [R4欄名解析(b)] 鍵或其映射後之資料庫欄名為sequelize於轉成SQL前改寫或重新解讀者reject: 空字串(_joinKeyValue遇空鍵只回值)、首尾皆$(isColString只比首尾字元)、field非非空字串
+    //  [R4欄名解析(c)] sequelize之反查須即本屬性, 且共用一欄時只收最後定義者(實體欄之型別由最後定義者決定)
+    //  [R4] attrs須為sequelize之rawAttributes形狀(一般物件、無Symbol鍵、自有字串鍵皆可列舉), 否則cvFind與sequelize看到不同之屬性集合
+    //  [R2][最低要求②] 原生Symbol須為sequelize於欄位層可翻譯者(OperatorMap所有者), between/notBetween之值須為兩元素陣列
+    let pkStr = { type: Sequelize.STRING, primaryKey: true }
+
+    it('[R4欄名解析] 不安全欄名: 映射後之欄名為空字串、或首尾皆$(含中間有換行、僅單一$)者reject(run05 sol F01/F02、opus [1]、自查)', function() {
+        //空字串: sequelize之sync以field||name建欄(欄名為屬性名)、寫入亦視為未設, 但mapWhereFieldNames把鍵映射為'', _joinKeyValue遇空鍵只回值, 條件成常數(WHERE (5)), delAll刪全表
+        //首尾皆$: isColString只比首尾字元, 含換行之$a\nb$被當成欄引用而比對a\nb欄; 單一$被當成空識別字
+        for (let dl of ['sqlite', 'mssql']) {
+            for (let fd of ['', '$', '$$', '$\n$', '$a\nb$', '$a\r\nb$', '$a\u2028b$', '$a\u2029b$']) {
+                let M = mk(dl, { id: pkStr, v: { type: Sequelize.STRING, field: fd } })
+                for (let find of [{ v: 'a' }, { v: { $in: ['a'] } }, { v: { $gt: 'a' } }, { v: { $regex: 'a' } }, { v: { $regex: 'a', $options: 'i' } }, { v: { $exists: true } }, { v: ['a'] }, { v: { $not: { $in: [] } } }, { $or: [{ v: null }, { id: 'a' }] }]) {
+                    throwsMsg(() => cvFind(find, M.ctx), `unsupported column name [${fd}]`)
+                }
+            }
+            //前後皆$之判定與isColString一致: 僅首或僅尾為$者照常
+            for (let fd of ['$a', 'a$', 'a\n$', '$\na']) {
+                let M = mk(dl, { id: pkStr, v: { type: Sequelize.STRING, field: fd } })
+                assert.doesNotThrow(() => cvFind({ v: 'a' }, M.ctx), JSON.stringify(fd))
+            }
+        }
+    })
+
+    it('[R4欄名解析] 屬性之field已設者須為字串(空字串見「不安全欄名」): null、數值、布林、物件、陣列皆reject(sequelize保留原值並以String(field)映射, cvFind若退回屬性名則二者指向不同欄; run05 opus [4])', function() {
+        for (let fd of [null, 0, 123, true, false, {}, []]) {
+            let attrs = { id: { type: Sequelize.STRING }, v: { type: Sequelize.INTEGER, field: fd } }
+            throwsMsg(() => cvFind({ v: 1 }, { escape: LT.ctx.escape, attrs, dialect: 'sqlite' }), 'unsupported column name [v]')
+            throwsMsg(() => cvFind({ v: { $regex: 'a', $options: 'i' } }, { escape: LT.ctx.escape, attrs: { ...attrs, v: { type: Sequelize.STRING, field: fd } }, dialect: 'sqlite' }), 'unsupported column name [v]')
+        }
+        //field未設(undefined)者以屬性名為欄名
+        let attrs = { id: { type: Sequelize.STRING }, v: { type: Sequelize.INTEGER, field: undefined }, w: { type: Sequelize.INTEGER } }
+        assert.doesNotThrow(() => cvFind({ v: 1, w: 2 }, { escape: LT.ctx.escape, attrs, dialect: 'sqlite' }))
+    })
+
+    it('[R4欄名解析] 共用一欄: 欄名恰為先定義者之名稱時該先定義者亦reject(實體欄之型別由最後定義者決定, sequelize卻依先定義者之型別序列化; run05 opus [2])', function() {
+        //屬性a(DATE)之欄名即a, 屬性b(INTEGER)亦映射到欄a: sync以欄名為鍵而後者覆寫, 實體欄a為INTEGER; sequelize把{a:..}依rawAttributes.a(DATE)序列化為文字,
+        //sqlite下INTEGER < TEXT恆真, delAll刪光全部非NULL列
+        for (let dl of ['sqlite', 'mssql']) {
+            let M = mk(dl, { id: pkStr, a: { type: Sequelize.DATE }, b: { type: Sequelize.INTEGER, field: 'a' } })
+            for (let f of [{ a: { $lt: '2030-01-01T00:00:00Z' } }, { a: { $gt: 1893456000000 } }, { a: new Date(0) }, { a: null }]) {
+                throwsMsg(() => cvFind(f, M.ctx), 'ambiguous column name [a]')
+            }
+            //b之欄名a反查為屬性a(撞名), 欄名鍵a有兩個屬性
+            throwsMsg(() => cvFind({ b: { $lt: 5 } }, M.ctx), 'ambiguous column name [b]')
+            //兩屬性共用非屬性名之欄x: 先定義者reject、最後定義者照常(同「撞名」段M4)
+            let M4 = mk(dl, { id: pkStr, a: { type: Sequelize.DATE, field: 'x' }, b: { type: Sequelize.INTEGER, field: 'x' } })
+            throwsMsg(() => cvFind({ a: { $lt: '2030-01-01T00:00:00Z' } }, M4.ctx), 'ambiguous column name [a]')
+            assert.doesNotThrow(() => cvFind({ b: { $lt: 5 } }, M4.ctx))
+            //欄名恰為屬性名者(b之欄為c, 另有屬性a之欄為b): 仍依「撞名」reject, 不受影響之入口照常
+            let M5 = mk(dl, { id: pkStr, a: { type: Sequelize.INTEGER }, b: { type: Sequelize.INTEGER } })
+            assert.doesNotThrow(() => cvFind({ a: 1, b: 2 }, M5.ctx))
+        }
+    })
+
+    it('[R4] attrs形狀: 須為一般物件(原型為Object.prototype或null)、無Symbol鍵、自有字串鍵皆可列舉, 否則拋invalid ctx(sequelize讀取之屬性集合與cvFind不同; run05 sol F05/F06/F07)', function() {
+        let base = () => ({ id: { type: Sequelize.STRING, primaryKey: true }, i: { type: Sequelize.INTEGER }, d: { type: Sequelize.DATE, field: 'dt' } })
+        let cx = (attrs) => ({ escape: LT.ctx.escape, attrs, dialect: 'sqlite' })
+
+        //Symbol鍵: 與Op.and相撞時, mapWhereFieldNames把邏輯鍵Op.and映射為欄d, {i:1}之條件消失而改為比對d
+        let a1 = base()
+        a1[Op.and] = { type: Sequelize.DATEONLY, field: 'd', fieldName: Op.and }
+        throwsMsg(() => cvFind({ i: 1 }, cx(a1)), 'invalid ctx: attrs')
+
+        //原型非一般物件: sequelize以rawAttributes[欄名]查找會讀到繼承之定義(cvFind以自有屬性核對則看不到)
+        let a2 = Object.setPrototypeOf(base(), { dt: { type: new Sequelize.INTEGER(), field: 'dt', fieldName: 'dt' } })
+        throwsMsg(() => cvFind({ d: { $lt: '2020-01-01T00:00:00Z' } }, cx(a2)), 'invalid ctx: attrs')
+
+        //自有而不可列舉: Object.keys建索引看不到, hasOwnProperty卻看得到
+        let a3 = base()
+        Object.defineProperty(a3, 'a', { value: { type: Sequelize.INTEGER, field: 'x' }, enumerable: false })
+        throwsMsg(() => cvFind({ a: 1 }, cx(a3)), 'invalid ctx: attrs')
+        throwsMsg(() => cvFind({ x: 1 }, cx(a3)), 'invalid ctx: attrs')
+
+        //非物件之attrs(字串、數值、陣列)
+        for (let bad of ['abc', 5, [], () => {}]) {
+            throwsMsg(() => cvFind({ i: 1 }, cx(bad)), 'invalid ctx: attrs')
+        }
+
+        //原型為null、一般物件、真正之rawAttributes皆照常
+        assert.doesNotThrow(() => cvFind({ i: 1 }, cx(Object.assign(Object.create(null), base()))))
+        assert.doesNotThrow(() => cvFind({ i: 1 }, cx(base())))
+        assert.doesNotThrow(() => cvFind({ i: 1, d: new Date(0) }, LT.ctx))
+        assert.doesNotThrow(() => cvFind({ i: 1 }, MS.ctx))
+
+        //attrs未給(undefined、null)者不檢, 維持現況; find為空者提前返回
+        assert.doesNotThrow(() => cvFind({ i: 1 }, { escape: LT.ctx.escape, dialect: 'sqlite' }))
+        assert.deepStrictEqual(cvFind({}, cx(a1)), {})
+    })
+
+    it('[R2][最低要求②] 原生Symbol運算子須為sequelize之OperatorMap所有者: Op.values、Op.join不在其中, sequelize退回等值並把整個運算子物件交欄型stringify(DATEONLY成查詢當日、DATE成現在、INTEGER成[object Object]), reject(run05 sol F04)', function() {
+        for (let M of [LT, MS]) {
+            let syms = Object.values(Op).filter((sym) => M.qg.OperatorMap[sym] === undefined)
+            //防sequelize改版後本測試空轉; 目前為values與join
+            assert.ok(syms.length >= 2 && syms.indexOf(Op.values) >= 0 && syms.indexOf(Op.join) >= 0, syms.map(String).join())
+            for (let sym of syms) {
+                for (let f of [{ s: { [sym]: 'a' } }, { do: { [sym]: '2019-01-01' } }, { i: { [sym]: 1 } }, { d: { [sym]: [new Date(0)] } }, { s: { $not: { [sym]: 'a' } } }]) {
+                    throwsMsg(() => cvFind(f, M.ctx), `unsupported symbol operator [${String(sym)}]`)
+                }
+            }
+        }
+    })
+
+    it('[R2][最低要求②] 原生Op.between/Op.notBetween之值須為兩元素之陣列(sequelize以value[0]、value[1]取值: 字串被逐字元取值、短陣列補NULL, NOT BETWEEN可命中全部非NULL列; 自查)', function() {
+        for (let M of [LT, MS]) {
+            for (let op of [Op.between, Op.notBetween]) {
+                for (let v of ['12', '2019-01-01', 12, [], [1], [1, 2, 3], {}, true]) {
+                    throwsMsg(() => cvFind({ i: { [op]: v } }, M.ctx), `${String(op)} requires an array of two values`)
+                    throwsMsg(() => cvFind({ do: { [op]: v } }, M.ctx), `${String(op)} requires an array of two values`)
+                }
+                //元素仍依欄型檢核; null、undefined元素reject(BETWEEN NULL AND x恆為未知)
+                throwsMsg(() => cvFind({ i: { [op]: ['a', 2] } }, M.ctx), '[int]')
+                throwsMsg(() => cvFind({ i: { [op]: [null, 2] } }, M.ctx), 'null is not allowed')
+                throwsMsg(() => cvFind({ i: { [op]: [1, undefined] } }, M.ctx), 'array must not contain holes or undefined')
+                assert.doesNotThrow(() => cvFind({ i: { [op]: [1, 2] } }, M.ctx))
+                assert.doesNotThrow(() => cvFind({ d: { [op]: ['2019-01-01T00:00:00Z', new Date(1)] } }, M.ctx))
+            }
+            //sequelize之方法物件元素照舊放行(呼叫端自負)
+            assert.doesNotThrow(() => cvFind({ i: { [Op.between]: [Sequelize.literal('1'), 2] } }, M.ctx))
+        }
+    })
+
+    it('[R6] $regex加i時LOWER(col)以Sequelize.col引用: 欄名以*開頭時sequelize回傳*而成LOWER(*), 此情形reject; 不給i或其他運算子照常(opus [3])', function() {
+        for (let dl of ['sqlite', 'mssql']) {
+            let M = mk(dl, { id: pkStr, v: { type: Sequelize.STRING, field: '*a' } })
+            throwsMsg(() => cvFind({ v: { $regex: 'a', $options: 'i' } }, M.ctx), 'unsupported column name [*a]')
+            throwsMsg(() => cvFind({ v: /a/i }, M.ctx), 'unsupported column name [*a]')
+            throwsMsg(() => cvFind({ v: { $not: { $regex: 'a', $options: 'i' } } }, M.ctx), 'unsupported column name [*a]')
+            assert.doesNotThrow(() => cvFind({ v: { $regex: 'a' } }, M.ctx))
+            assert.doesNotThrow(() => cvFind({ v: 'a' }, M.ctx))
+            //屬性名以*開頭而欄名不同者, 以欄名判定
+            let M2 = mk(dl, { 'id': pkStr, '*v': { type: Sequelize.STRING, field: 'vcol' } })
+            assert.doesNotThrow(() => cvFind({ '*v': { $regex: 'a', $options: 'i' } }, M2.ctx))
+        }
     })
 
 })

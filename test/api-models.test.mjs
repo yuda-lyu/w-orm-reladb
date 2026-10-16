@@ -128,6 +128,29 @@ describe('models file', function() {
         assert.deepStrictEqual((await wAll.select()).map((v) => v.id).sort(), ['a', 'b'])
     })
 
+    it('model之defaultScope帶group/having、include或含Op.and之where時delAll拒絕且不刪除(select與destroy對這些選項之處置不同, 或scope之Op.and被cvFind頂層之Op.and覆寫)', async function() {
+        //rulebook R1: findAll套用scope之group/having與required include(只回部分列), destroy卻不套用而刪除全部符合where者(run05 sol F03、opus 疑慮(ii), sqlite實測 select=[2] 而 destroy=3);
+        //scope.where含Op.and者, sequelize以Object.assign合併而被cvFind輸出之頂層Op.and覆寫, scope條件消失(opus 疑慮(i))
+        let cases = [
+            ['group+having', 'defaultScope: { group: [\'id\'], having: sequelize.literal(\'value > 0\') }'],
+            ['required include', 'defaultScope: { include: [{ model: sequelize.define(\'uchild\', { id: { type: DataTypes.STRING, primaryKey: true } }, { tableName: \'uchild\' }), required: true }] }'],
+            ['where含Op.and', 'defaultScope: { where: { [require(\'sequelize\').Op.and]: [{ name: \'x\' }] } }'],
+        ]
+        for (let [i, [t, sc]] of cases.entries()) {
+            let fdm = path.join(fd, `m6${i}`)
+            fs.mkdirSync(fdm, { recursive: true })
+            fs.writeFileSync(path.join(fdm, 'users.js'), genModel(true).replace('tableName: \'users\'', `tableName: 'users', ${sc}`), 'utf8')
+            let st = path.join(fd, `m6${i}.sqlite`)
+            let w = wo({ url: 'sqlite://:', storage: st, db: 'worm', cl: 'users', fdModels: fdm })
+            await w.createStorage()
+            await w.insert([{ id: 'a', name: 'x', value: 1 }, { id: 'b', name: 'y', value: 0 }])
+            let r = await w.delAll({ value: { $gte: 0 } }).then(() => null).catch((err) => String(err.message || err))
+            assert.ok(r !== null && r.indexOf('defaultScope') >= 0, `${t}: 未reject: ${r}`)
+            let wAll = wo({ url: 'sqlite://:', storage: st, db: 'worm', cl: 'users', fdModels: path.join(fd, 'm1') })
+            assert.deepStrictEqual((await wAll.select()).map((v) => v.id).sort(), ['a', 'b'], `${t}: 資料被刪`)
+        }
+    })
+
     it('BIGINT主鍵: 超出安全整數之數值為型別不符, 精確值以標準整數寫法之字串給予', async function() {
         //rulebook R8: 整數類主鍵之數值須為安全整數, 否則已失精度而會命中相鄰主鍵; 超出安全整數之標準整數寫法字串保留為字串(表外細化)
         let fdm = path.join(fd, 'm5')
