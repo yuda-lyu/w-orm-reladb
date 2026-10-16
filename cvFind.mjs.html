@@ -92,8 +92,17 @@ let mSymCmp = new Map([
 ])
 
 
-//欄位層不接受之Symbol: 邏輯運算子於sequelize欄位層會提前返回而丟棄同層其他條件
-let setSymFieldNo = new Set([Op.and, Op.or])
+//欄位層不接受之Symbol: 邏輯運算子於sequelize欄位層會提前返回而丟棄同層其他條件;
+//Op.values與Op.join不在sequelize之OperatorMap(各方言皆然), 欄位層遇之退回等值並把整個運算子物件交欄型stringify(DATEONLY成查詢當日、DATE成現在、INTEGER成'[object Object]')
+let setSymFieldNo = new Set([Op.and, Op.or, Op.values, Op.join])
+
+
+//sequelize以value[0]、value[1]取值之Symbol運算子, 值須為兩元素陣列(字串被逐字元取值、短陣列補NULL, NOT BETWEEN可命中全部非NULL列)
+let setSymBetween = new Set([Op.between, Op.notBetween])
+
+
+//sequelize以字串樣板(`${value}%`)插值之Symbol運算子: DATE欄之值(轉為Date後)會成為隨主機時區與語系而變之文字, 故不得用於DATE欄
+let setSymInterp = new Set([Op.startsWith, Op.endsWith, Op.substring])
 
 
 //LIKE之跳脫字元, 選用於各方言字串常值內皆無特殊意義者, 令ESCAPE子句不需依方言跳脫
@@ -134,14 +143,54 @@ let reIsoTz = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(:(\d{2})(\.\d+)?)?(Z|
 let reDateOnly = /^(\d{4})-(\d{2})-(\d{2})$/
 
 
+//無時區之ISO 8601日期時間字串(秒與小數秒可省), 僅呼叫端以ctx.dateNoTz明示'local'時收
+let reIsoNoTz = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d+))?)?$/
+
+
 /**
- * 判定年月日是否為曆法上存在之日期, 如2026-02-30不存在
+ * 依主機時區解析無時區之ISO 8601日期時間字串為Date, 不合法(格式不符、曆法上不存在、主機時區下不存在)者回傳null
+ * 註: 不用Date.parse, 因帶空白分隔等寫法屬實作定義; 以本地時間建構後逐欄回驗, 如2026-02-30、24:00:00、60秒、夏令跳過之時刻皆為null
+ * 註: 小數秒取前三位(截斷至毫秒); 夏令重疊之時刻取較早者(Date之行為)
+ *
+ * @ignore
+ */
+function parseNoTzLocal(s) {
+    let m = s.match(reIsoNoTz)
+    if (m === null) {
+        return null
+    }
+    let y = Number(m[1])
+    let mo = Number(m[2])
+    let d = Number(m[3])
+    let h = Number(m[4])
+    let mi = Number(m[5])
+    let sec = m[6] === undefined ? 0 : Number(m[6])
+    let ms = m[7] === undefined ? 0 : Number(`${m[7]}00`.slice(0, 3))
+    let t = new Date(y, mo - 1, d, h, mi, sec, ms)
+    if (t.getFullYear() !== y || t.getMonth() !== mo - 1 || t.getDate() !== d || t.getHours() !== h || t.getMinutes() !== mi || t.getSeconds() !== sec || t.getMilliseconds() !== ms) {
+        return null
+    }
+    if (!inDateRange(t.getTime())) {
+        return null //本地時間通過回驗, 但換算UTC後年份超出1–9999(如負偏移時區之9999-12-31晚間)
+    }
+    return t
+}
+
+
+/**
+ * 判定年月日是否為曆法上存在之日期, 如2026-02-30不存在; 年須在1以上(年0000不收)
+ * 註: 不用Date.UTC(y,..)建構, 因其把0–99年映射為1900–1999而使年0001–0099之字串被誤拒; 以setUTCFullYear設定完整年份
  *
  * @ignore
  */
 function isCalendarDate(y, m, d) {
-    let t = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d)))
-    return t.getUTCFullYear() === Number(y) &amp;&amp; t.getUTCMonth() === Number(m) - 1 &amp;&amp; t.getUTCDate() === Number(d)
+    let yn = Number(y)
+    if (yn &lt; 1) {
+        return false
+    }
+    let t = new Date(0)
+    t.setUTCFullYear(yn, Number(m) - 1, Number(d))
+    return t.getUTCFullYear() === yn &amp;&amp; t.getUTCMonth() === Number(m) - 1 &amp;&amp; t.getUTCDate() === Number(d)
 }
 
 
@@ -221,6 +270,149 @@ function getColKind(attrs, field) {
 
 
 /**
+ * 取model屬性之資料庫欄名: attr.field(字串)優先, 否則為屬性名(sequelize define後恆有field, 手造attrs可能缺)
+ *
+ * @ignore
+ */
+function colOf(attrs, k) {
+    return attrs[k] &amp;&amp; typeof attrs[k].field === 'string' ? attrs[k].field : k
+}
+
+
+/**
+ * 建立attrs之索引: 資料庫欄名 → 屬性名陣列(依定義順序), 供欄名解析與sequelize反查之核對
+ *
+ * @ignore
+ */
+function buildAttrIdx(attrs) {
+    let byCol = new Map()
+    for (let k of Object.keys(attrs)) {
+        let c = colOf(attrs, k)
+        let a = byCol.get(c)
+        if (a === undefined) {
+            a = []
+            byCol.set(c, a)
+        }
+        a.push(k)
+    }
+    return { byCol }
+}
+
+
+/**
+ * 核對attrs為sequelize之rawAttributes形狀: 一般物件(原型為Object.prototype或null)、無Symbol鍵、自有字串鍵皆可列舉
+ * 註: sequelize以rawAttributes[鍵]讀取(含原型鏈、Symbol鍵、不可列舉者), 而cvFind以Object.keys建索引、以自有屬性核對; 三者所見之屬性集合不同時,
+ * 反查核對與sequelize實際取用之定義分歧(如與Op.and相撞之Symbol屬性使sequelize把邏輯鍵映射為欄而條件消失); 真正之rawAttributes恆符合
+ *
+ * @ignore
+ */
+function chkAttrs(attrs) {
+    let p = typeof attrs === 'object' ? Object.getPrototypeOf(attrs) : undefined
+    if (!(p === Object.prototype || p === null) || Object.getOwnPropertySymbols(attrs).length > 0 || Object.getOwnPropertyNames(attrs).length !== Object.keys(attrs).length) {
+        throw new Error('invalid ctx: attrs must be a plain object (prototype Object.prototype or null) without symbol keys and with enumerable string keys only')
+    }
+}
+
+
+/**
+ * 核對欄名可安全交sequelize: 下列名稱會被sequelize於轉成SQL前改寫或重新解讀, 使資料庫實際比對之欄不是此名, 一律拒收
+ * 註: 空字串者(sequelize之_joinKeyValue遇空鍵只回值, 條件成常數而delAll刪全表)、含反引號/雙引號/單引號/方括號者(quoteIdentifier依方言刪除之, 如sqlite之`val`ue`成value)、含點者(JSON路徑、表.欄)、
+ * 前後皆$者($x$被當成欄引用; sequelize之isColString只比首尾字元, 故含換行者與單一$亦是, 不以正規式判定以免.不匹配換行)、
+ * Object.prototype之成員名與__proto__(sequelize以一般物件查表與賦值: 查到函數而不依欄型序列化、賦值__proto__使條件遺失而刪全表)
+ *
+ * @ignore
+ */
+function chkColName(n, path) {
+    if (n === '' || n in Object.prototype || n.indexOf('.') >= 0 || /[`"'[\]]/.test(n) || (n[0] === '$' &amp;&amp; n[n.length - 1] === '$')) {
+        err(`unsupported column name [${n}]`, path)
+    }
+}
+
+
+/**
+ * 屬性是否為VIRTUAL(非資料庫欄)
+ *
+ * @ignore
+ */
+function isVirtualAttr(at) {
+    let t = at &amp;&amp; at.type
+    return !!t &amp;&amp; (t instanceof DT.VIRTUAL || t.key === 'VIRTUAL')
+}
+
+
+/**
+ * 將條件之欄名解析為model之屬性名(嚴格鍵): 僅收屬性名完全相符、或資料庫欄名(attr.field)完全相符且唯一者, 其餘一律拒收, 不模擬資料庫之識別字解析
+ * 註: 欄名經三方各自解析: cvFind(判型別、主鍵、DATE值)、sequelize(屬性名映射欄名、以映射後之名稱反查屬性型別、引用層改寫字元)、資料庫(依定序折疊);
+ * 完全相符之名稱無論資料庫如何折疊皆解析為自己, 故只收完全相符者(另核對sequelize之反查與改寫, 見chkColName與下文), 使三方之解析必然一致, 見CLAUDE_rulebook.md之R4欄名解析
+ * 註: 以model之attrs為準, attrs缺少之欄與VIRTUAL屬性皆拒收; attrs未給者回傳null(不解析, 欄位型別為any, 交資料庫處置)
+ *
+ * @ignore
+ */
+function resolveAttr(attrs, idx, field, path) {
+    if (!attrs) {
+        return null
+    }
+    chkColName(field, path)
+
+    //①屬性名完全相符; ②資料庫欄名完全相符(多於一個者無從判定)
+    let name = null
+    if (Object.prototype.hasOwnProperty.call(attrs, field)) {
+        name = field
+    }
+    else {
+        let hits = idx.byCol.get(field) || []
+        if (hits.length > 1) {
+            err(`ambiguous column name [${field}]`, path)
+        }
+        if (hits.length === 1) {
+            name = hits[0]
+        }
+    }
+
+    //其餘拒收; 提示僅供診斷(不分大小寫相同者), 不影響解析
+    if (name === null || isVirtualAttr(attrs[name])) {
+        let lf = field.toLowerCase()
+        let near = Object.keys(attrs).find((k) => !isVirtualAttr(attrs[k]) &amp;&amp; (k.toLowerCase() === lf || colOf(attrs, k).toLowerCase() === lf))
+        err(`unknown column name [${field}]${near === undefined ? '' : `, did you mean [${near}]?`}`, path)
+    }
+
+    //field已設者須為字串(sequelize保留原值並以String(field)映射, 退回屬性名則二者指向不同欄); 空字串由chkColName拒收
+    let at = attrs[name]
+    if (at &amp;&amp; at.field !== undefined &amp;&amp; typeof at.field !== 'string') {
+        err(`unsupported column name [${name}], its field must be a string`, path)
+    }
+
+    //sequelize把屬性名之鍵映射為其欄名後, 以rawAttributes[欄名](名稱為該欄名之屬性)、其次fieldRawAttributesMap[欄名](欄名為該欄名之屬性, 多個取最後定義者)取得型別序列化值;
+    //反查所得須即本屬性, 否則值依他屬性之型別序列化(如DATE之值被INTEGER序列化為Date.toString文字, sqlite以文字比較而命中全部非NULL列), 拒收
+    //共用一欄者另須本屬性即最後定義者: 實體欄之型別由最後定義者決定(sync以欄名為鍵而後者覆寫), 先定義者即使反查為自己, sequelize之序列化亦與實體欄不符
+    let col = colOf(attrs, name)
+    chkColName(col, path)
+    let cs = idx.byCol.get(col)
+    let last = cs[cs.length - 1]
+    let s = Object.prototype.hasOwnProperty.call(attrs, col) ? col : last
+    if (s !== name) {
+        err(`ambiguous column name [${field}], its column [${col}] resolves to attribute [${s}]`, path)
+    }
+    if (last !== name) {
+        err(`ambiguous column name [${field}], its column [${col}] is shared with attribute [${last}], the last attribute defines the column type`, path)
+    }
+    return name
+}
+
+
+/**
+ * 判定時間(毫秒)換算UTC後年份是否在1–9999
+ * 註: sequelize以YYYY格式化DATE, 年10000起為5位數, sqlite以文字比較致{d:{$gt:年10000}}命中全部日期列; mssql之datetimeoffset範圍亦為0001–9999
+ *
+ * @ignore
+ */
+function inDateRange(ms) {
+    let y = new Date(ms).getUTCFullYear()
+    return y >= 1 &amp;&amp; y &lt;= 9999
+}
+
+
+/**
  * 取DECIMAL欄之scale, 未指定者為0(mssql之DECIMAL預設為(18,0)), 非DECIMAL者為null
  *
  * @param {Object} attrs 輸入model之rawAttributes
@@ -275,18 +467,23 @@ function isKindOk(v, kind, scale = null) {
         return true
     }
     if (kind === 'date') {
+        //所有形式換算UTC後年份須在1–9999(inDateRange)
         if (v instanceof Date) {
-            return !isNaN(v.getTime())
+            return !isNaN(v.getTime()) &amp;&amp; inDateRange(v.getTime())
         }
         if (typeof v === 'number') {
             //須在Date可表示之範圍(±8.64e15毫秒)內, 超出者被stringify為'Invalid date'而以文字比較, sqlite會命中全部日期列
-            return Number.isFinite(v) &amp;&amp; !isNaN(new Date(v).getTime())
+            return Number.isFinite(v) &amp;&amp; !isNaN(new Date(v).getTime()) &amp;&amp; inDateRange(v)
         }
         if (typeof v !== 'string') {
             return false
         }
         let m = v.match(reIsoTz)
-        return m !== null &amp;&amp; isCalendarDate(m[1], m[2], m[3]) &amp;&amp; !isNaN(Date.parse(v.replace(' ', 'T')))
+        if (m === null || !isCalendarDate(m[1], m[2], m[3])) {
+            return false
+        }
+        let ms = Date.parse(v.replace(' ', 'T'))
+        return !isNaN(ms) &amp;&amp; inDateRange(ms)
     }
     if (kind === 'dateonly') {
         //Date物件依主機時區取日期而結果隨主機而變, 故只收日期字串
@@ -392,10 +589,11 @@ function normPk(v, kind, scale = null) {
  * 註: 物件、陣列等不得交sequelize之型別stringify, 否則FLOAT成'NaN'、INTEGER成'[object Object]'、DATE成本地今日00:00而誤刪
  * 註: 主鍵欄(pk為true)之字串類、整數類與其他數值類以normPk正規化後回傳(如字串類主鍵欄之123即'123'), 無效或型別不符者拒收,
  * 令select與delAll對主鍵之認定與selectByPk、del等主鍵函數一致; 非主鍵欄不轉型
+ * 註: kind為date且呼叫端以ctx.dateNoTz明示'local'(dateNoTz為'local')時, 無時區日期時間字串依主機時區轉為Date回傳(見parseNoTzLocal), 其餘值照舊判定
  *
  * @ignore
  */
-function chkScalar(v, path, allowNull, kind = 'any', scale = null, pk = false) {
+function chkScalar(v, path, allowNull, kind = 'any', scale = null, pk = false, dateNoTz = undefined) {
     if (v === null) {
         if (allowNull) {
             return v
@@ -431,8 +629,20 @@ function chkScalar(v, path, allowNull, kind = 'any', scale = null, pk = false) {
         }
         err(`value [${String(v)}] does not match column type [${kind}]${scale !== null ? ` with scale [${scale}]` : ''}`, path)
     }
+    if (kind === 'date' &amp;&amp; dateNoTz === 'local' &amp;&amp; typeof v === 'string') {
+        //呼叫端明示之無時區日期時間字串: 依主機時區解析並以Date送出, 與直接給Date同義; 不符者續由isKindOk判定(帶時區者照舊)
+        let t = parseNoTzLocal(v)
+        if (t !== null) {
+            return t
+        }
+    }
     if (!isKindOk(v, kind, scale)) {
         err(`value [${String(v)}] does not match column type [${kind}]${scale !== null ? ` with scale [${scale}]` : ''}`, path)
+    }
+    if (kind === 'date' &amp;&amp; !(v instanceof Date)) {
+        //通過檢核之字串與epoch一律轉為Date送出: sequelize只在鍵為屬性名或欄名完全相符時依欄型序列化值, 大小寫變體鍵會原樣送出字串與epoch,
+        //sqlite以文字或型別序比較而命中錯列(如{D:{$gt:epoch}}刪光全部日期列); 轉為Date後與鍵之拼寫無關
+        return new Date(typeof v === 'string' ? Date.parse(v.replace(' ', 'T')) : v)
     }
     return v
 }
@@ -462,14 +672,14 @@ function getItems(arr, path) {
  *
  * @ignore
  */
-function chkRawSym(x, path, kind, scale, pk) {
+function chkRawSym(x, path, kind, scale, pk, dateNoTz) {
     if (x instanceof Sequelize.Utils.SequelizeMethod) {
         return x
     }
     if (Array.isArray(x)) {
-        return getItems(x, path).map((y, i) => (y instanceof Sequelize.Utils.SequelizeMethod ? y : chkScalar(y, `${path}.${i}`, true, kind, scale, pk)))
+        return getItems(x, path).map((y, i) => (y instanceof Sequelize.Utils.SequelizeMethod ? y : chkScalar(y, `${path}.${i}`, true, kind, scale, pk, dateNoTz)))
     }
-    return chkScalar(x, path, true, kind, scale, pk)
+    return chkScalar(x, path, true, kind, scale, pk, dateNoTz)
 }
 
 
@@ -532,7 +742,7 @@ function normFlags(fs, path) {
  *
  * @ignore
  */
-function cvRegex(field, re, options, path, ctx, kind) {
+function cvRegex(field, col, re, options, path, ctx, kind) {
     if (kind !== 'str' &amp;&amp; kind !== 'any') {
         err(`$regex requires a string column, column type is [${kind}]`, path)
     }
@@ -554,6 +764,10 @@ function cvRegex(field, re, options, path, ctx, kind) {
         err('$regex must be a string or RegExp', path)
     }
     let lit = regexToLiteral(src, path)
+    if (ci &amp;&amp; col[0] === '*') {
+        //sequelize之Col遇以*開頭之名稱一律回傳*, LOWER(col)成LOWER(*)
+        err(`unsupported column name [${col}], it can not be used with $regex and i`, path)
+    }
     if (ci &amp;&amp; ctx.dialect === 'sqlite') {
         for (let c of lit) {
             if (c.charCodeAt(0) > 127 &amp;&amp; c.toLowerCase() !== c.toUpperCase()) {
@@ -564,8 +778,7 @@ function cvRegex(field, re, options, path, ctx, kind) {
     let pat = `%${lit.replace(/[!%_[]/g, (c) => `${cEsc}${c}`)}%`
     let q = ctx.escape(pat)
     if (ci) {
-        //LOWER內須為資料庫之實際欄名, model之屬性名與欄名可不同
-        let col = ctx.attrs &amp;&amp; ctx.attrs[field] &amp;&amp; ctx.attrs[field].field ? ctx.attrs[field].field : field
+        //LOWER內須為資料庫之實際欄名col, model之屬性名與欄名可不同(欄名已由resolveAttr核對可安全交sequelize)
         return Sequelize.where(Sequelize.fn('LOWER', Sequelize.col(col)), Op.like, Sequelize.literal(`LOWER(${q}) ESCAPE '${cEsc}'`))
     }
     return { [field]: { [Op.like]: Sequelize.literal(`${q} ESCAPE '${cEsc}'`) } }
@@ -577,7 +790,7 @@ function cvRegex(field, re, options, path, ctx, kind) {
  *
  * @ignore
  */
-function cvIn(field, arr, path, neg, kind, scale, pk) {
+function cvIn(field, arr, path, neg, kind, scale, pk, dateNoTz) {
     if (!Array.isArray(arr)) {
         err(`${neg ? '$nin' : '$in'} must be an array`, path)
     }
@@ -588,17 +801,17 @@ function cvIn(field, arr, path, neg, kind, scale, pk) {
             hasNull = true
             return
         }
-        vs.push(chkScalar(v, `${path}.${k}`, false, kind, scale, pk))
+        vs.push(chkScalar(v, `${path}.${k}`, false, kind, scale, pk, dateNoTz))
     })
     if (!neg) {
         if (vs.length === 0) {
-            return hasNull ? { [field]: null } : sqlFalse()
+            return hasNull ? { [field]: null } : { [Op.and]: [{ [field]: null }, sqlFalse()] }
         }
         let c = { [field]: { [Op.in]: vs } }
         return hasNull ? { [Op.or]: [c, { [field]: null }] } : c
     }
     if (vs.length === 0) {
-        return hasNull ? { [field]: { [Op.ne]: null } } : sqlTrue()
+        return hasNull ? { [field]: { [Op.ne]: null } } : { [Op.or]: [{ [field]: null }, sqlTrue()] }
     }
     let c = { [field]: { [Op.notIn]: vs } }
     return hasNull ? { [Op.and]: [c, { [field]: { [Op.ne]: null } }] } : c
@@ -611,9 +824,6 @@ function cvIn(field, arr, path, neg, kind, scale, pk) {
  * @ignore
  */
 function cvField(field, v, path, depth, ctx) {
-    let kind = getColKind(ctx.attrs, field)
-    let scale = getColScale(ctx.attrs, field)
-    let pk = ctx.pk !== undefined &amp;&amp; field === ctx.pk //主鍵欄之純量依normPk正規化(R8)
     if (depth > nDepthMax) {
         err('find is too deep', path)
     }
@@ -623,15 +833,23 @@ function cvField(field, v, path, depth, ctx) {
     if (v === undefined) {
         err('value is undefined', path)
     }
+
+    //欄名先解析為model之屬性名再判型別與主鍵(R4欄名解析); attrs已給而解析不到者拒收, attrs未給者為any, 交資料庫處置
+    let an = resolveAttr(ctx.attrs, ctx.attrIdx, field, path)
+    let col = an === null ? field : colOf(ctx.attrs, an) //資料庫實際欄名
+    let kind = an === null ? 'any' : getColKind(ctx.attrs, an)
+    let scale = an === null ? null : getColScale(ctx.attrs, an)
+    let pk = ctx.pk !== undefined &amp;&amp; an === ctx.pk //主鍵欄之純量依normPk正規化(R8)
+    let dateNoTz = ctx.dateNoTz
     if (Array.isArray(v)) {
         //陣列值即$in(含null與空陣列之處置), 與MongoDB之陣列比對不同, 已文件化
-        return [cvIn(field, v, path, false, kind, scale, pk)]
+        return [cvIn(field, v, path, false, kind, scale, pk, dateNoTz)]
     }
     if (v instanceof RegExp) {
-        return [cvRegex(field, v, undefined, path, ctx, kind)]
+        return [cvRegex(field, col, v, undefined, path, ctx, kind)]
     }
     if (!isPlainObj(v)) {
-        return [{ [field]: chkScalar(v, path, true, kind, scale, pk) }]
+        return [{ [field]: chkScalar(v, path, true, kind, scale, pk, dateNoTz) }]
     }
     let ks = Reflect.ownKeys(v)
     if (ks.length === 0) {
@@ -651,8 +869,19 @@ function cvField(field, v, path, depth, ctx) {
             }
             name = mSymCmp.get(k)
             if (name === undefined) {
+                if (kind === 'date' &amp;&amp; setSymInterp.has(k)) {
+                    err(`operator [${String(k)}] is not supported on a date column`, kp)
+                }
+                if (setSymBetween.has(k)) {
+                    //值須為兩元素陣列, 元素為純量(不含null)或sequelize之方法物件
+                    if (!Array.isArray(x) || x.length !== 2) {
+                        err(`${String(k)} requires an array of two values`, kp)
+                    }
+                    cs.push({ [field]: { [k]: getItems(x, kp).map((y, i) => (y instanceof Sequelize.Utils.SequelizeMethod ? y : chkScalar(y, `${kp}.${i}`, false, kind, scale, pk, dateNoTz))) } })
+                    continue
+                }
                 //其餘sequelize之Symbol運算子為呼叫端自負之原生寫法, 值經檢核後各自成一子式
-                cs.push({ [field]: { [k]: chkRawSym(x, kp, kind, scale, pk) } })
+                cs.push({ [field]: { [k]: chkRawSym(x, kp, kind, scale, pk, dateNoTz) } })
                 continue
             }
         }
@@ -661,7 +890,7 @@ function cvField(field, v, path, depth, ctx) {
         }
         if (mCmp[name] !== undefined) {
             let allowNull = name === '$eq' || name === '$ne'
-            let y = chkScalar(x, kp, allowNull, kind, scale, pk)
+            let y = chkScalar(x, kp, allowNull, kind, scale, pk, dateNoTz)
             if (Object.prototype.hasOwnProperty.call(simple, mCmp[name])) {
                 //同義之鍵(如$gt與Op.gt)各自成一子式, 不得互相覆寫
                 cs.push({ [field]: { [mCmp[name]]: y } })
@@ -672,7 +901,7 @@ function cvField(field, v, path, depth, ctx) {
             }
         }
         else if (name === '$in' || name === '$nin') {
-            cs.push(cvIn(field, x, kp, name === '$nin', kind, scale, pk))
+            cs.push(cvIn(field, x, kp, name === '$nin', kind, scale, pk, dateNoTz))
         }
         else if (name === '$exists') {
             if (x !== true &amp;&amp; x !== false &amp;&amp; x !== 0 &amp;&amp; x !== 1) {
@@ -682,7 +911,7 @@ function cvField(field, v, path, depth, ctx) {
         }
         else if (name === '$regex') {
             hasRegex = true
-            cs.push(cvRegex(field, x, v.$options, kp, ctx, kind))
+            cs.push(cvRegex(field, col, x, v.$options, kp, ctx, kind))
         }
         else if (name === '$options') {
             //由$regex一併處理
@@ -700,6 +929,10 @@ function cvField(field, v, path, depth, ctx) {
     }
     if (v.$options !== undefined &amp;&amp; !hasRegex) {
         err('$options requires $regex', path)
+    }
+    if (cs.length === 0 &amp;&amp; nSimple === 0) {
+        //如僅有值為undefined之$options: 不產生任何子式, 該條件即消失而成恆真, delAll會刪全表
+        err('operator object has no operator', path)
     }
     if (nSimple > 0) {
         cs.unshift({ [field]: simple })
@@ -806,12 +1039,18 @@ function cvOr(cs) {
  * @param {*} find 輸入查詢條件
  * @param {Object} ctx 輸入轉換所需之依賴物件
  * @param {Function} ctx.escape 輸入依方言將字串轉為SQL字串常值之函數, 通常為sequelize實例之escape
- * @param {Object} [ctx.attrs] 輸入model之rawAttributes, 供依欄位型別檢核純量與取得實際欄名, 未給時不檢型別
+ * @param {Object} [ctx.attrs] 輸入執行where之model之rawAttributes, 供欄名解析(嚴格鍵: 鍵須與屬性名或資料庫欄名完全相符, 其餘拒收)、依欄位型別檢核純量與取得實際欄名; 未給時不解析鍵、不檢型別而交資料庫(見CLAUDE_rulebook.md之R4)
  * @param {String} [ctx.dialect] 輸入資料庫種類字串, 供判定方言能力(如sqlite之LOWER僅折疊ASCII)
  * @param {String} [ctx.pk] 輸入主鍵欄位名, 該欄之純量條件值依normPk正規化(如字串類主鍵欄之123即'123'), 未給時不正規化
+ * @param {String} [ctx.dateNoTz] 輸入無時區日期時間字串之處置, 僅接受undefined(預設, 無時區者拒收)或'local'(依主機時區解析, 與以本地時間分量建構之Date同義), 其餘值拋錯; 僅作用於DATE欄, 供Jet等無時區後端之呼叫端明示啟用
  * @returns {Object} 回傳sequelize之where物件, 條件不合法時拋出錯誤
  */
 function cvFind(find, ctx) {
+
+    //check, ctx.dateNoTz須為undefined或'local', 其餘值(含拼錯、大小寫不同)拋錯, 不靜默忽略
+    if (ctx &amp;&amp; ctx.dateNoTz !== undefined &amp;&amp; ctx.dateNoTz !== 'local') {
+        throw new Error(`invalid ctx: dateNoTz must be 'local' or undefined, got [${String(ctx.dateNoTz)}]`)
+    }
 
     //check, 非物件(undefined、null、字串、數值等純量)與陣列視為未給條件, 此為現況保留, 系列規格另案處理
     if (find === null || typeof find !== 'object' || Array.isArray(find)) {
@@ -828,7 +1067,13 @@ function cvFind(find, ctx) {
         return {}
     }
 
-    return cvDoc(find, '', 0, ctx)
+    //check, attrs須為rawAttributes形狀(見chkAttrs)
+    if (ctx &amp;&amp; ctx.attrs) {
+        chkAttrs(ctx.attrs)
+    }
+
+    //attrs之索引每次轉譯只建一次(內部欄位attrIdx, 不屬ctx之介面)
+    return cvDoc(find, '', 0, ctx &amp;&amp; ctx.attrs ? { ...ctx, attrIdx: buildAttrIdx(ctx.attrs) } : ctx)
 }
 
 
@@ -848,7 +1093,7 @@ export default cvFind
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Fri Oct 16 2026 14:32:44 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Fri Oct 16 2026 19:47:28 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
 </footer>
 
 <script>prettyPrint();</script>
