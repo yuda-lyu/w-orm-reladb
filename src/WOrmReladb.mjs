@@ -571,14 +571,16 @@ function WOrmReladb(opt = {}) {
 
         //si
         let si = instance
-        if (instance === null) {
-            si = await initSequelize()
-        }
 
         try {
 
             //check, 實例已關閉屬整批性錯誤, 於入口快速失敗
             procClosed(instance)
+
+            //initSequelize, 內部自動初始化須在try內: 其例外(如驅動缺失)與si.err同屬整批性錯誤, 方能於reject前發出error事件, 已建構之sequelize亦由finally關閉
+            if (instance === null) {
+                si = await initSequelize()
+            }
 
             //check, 連線或匯入models失敗影響本次操作之全部數據, 屬整批性錯誤
             if (si.err) {
@@ -681,14 +683,16 @@ function WOrmReladb(opt = {}) {
 
         //si
         let si = instance
-        if (instance === null) {
-            si = await initSequelize()
-        }
 
         try {
 
             //check, 實例已關閉屬整批性錯誤, 於入口快速失敗
             procClosed(instance)
+
+            //initSequelize, 內部自動初始化須在try內: 其例外(如驅動缺失)與si.err同屬整批性錯誤, 方能於reject前發出error事件, 已建構之sequelize亦由finally關閉
+            if (instance === null) {
+                si = await initSequelize()
+            }
 
             //check
             if (si.err) {
@@ -813,14 +817,16 @@ function WOrmReladb(opt = {}) {
 
         //si
         let si = instance
-        if (instance === null) {
-            si = await initSequelize()
-        }
 
         try {
 
             //check, 實例已關閉屬整批性錯誤, 於入口快速失敗
             procClosed(instance)
+
+            //initSequelize, 內部自動初始化須在try內: 其例外(如驅動缺失)與si.err同屬整批性錯誤, 方能於reject前發出error事件, 已建構之sequelize亦由finally關閉
+            if (instance === null) {
+                si = await initSequelize()
+            }
 
             //check
             if (si.err) {
@@ -981,14 +987,16 @@ function WOrmReladb(opt = {}) {
 
         //si
         let si = instance
-        if (instance === null) {
-            si = await initSequelize()
-        }
 
         try {
 
             //check, 實例已關閉屬整批性錯誤, 於入口快速失敗
             procClosed(instance)
+
+            //initSequelize, 內部自動初始化須在try內: 其例外(如驅動缺失)與si.err同屬整批性錯誤, 方能於reject前發出error事件, 已建構之sequelize亦由finally關閉
+            if (instance === null) {
+                si = await initSequelize()
+            }
 
             //check
             if (si.err) {
@@ -1311,14 +1319,16 @@ function WOrmReladb(opt = {}) {
 
         //si
         let si = instance
-        if (instance === null) {
-            si = await initSequelize()
-        }
 
         try {
 
             //check, 實例已關閉屬整批性錯誤, 於入口快速失敗
             procClosed(instance)
+
+            //initSequelize, 內部自動初始化須在try內: 其例外(如驅動缺失)與si.err同屬整批性錯誤, 方能於reject前發出error事件, 已建構之sequelize亦由finally關閉
+            if (instance === null) {
+                si = await initSequelize()
+            }
 
             //check
             if (si.err) {
@@ -1422,14 +1432,16 @@ function WOrmReladb(opt = {}) {
 
         //si
         let si = instance
-        if (instance === null) {
-            si = await initSequelize()
-        }
 
         try {
 
             //check, 實例已關閉屬整批性錯誤, 於入口快速失敗
             procClosed(instance)
+
+            //initSequelize, 內部自動初始化須在try內: 其例外(如驅動缺失)與si.err同屬整批性錯誤, 方能於reject前發出error事件, 已建構之sequelize亦由finally關閉
+            if (instance === null) {
+                si = await initSequelize()
+            }
 
             //check
             if (si.err) {
@@ -1601,14 +1613,16 @@ function WOrmReladb(opt = {}) {
 
         //si
         let si = instance
-        if (instance === null) {
-            si = await initSequelize()
-        }
 
         try {
 
             //check, 實例已關閉屬整批性錯誤, 於入口快速失敗
             procClosed(instance)
+
+            //initSequelize, 內部自動初始化須在try內: 其例外(如驅動缺失)與si.err同屬整批性錯誤, 方能於reject前發出error事件, 已建構之sequelize亦由finally關閉
+            if (instance === null) {
+                si = await initSequelize()
+            }
 
             //check
             if (si.err) {

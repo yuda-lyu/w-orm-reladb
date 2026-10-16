@@ -15,6 +15,7 @@ rollupFiles({
         'events': 'events',
         'fs': 'fs',
         'path': 'path',
+        'module': 'module', //src/requireModel.js以module之createRequire載入model檔
         'sequelize': 'sequelize',
         'mssql': 'mssql',
         'sqlite': 'sqlite',
@@ -25,6 +26,7 @@ rollupFiles({
         'events',
         'fs',
         'path',
+        'module',
         'sequelize',
         'mssql',
         'sqlite',
