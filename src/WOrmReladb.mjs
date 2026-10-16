@@ -3,7 +3,6 @@ import Sequelize from 'sequelize'
 import cloneDeep from 'lodash-es/cloneDeep.js'
 import get from 'lodash-es/get.js'
 import map from 'lodash-es/map.js'
-import each from 'lodash-es/each.js'
 import size from 'lodash-es/size.js'
 import split from 'lodash-es/split.js'
 import keys from 'lodash-es/keys.js'
@@ -15,7 +14,6 @@ import genPm from 'wsemi/src/genPm.mjs'
 import genIDSeq from 'wsemi/src/genIDSeq.mjs'
 import isarr from 'wsemi/src/isarr.mjs'
 import isearr from 'wsemi/src/isearr.mjs'
-import isobj from 'wsemi/src/isobj.mjs'
 import iseobj from 'wsemi/src/iseobj.mjs'
 import isbol from 'wsemi/src/isbol.mjs'
 import isnum from 'wsemi/src/isnum.mjs'
@@ -27,6 +25,7 @@ import pmQueue from 'wsemi/src/pmQueue.mjs'
 import WAutoSequelize from 'w-auto-sequelize/src/WAutoSequelize.mjs'
 import importModels from './importModels.mjs'
 import _genModelsByTabs from './genModelsByTabs.mjs'
+import cvFind, { getColKind, getColScale, normPk } from './cvFind.mjs'
 
 
 //放置於全域宣告, 若使用useStable=true才可於當創建多實例時仍能全域控管
@@ -92,10 +91,6 @@ function WOrmReladb(opt = {}) {
     if (!isbol(opt.useEncryption)) {
         opt.useEncryption = false
     }
-
-
-    //Op
-    let Op = Sequelize.Op
 
 
     //ee, 採wsemi之evem(即eventemitter3), 其於'error'無監聽者時僅回傳false而不拋出,
@@ -224,26 +219,16 @@ function WOrmReladb(opt = {}) {
 
 
     /**
-     * 判定主鍵值是否有效
-     * 註: select以外之五函數對主鍵之認定一律以本函數為準，令selectByPk之[命中]與insert、save、del內對既有數據之認定一致
+     * 判定主鍵值是否有效(與主鍵欄型別無關之判定)
+     * 註: select以外之五函數對主鍵之認定一律以本函數與normPkOf為準，令selectByPk之[命中]與insert、save、del內對既有數據之認定一致
+     * 註: 有效即非空字串或有限數值(含0), new String與new Number取原始值; NaN、±Infinity、布林、物件等為無效(見cvFind.mjs之normPk)
      *
      * @ignore
      * @param {*} v 輸入主鍵值
      * @returns {Boolean} 回傳主鍵值是否有效布林值
      */
     function isEffPk(v) {
-
-        //非空字串
-        if (isestr(v)) {
-            return true
-        }
-
-        //數值, 含0, 供整數型主鍵使用
-        if (isnum(v)) {
-            return true
-        }
-
-        return false
+        return normPk(v, 'any').kind !== 'invalid'
     }
 
 
@@ -317,6 +302,80 @@ function WOrmReladb(opt = {}) {
         }
 
         return false
+    }
+
+
+    /**
+     * 取cvFind所需之依賴物件
+     * 註: escape依方言產生字串常值(如mssql之N'...'), attrs供依欄位型別檢核條件之純量, dialect供判定方言能力,
+     * pk令主鍵欄之條件值依normPk正規化而與主鍵函數一致
+     *
+     * @ignore
+     * @param {Object} md 輸入資料表model物件
+     * @returns {Object} 回傳{escape, attrs, dialect, pk}
+     */
+    function getFindCtx(md) {
+        return {
+            escape: (v) => md.sequelize.escape(v),
+            attrs: get(md, 'rawAttributes', {}),
+            dialect,
+            pk: opt.pk,
+        }
+    }
+
+
+    /**
+     * 檢查model之預設scope是否會使select與delAll之對象分歧
+     * 註: defaultScope帶limit或offset時, select依其order取前幾筆, 而sequelize之限量刪除不採order(sqlite為rowid IN子查詢),
+     * 兩者命中之數據不同而會刪錯列, 故delAll遇此類model即拒絕
+     *
+     * @ignore
+     * @param {Object} md 輸入資料表model物件
+     * @returns {undefined} 無回傳值
+     */
+    function chkScopeForDelAll(md) {
+        let sc = get(md, '_scope', {})
+        if (get(sc, 'limit') !== undefined || get(sc, 'offset') !== undefined) {
+            throw new Error(`model [${opt.cl}] has defaultScope with limit or offset, delAll can not delete the same rows as select`)
+        }
+    }
+
+
+    /**
+     * 正規化各筆數據之主鍵值並就地寫回, 型別不符者整批拋出
+     * 註: 須於procPk之後、任何寫入之前一次完成; 已給主鍵而型別不符屬呼叫端未履行契約, 不以自動產生之主鍵取代
+     * 註: 正規化值寫回數據, 令寫入值與其後各函數之比對值一致(如字串類主鍵欄之123存為'123'), 事件之數據亦為實際寫入者
+     *
+     * @ignore
+     * @param {Object} md 輸入資料表model物件
+     * @param {Array} data 輸入已補齊主鍵之數據陣列
+     * @returns {undefined} 無回傳值
+     */
+    function normPks(md, data) {
+        data.forEach((v, k) => {
+            let r = normPkOf(md, get(v, opt.pk))
+            if (r.kind !== 'ok') {
+                throw new Error(`invalid data[${k}].${opt.pk}[${get(v, opt.pk)}], type does not match pk column [${opt.pk}]`)
+            }
+            v[opt.pk] = r.v
+        })
+    }
+
+
+    /**
+     * 依model之主鍵欄型別正規化主鍵值
+     * 註: 規則見cvFind.mjs之normPk(與w-orm-mdb同一規則), 用於selectByPk、del、save、insert與insertBulk,
+     * 並與select、delAll之主鍵欄條件共用, 令各函數對主鍵之命中判定一致; 字串類主鍵欄之有限數字以String(v)處置,
+     * 整數類收安全整數與標準整數寫法之字串, DECIMAL之小數位不得多於scale, 型別不符者即規格之[主鍵值無效(型別不符)]而不送查詢
+     *
+     * @ignore
+     * @param {Object} md 輸入資料表model物件
+     * @param {*} v 輸入主鍵值
+     * @returns {Object} 回傳{kind,v}, kind為'ok'、'invalid'或'mismatch'
+     */
+    function normPkOf(md, v) {
+        let attrs = get(md, 'rawAttributes', {})
+        return normPk(v, getColKind(attrs, opt.pk), getColScale(attrs, opt.pk))
     }
 
 
@@ -474,76 +533,24 @@ function WOrmReladb(opt = {}) {
     /**
      * 查詢數據
      *
+     * 註: find由cvFind轉譯且與delAll共用, 同一find於兩函數由同一SQL謂詞決定命中
+     * 註: 支援欄位等值({欄位:值}, 值為null時比對IS NULL)與$eq、$ne、$gt、$gte、$lt、$lte、$in、$nin、$not、$regex($options僅i)、$exists, 以及$and、$or、$nor
+     * 註: 不支援之運算子、非純量之值、與欄位型別不符之純量(如數值欄給'abc')一律reject並發出error事件, 不靜默忽略或改變語意
+     * 註: 主鍵欄之條件值依主鍵欄型別正規化而與selectByPk等一致(如字串類主鍵欄之{id:123}即{id:'123'}, 整數類主鍵欄之'12'即12), 型別不符或無效者reject
+     * 註: NULL依SQL三值邏輯, 故$ne、$nin、$not、$nor不含該欄為NULL之數據; $exists:false即IS NULL
+     * 註: $regex僅支援字面子字串(含未跳脫正規式元字元者reject, 可用反斜線跳脫), 給i時不分大小寫, 未給i時大小寫依資料庫定序(sqlite之LIKE與mssql預設定序皆不分)
+     * 註: 欄位值為陣列時視同$in, 與MongoDB之陣列比對不同
+     * 註: find未給或為空物件時回傳全部數據; find非物件時亦回傳全部數據(現況保留)
+     * 註: 恆回傳陣列, 無符合數據回傳空陣列
+     *
      * @memberOf WOrmReladb
      * @param {Object} [find={}] 輸入查詢條件物件
      * @param {Object} [option={}] 輸入設定物件，預設為{}
      * @param {Object} [option.instance=null] 輸入實例instance物件，預設為null
      * @param {Object} [option.transaction=null] 輸入交易(transaction)物件，預設為null
-     * @returns {Promise} 回傳Promise，resolve回傳數據，reject回傳錯誤訊息
+     * @returns {Promise} 回傳Promise，resolve回傳數據陣列，reject回傳錯誤訊息
      */
     async function select(find = {}, option = {}) {
-
-        function cvObj(o) {
-            let oNew = {}
-            each(o, (v, k) => {
-                let kNew = k
-                if (k.indexOf('$') >= 0) {
-                    k = k.replace('$', '')
-                    if (k === 'regex') {
-                        kNew = Op.substring
-                    }
-                    else if (k === 'options') {
-                        kNew = null
-                    }
-                    else if (k === 'nin') {
-                        kNew = Op.notIn
-                    }
-                    else {
-                        kNew = Op[k]
-                    }
-                }
-                let vNew = v
-                if (isarr(v)) {
-                    vNew = cvArray(v)
-                }
-                else if (isobj(v)) {
-                    vNew = cvObj(v)
-                }
-                if (kNew !== null) {
-                    oNew[kNew] = vNew
-                }
-            })
-            return oNew
-        }
-
-        function cvArray(o) {
-            let oNew = []
-            each(o, (v) => {
-                let vNew = v
-                if (isarr(v)) {
-                    vNew = cvArray(v)
-                }
-                else if (isobj(v)) {
-                    vNew = cvObj(v)
-                }
-                oNew.push(vNew)
-            })
-            return oNew
-        }
-
-        function cvFind(o) {
-            let oNew = cvObj(o)
-            return oNew
-        }
-
-        //find
-        if (!isobj(find)) {
-            find = {}
-        }
-        find = cloneDeep(find)
-
-        //useFind
-        let useFind = cvFind(find)
 
         //instance
         let instance = get(option, 'instance', null)
@@ -570,6 +577,9 @@ function WOrmReladb(opt = {}) {
 
         try {
 
+            //check, 實例已關閉屬整批性錯誤, 於入口快速失敗
+            procClosed(instance)
+
             //check, 連線或匯入models失敗影響本次操作之全部數據, 屬整批性錯誤
             if (si.err) {
                 throw si.err
@@ -577,6 +587,9 @@ function WOrmReladb(opt = {}) {
 
             //md
             let md = si.mds[opt.cl]
+
+            //useFind, 與delAll共用cvFind, 條件不合法者於此拋錯而reject並發出error事件
+            let useFind = cvFind(find, getFindCtx(md))
 
             //setting, raw令回傳純數據物件而不含資料庫內部欄位
             let setting = {
@@ -622,6 +635,8 @@ function WOrmReladb(opt = {}) {
      *
      * 註: 主鍵欄位取自opt.pk，預設為id，支援由呼叫端指定
      * 註: 主鍵未命中或主鍵值無效皆回傳null而不reject，[命中]之判定基準與insert、save、del內對既有數據之認定一致
+     * 註: 主鍵值依主鍵欄型別正規化後查詢: 字串類主鍵欄之有限數字以String(v)處置(selectByPk(123)即查'123'), 整數類主鍵欄之標準整數寫法字串轉為數值;
+     * 型別不符(整數類主鍵欄給'012'、12.4、'abc'等)亦屬主鍵值無效而回傳null
      * 註: 本函數不得有副作用，故不創建資料表
      *
      * @memberOf WOrmReladb
@@ -683,25 +698,34 @@ function WOrmReladb(opt = {}) {
             //md
             let md = si.mds[opt.cl]
 
-            //setting
-            let setting = {
-                where: { [opt.pk]: pk },
-                raw: true,
-            }
-            if (transaction !== null) {
-                setting.transaction = transaction
-            }
-
-            //findOne
-            let v = await md.findOne(setting)
-
-            //check, 判定基準與insert、save、del內對既有數據之認定一致
-            if (iseobj(v)) {
-                res = v
+            //normPkOf, 依主鍵欄型別正規化, 型別不符即主鍵值無效而回null且不送查詢(送出時兩方言皆會把整數欄之'012'轉為12而命中)
+            let r = normPkOf(md, pk)
+            if (r.kind !== 'ok') {
+                res = null
             }
             else {
-                //不存在主鍵, 回傳null
-                res = null
+
+                //setting
+                let setting = {
+                    where: { [opt.pk]: r.v },
+                    raw: true,
+                }
+                if (transaction !== null) {
+                    setting.transaction = transaction
+                }
+
+                //findOne
+                let v = await md.findOne(setting)
+
+                //check, 判定基準與insert、save、del內對既有數據之認定一致
+                if (iseobj(v)) {
+                    res = v
+                }
+                else {
+                    //不存在主鍵, 回傳null
+                    res = null
+                }
+
             }
 
         }
@@ -736,6 +760,7 @@ function WOrmReladb(opt = {}) {
      * 註: n為輸入筆數即本次嘗試插入之基準，nInserted為實際插入筆數，全數已存在而nInserted為0屬正常結果
      * 註: 同批含重複主鍵時僅首筆計入nInserted，其餘視為已存在
      * 註: opt.autoGenPk為true(預設)時未帶有效主鍵者自動產生，為false時未帶有效主鍵即reject且同批皆不寫入
+     * 註: 主鍵值依主鍵欄型別正規化後寫入(字串類主鍵欄之123存為'123')；型別不符(整數類主鍵欄給'012'等)即reject且同批皆不寫入，不以自動產生之主鍵取代
      * 註: option.returnList開啟時改回與輸入等長且保序之逐筆結果陣列[{n,nInserted,ok}]，
      * 聚合計數只答得出[有幾筆是新的]而答不出[是哪幾筆]，而後者正是去重之產出物；
      * 逐筆元素之n與ok恆為1，資訊由nInserted承載，不變式為
@@ -814,6 +839,9 @@ function WOrmReladb(opt = {}) {
             data = map(data, (v, k) => {
                 return procPk(md, v, k)
             })
+
+            //normPks, 主鍵值依主鍵欄型別正規化後寫回, 型別不符者整批reject且不寫入任何一筆, 令insert對既有數據之認定與selectByPk一致
+            normPks(md, data)
 
             //nAll, n之基準為輸入筆數
             let nAll = size(data)
@@ -907,6 +935,7 @@ function WOrmReladb(opt = {}) {
      * 令呼叫端得與insert共用同一段結果處理程式碼
      * 註: 不提供逐筆結果，故不出現ok為0與err；需要逐筆處置者改用insert
      * 註: opt.autoGenPk為true(預設)時未帶有效主鍵者自動產生，為false時未帶有效主鍵即reject且同批皆不寫入
+     * 註: 主鍵值依主鍵欄型別正規化後寫入(字串類主鍵欄之123存為'123')；型別不符(整數類主鍵欄給'012'等)即reject且同批皆不寫入
      * 註: [全有全無]為獨立於T7之額外要求——T7僅保證每筆之[檢查主鍵不存在]與[寫入]為原子，不保證整批。
      * mssql因綁定參數數量上限會由驅動層自動拆為多語句送出，實測1000筆之批次於末筆撞主鍵時已有946筆落盤，
      * 故一律以交易包覆並於失敗時回滾；呼叫端已給transaction時改以巢狀交易(SAVEPOINT)包覆，
@@ -978,6 +1007,9 @@ function WOrmReladb(opt = {}) {
             data = map(data, (v, k) => {
                 return procPk(md, v, k)
             })
+
+            //normPks, 主鍵值依主鍵欄型別正規化後寫回, 型別不符者整批reject且不寫入任何一筆
+            normPks(md, data)
 
             //nAll, n之基準為輸入筆數
             let nAll = size(data)
@@ -1237,6 +1269,7 @@ function WOrmReladb(opt = {}) {
      * 故只給部份欄位且該些欄位值皆與現值相同時，合併結果等於現值，nModified為0
      * 註: 本筆失敗不中斷整批，該筆以ok為0並附err回報
      * 註: opt.autoGenPk為true(預設)時未帶有效主鍵者自動產生，為false時未帶有效主鍵即reject且同批皆不寫入
+     * 註: 主鍵值依主鍵欄型別正規化(字串類主鍵欄之123即'123')；型別不符(整數類主鍵欄給'012'等)屬呼叫端未履行契約，整批reject且同批皆不寫入
      *
      * @memberOf WOrmReladb
      * @param {Object|Array} data 輸入數據物件或陣列
@@ -1305,6 +1338,9 @@ function WOrmReladb(opt = {}) {
                 return procPk(md, v, k)
             })
 
+            //normPks, 主鍵值依主鍵欄型別正規化後寫回, 型別不符者整批reject且不寫入任何一筆
+            normPks(md, data)
+
             //ks, model之欄位名, 供合併後比對時濾除非欄位之鍵
             let ks = keys(get(md, 'rawAttributes', {}))
 
@@ -1346,7 +1382,8 @@ function WOrmReladb(opt = {}) {
      * 註: 回傳陣列恆與輸入等長，各筆之n與nDeleted皆為主鍵命中筆數，值為0或1，未命中為0且屬正常結果
      * 註: 判斷某筆是否真的被刪除一律以nDeleted為準
      * 註: 未帶有效主鍵者為該筆之輸入問題，回ok為0與err且不送查詢條件(以免無效值被轉為null而誤中其他數據)，
-     * 不中斷其餘筆數，以此與[主鍵未命中]之ok為1區辨
+     * 不中斷其餘筆數，以此與[主鍵未命中]之ok為1區辨；主鍵值與主鍵欄型別不符者(整數類主鍵欄給'012'等)亦同
+     * 註: 主鍵值依主鍵欄型別正規化後刪除(字串類主鍵欄之123即'123')，正規化值寫回該筆數據
      * 註: 本函數不受opt.autoGenPk影響，於任一設定下皆不補值
      *
      * @memberOf WOrmReladb
@@ -1433,9 +1470,30 @@ function WOrmReladb(opt = {}) {
                     return rest
                 }
 
+                //normPkOf, 主鍵值與主鍵欄型別不符亦屬未帶有效主鍵, 不送查詢(送出時兩方言皆會把整數欄之'012'轉為12而誤刪)
+                let r = normPkOf(md, pkv)
+                if (r.kind !== 'ok') {
+
+                    //rest
+                    rest = {
+                        n: 0,
+                        nDeleted: 0,
+                        ok: 0,
+                        err: `invalid ${opt.pk}[${pkv}], type does not match pk column`,
+                    }
+
+                    //emit
+                    emitError('del', [v], rest.err)
+
+                    return rest
+                }
+
+                //寫回正規化值, 令事件之數據與實際送出者一致
+                v[opt.pk] = r.v
+
                 //setting
                 let setting = {
-                    where: { [opt.pk]: pkv },
+                    where: { [opt.pk]: r.v },
                 }
                 if (transaction !== null) {
                     setting.transaction = transaction //destroy的說明寫不需transaction但實際需要 (2020/10/07)
@@ -1511,6 +1569,9 @@ function WOrmReladb(opt = {}) {
      *
      * 註: n與nDeleted皆為實際刪除筆數，兩者恆相等，n不得取全表筆數
      * 註: find未給或為空物件時刪除全部數據；條件無命中時回{n:0,nDeleted:0,ok:1}，不視為錯誤
+     * 註: find由cvFind轉譯且與select共用，刪除之數據即select(find)命中之數據；支援之條件與限制同select
+     * 註: 不支援之運算子、非純量之值、與欄位型別不符之純量一律reject並發出error事件，不刪除任何數據；主鍵欄之條件值依主鍵欄型別正規化，同select
+     * 註: find非物件(null、陣列、字串、數字)時刪除全部數據，此為現況保留，系列規格另案處理
      *
      * @memberOf WOrmReladb
      * @param {Object} [find={}] 輸入刪除條件物件，不給予find則代表刪除全部數據
@@ -1520,12 +1581,6 @@ function WOrmReladb(opt = {}) {
      * @returns {Promise} 回傳Promise，resolve回傳刪除結果{n,nDeleted,ok}，reject回傳錯誤訊息
      */
     async function delAll(find = {}, option = {}) {
-
-        //find
-        if (!isobj(find)) {
-            find = {}
-        }
-        find = cloneDeep(find)
 
         //instance
         let instance = get(option, 'instance', null)
@@ -1563,9 +1618,15 @@ function WOrmReladb(opt = {}) {
             //md
             let md = si.mds[opt.cl]
 
+            //useFind, 與select共用cvFind, 令刪除之數據即select命中之數據; 條件不合法者於此拋錯而不刪除任何數據
+            let useFind = cvFind(find, getFindCtx(md))
+
+            //chkScopeForDelAll, model之預設scope會使刪除對象與select分歧者拒絕
+            chkScopeForDelAll(md)
+
             //setting
             let setting = {
-                where: find,
+                where: useFind,
             }
             if (transaction !== null) {
                 setting.transaction = transaction //destroy的說明寫不需transaction但實際需要 (2020/10/07)

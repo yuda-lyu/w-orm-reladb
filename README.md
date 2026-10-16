@@ -53,6 +53,28 @@ The all-or-nothing guarantee is provided by a transaction, not by the batch stat
 
 Note also that a plain call made without `option.instance` opens and closes its own connection, so it ends any instance you are holding. Do not mix the two styles against the same `WOrmReladb` object.
 
+### Conditions (`find`) for `select` and `delAll`
+
+`select(find)` and `delAll(find)` translate `find` through one shared function, so **the rows `delAll` deletes are exactly the rows `select` returns** for the same `find`.
+
+| Form | Meaning |
+|---|---|
+| `{ col: value }` | equality; `null` means `IS NULL`; an array means `$in` |
+| `$eq` `$ne` `$gt` `$gte` `$lt` `$lte` | comparison; the value must be a string, finite number, boolean, `Date` or (for `$eq` / `$ne`) `null` |
+| `$in` `$nin` | an array of the values above; `null` inside matches / excludes `NULL` like `{ col: null }` does |
+| `$not` | `{ col: { $not: { $gt: 2 } } }` becomes `NOT (col > 2)` |
+| `$exists` | `true` is `IS NOT NULL`, `false` is `IS NULL` |
+| `$regex` with `$options: 'i'` | a **literal substring** match; `%` `_` `[` are matched literally |
+| `$and` `$or` `$nor` | arrays of conditions; `$nor: [a, b]` is `NOT (a OR b)` |
+
+Anything that cannot be translated with its meaning intact **rejects** (and emits `error`) instead of being ignored: unknown operators (including sequelize names such as `$like` and a top level `$not`), objects or arrays where a value is expected, values that do not fit the column type (for example `'abc'` or `'1e3'` against an integer column, a decimal string with more fractional digits than the column's scale, a date string without a time zone such as `'2020-01-01'` — use a `Date`, an epoch number or `'2020-01-01T00:00:00Z'` — or an integer beyond `Number.MAX_SAFE_INTEGER`, which should be passed as a decimal string instead), `$regex` patterns containing unescaped regular expression metacharacters (escape them, e.g. `'a\\.c'`), and, on sqlite, `$options: 'i'` with non ASCII letters (sqlite's `LOWER` folds ASCII only). sequelize's own `Op` symbols are still accepted.
+
+Differences from MongoDB you should know: `NULL` follows SQL three valued logic, so `$ne`, `$nin`, `$not` and `$nor` do not match rows whose column is `NULL`; a plain array value is treated as `$in`; without `i`, case sensitivity follows the database collation (sqlite's `LIKE` and mssql's default collation are case insensitive). A `find` that is not an object (`null`, an array, a string) is treated as `{}`, i.e. all rows.
+
+A primary key value whose type does not fit the primary key column (a number for a string key, a non numeric string for an integer key) is an invalid key: `selectByPk` returns `null`, `del` reports that row with `ok: 0`, and `insert`, `insertBulk` and `save` reject without writing anything.
+
+Model files are only read, never rewritten; an `id` column that lacks `primaryKey: true` is treated as the primary key in memory.
+
 ### Concurrency
 
 The scope of the atomicity guarantee, by range:
@@ -223,7 +245,7 @@ async function test() {
 
 
     //select by regex
-    let sr = await w.select({ name: { $regex: 'PeT', $options: '$i' } })
+    let sr = await w.select({ name: { $regex: 'PeT', $options: 'i' } })
     console.log('selectReg', sr)
 
 
@@ -860,7 +882,7 @@ async function test() {
 
 
     //select by regex
-    let sr = await w.select({ name: { $regex: 'PeT', $options: '$i' } })
+    let sr = await w.select({ name: { $regex: 'PeT', $options: 'i' } })
     console.log('selectReg', sr)
 
 
@@ -1518,7 +1540,7 @@ async function test() {
 
 
     //select by regex
-    let sr = await w.select({ name: { $regex: 'PeT', $options: '$i' } })
+    let sr = await w.select({ name: { $regex: 'PeT', $options: 'i' } })
     console.log('selectReg', sr)
 
 
