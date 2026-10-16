@@ -29,7 +29,7 @@
 <nav >
     
     
-    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="WOrmReladb.html">WOrmReladb</a><ul class='methods'><li data-type='method'><a href="WOrmReladb.html#.closeSequelize">closeSequelize</a></li><li data-type='method'><a href="WOrmReladb.html#.createStorage">createStorage</a></li><li data-type='method'><a href="WOrmReladb.html#.del">del</a></li><li data-type='method'><a href="WOrmReladb.html#.delAll">delAll</a></li><li data-type='method'><a href="WOrmReladb.html#.genModelsByDB">genModelsByDB</a></li><li data-type='method'><a href="WOrmReladb.html#.genModelsByTabs">genModelsByTabs</a></li><li data-type='method'><a href="WOrmReladb.html#.genTransaction">genTransaction</a></li><li data-type='method'><a href="WOrmReladb.html#.initSequelize">initSequelize</a></li><li data-type='method'><a href="WOrmReladb.html#.insert">insert</a></li><li data-type='method'><a href="WOrmReladb.html#.insertBulk">insertBulk</a></li><li data-type='method'><a href="WOrmReladb.html#.save">save</a></li><li data-type='method'><a href="WOrmReladb.html#.select">select</a></li><li data-type='method'><a href="WOrmReladb.html#.selectByPk">selectByPk</a></li></ul></li></ul>
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="WOrmReladb.html">WOrmReladb</a><ul class='methods'><li data-type='method'><a href="WOrmReladb.html#.closeSequelize">closeSequelize</a></li><li data-type='method'><a href="WOrmReladb.html#.createStorage">createStorage</a></li><li data-type='method'><a href="WOrmReladb.html#.del">del</a></li><li data-type='method'><a href="WOrmReladb.html#.delAll">delAll</a></li><li data-type='method'><a href="WOrmReladb.html#.genModelsByDB">genModelsByDB</a></li><li data-type='method'><a href="WOrmReladb.html#.genModelsByTabs">genModelsByTabs</a></li><li data-type='method'><a href="WOrmReladb.html#.genTransaction">genTransaction</a></li><li data-type='method'><a href="WOrmReladb.html#.initSequelize">initSequelize</a></li><li data-type='method'><a href="WOrmReladb.html#.insert">insert</a></li><li data-type='method'><a href="WOrmReladb.html#.insertBulk">insertBulk</a></li><li data-type='method'><a href="WOrmReladb.html#.save">save</a></li><li data-type='method'><a href="WOrmReladb.html#.select">select</a></li><li data-type='method'><a href="WOrmReladb.html#.selectByPk">selectByPk</a></li></ul></li></ul><h3>Global</h3><ul><li><a href="global.html#cvFind">cvFind</a></li><li><a href="global.html#getColKind">getColKind</a></li><li><a href="global.html#getColScale">getColScale</a></li><li><a href="global.html#importModels">importModels</a></li><li><a href="global.html#isKindOk">isKindOk</a></li><li><a href="global.html#normPk">normPk</a></li></ul>
     
 </nav>
 
@@ -81,7 +81,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line56">line 56</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line55">line 55</a>
     </li></ul></dd>
     
 
@@ -750,7 +750,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line443">line 443</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line502">line 502</a>
     </li></ul></dd>
     
 
@@ -858,7 +858,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1618">line 1618</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1679">line 1679</a>
     </li></ul></dd>
     
 
@@ -964,14 +964,15 @@
 <p>註: 回傳陣列恆與輸入等長，各筆之n與nDeleted皆為主鍵命中筆數，值為0或1，未命中為0且屬正常結果
 註: 判斷某筆是否真的被刪除一律以nDeleted為準
 註: 未帶有效主鍵者為該筆之輸入問題，回ok為0與err且不送查詢條件(以免無效值被轉為null而誤中其他數據)，
-不中斷其餘筆數，以此與[主鍵未命中]之ok為1區辨
+不中斷其餘筆數，以此與[主鍵未命中]之ok為1區辨；主鍵值與主鍵欄型別不符者(整數類主鍵欄給'012'等)亦同
+註: 主鍵值依主鍵欄型別正規化後刪除(字串類主鍵欄之123即'123')，正規化值寫回該筆數據
 註: 本函數不受opt.autoGenPk影響，於任一設定下皆不補值</p></li></ul></dd>
     
 
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1359">line 1359</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1396">line 1396</a>
     </li></ul></dd>
     
 
@@ -1294,13 +1295,16 @@
     <dt class="tag-description">Description:</dt>
     <dd class="tag-description"><ul class="dummy"><li><p>依條件刪除多筆數據，需與del分開，避免未傳數據導致直接刪除全表</p>
 <p>註: n與nDeleted皆為實際刪除筆數，兩者恆相等，n不得取全表筆數
-註: find未給或為空物件時刪除全部數據；條件無命中時回{n:0,nDeleted:0,ok:1}，不視為錯誤</p></li></ul></dd>
+註: find未給或為空物件時刪除全部數據；條件無命中時回{n:0,nDeleted:0,ok:1}，不視為錯誤
+註: find由cvFind轉譯且與select共用，刪除之數據即select(find)命中之數據；支援之條件與限制同select
+註: 不支援之運算子、非純量之值、與欄位型別不符之純量一律reject並發出error事件，不刪除任何數據；主鍵欄之條件值依主鍵欄型別正規化，同select
+註: find非物件(null、陣列、字串、數字)時刪除全部數據，此為現況保留，系列規格另案處理</p></li></ul></dd>
     
 
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1522">line 1522</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1583">line 1583</a>
     </li></ul></dd>
     
 
@@ -1630,7 +1634,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1660">line 1660</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1721">line 1721</a>
     </li></ul></dd>
     
 
@@ -2158,7 +2162,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1708">line 1708</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1769">line 1769</a>
     </li></ul></dd>
     
 
@@ -2463,7 +2467,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line459">line 459</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line518">line 518</a>
     </li></ul></dd>
     
 
@@ -2571,7 +2575,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line376">line 376</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line435">line 435</a>
     </li></ul></dd>
     
 
@@ -2748,6 +2752,7 @@
 <p>註: n為輸入筆數即本次嘗試插入之基準，nInserted為實際插入筆數，全數已存在而nInserted為0屬正常結果
 註: 同批含重複主鍵時僅首筆計入nInserted，其餘視為已存在
 註: opt.autoGenPk為true(預設)時未帶有效主鍵者自動產生，為false時未帶有效主鍵即reject且同批皆不寫入
+註: 主鍵值依主鍵欄型別正規化後寫入(字串類主鍵欄之123存為'123')；型別不符(整數類主鍵欄給'012'等)即reject且同批皆不寫入，不以自動產生之主鍵取代
 註: option.returnList開啟時改回與輸入等長且保序之逐筆結果陣列[{n,nInserted,ok}]，
 聚合計數只答得出[有幾筆是新的]而答不出[是哪幾筆]，而後者正是去重之產出物；
 逐筆元素之n與ok恆為1，資訊由nInserted承載，不變式為
@@ -2757,7 +2762,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line752">line 752</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line777">line 777</a>
     </li></ul></dd>
     
 
@@ -3126,6 +3131,7 @@
 令呼叫端得與insert共用同一段結果處理程式碼
 註: 不提供逐筆結果，故不出現ok為0與err；需要逐筆處置者改用insert
 註: opt.autoGenPk為true(預設)時未帶有效主鍵者自動產生，為false時未帶有效主鍵即reject且同批皆不寫入
+註: 主鍵值依主鍵欄型別正規化後寫入(字串類主鍵欄之123存為'123')；型別不符(整數類主鍵欄給'012'等)即reject且同批皆不寫入
 註: [全有全無]為獨立於T7之額外要求——T7僅保證每筆之[檢查主鍵不存在]與[寫入]為原子，不保證整批。
 mssql因綁定參數數量上限會由驅動層自動拆為多語句送出，實測1000筆之批次於末筆撞主鍵時已有946筆落盤，
 故一律以交易包覆並於失敗時回滾；呼叫端已給transaction時改以巢狀交易(SAVEPOINT)包覆，
@@ -3135,7 +3141,7 @@ mssql因綁定參數數量上限會由驅動層自動拆為多語句送出，實
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line922">line 922</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line951">line 951</a>
     </li></ul></dd>
     
 
@@ -3462,13 +3468,14 @@ mssql因綁定參數數量上限會由驅動層自動拆為多語句送出，實
 註: [內容相同]之判定基準為將待寫入物件合併進現值後與現值相同，非待寫入物件與現值全等，
 故只給部份欄位且該些欄位值皆與現值相同時，合併結果等於現值，nModified為0
 註: 本筆失敗不中斷整批，該筆以ok為0並附err回報
-註: opt.autoGenPk為true(預設)時未帶有效主鍵者自動產生，為false時未帶有效主鍵即reject且同批皆不寫入</p></li></ul></dd>
+註: opt.autoGenPk為true(預設)時未帶有效主鍵者自動產生，為false時未帶有效主鍵即reject且同批皆不寫入
+註: 主鍵值依主鍵欄型別正規化(字串類主鍵欄之123即'123')；型別不符(整數類主鍵欄給'012'等)屬呼叫端未履行契約，整批reject且同批皆不寫入</p></li></ul></dd>
     
 
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1249">line 1249</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1282">line 1282</a>
     </li></ul></dd>
     
 
@@ -3829,13 +3836,22 @@ mssql因綁定參數數量上限會由驅動層自動拆為多語句送出，實
 <dl class="details">
     
     <dt class="tag-description">Description:</dt>
-    <dd class="tag-description"><ul class="dummy"><li><p>查詢數據</p></li></ul></dd>
+    <dd class="tag-description"><ul class="dummy"><li><p>查詢數據</p>
+<p>註: find由cvFind轉譯且與delAll共用, 同一find於兩函數由同一SQL謂詞決定命中
+註: 支援欄位等值({欄位:值}, 值為null時比對IS NULL)與$eq、$ne、$gt、$gte、$lt、$lte、$in、$nin、$not、$regex($options僅i)、$exists, 以及$and、$or、$nor
+註: 不支援之運算子、非純量之值、與欄位型別不符之純量(如數值欄給'abc')一律reject並發出error事件, 不靜默忽略或改變語意
+註: 主鍵欄之條件值依主鍵欄型別正規化而與selectByPk等一致(如字串類主鍵欄之{id:123}即{id:'123'}, 整數類主鍵欄之'12'即12), 型別不符或無效者reject
+註: NULL依SQL三值邏輯, 故$ne、$nin、$not、$nor不含該欄為NULL之數據; $exists:false即IS NULL
+註: $regex僅支援字面子字串(含未跳脫正規式元字元者reject, 可用反斜線跳脫), 給i時不分大小寫, 未給i時大小寫依資料庫定序(sqlite之LIKE與mssql預設定序皆不分)
+註: 欄位值為陣列時視同$in, 與MongoDB之陣列比對不同
+註: find未給或為空物件時回傳全部數據; find非物件時亦回傳全部數據(現況保留)
+註: 恆回傳陣列, 無符合數據回傳空陣列</p></li></ul></dd>
     
 
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line484">line 484</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line553">line 553</a>
     </li></ul></dd>
     
 
@@ -4120,7 +4136,7 @@ mssql因綁定參數數量上限會由驅動層自動拆為多語句送出，實
 
         
 <div class="param-desc">
-    <p>回傳Promise，resolve回傳數據，reject回傳錯誤訊息</p>
+    <p>回傳Promise，resolve回傳數據陣列，reject回傳錯誤訊息</p>
 </div>
 
 
@@ -4160,13 +4176,15 @@ mssql因綁定參數數量上限會由驅動層自動拆為多語句送出，實
     <dd class="tag-description"><ul class="dummy"><li><p>由主鍵查詢單筆數據，因由資料庫依主鍵索引取值且僅回傳單筆，不需如select提取全部符合數據再處理，故數據量大時效能較佳</p>
 <p>註: 主鍵欄位取自opt.pk，預設為id，支援由呼叫端指定
 註: 主鍵未命中或主鍵值無效皆回傳null而不reject，[命中]之判定基準與insert、save、del內對既有數據之認定一致
+註: 主鍵值依主鍵欄型別正規化後查詢: 字串類主鍵欄之有限數字以String(v)處置(selectByPk(123)即查'123'), 整數類主鍵欄之標準整數寫法字串轉為數值;
+型別不符(整數類主鍵欄給'012'、12.4、'abc'等)亦屬主鍵值無效而回傳null
 註: 本函數不得有副作用，故不創建資料表</p></li></ul></dd>
     
 
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line634">line 634</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line649">line 649</a>
     </li></ul></dd>
     
 
@@ -4492,7 +4510,7 @@ mssql因綁定參數數量上限會由驅動層自動拆為多語句送出，實
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Sun Oct 11 2026 14:50:45 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Fri Oct 16 2026 13:47:09 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
 </footer>
 
 <script>prettyPrint();</script>
