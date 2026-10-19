@@ -29,7 +29,7 @@
 <nav >
     
     
-    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="WOrmReladb.html">WOrmReladb</a><ul class='methods'><li data-type='method'><a href="WOrmReladb.html#.closeSequelize">closeSequelize</a></li><li data-type='method'><a href="WOrmReladb.html#.createStorage">createStorage</a></li><li data-type='method'><a href="WOrmReladb.html#.del">del</a></li><li data-type='method'><a href="WOrmReladb.html#.delAll">delAll</a></li><li data-type='method'><a href="WOrmReladb.html#.genModelsByDB">genModelsByDB</a></li><li data-type='method'><a href="WOrmReladb.html#.genModelsByTabs">genModelsByTabs</a></li><li data-type='method'><a href="WOrmReladb.html#.genTransaction">genTransaction</a></li><li data-type='method'><a href="WOrmReladb.html#.initSequelize">initSequelize</a></li><li data-type='method'><a href="WOrmReladb.html#.insert">insert</a></li><li data-type='method'><a href="WOrmReladb.html#.insertBulk">insertBulk</a></li><li data-type='method'><a href="WOrmReladb.html#.save">save</a></li><li data-type='method'><a href="WOrmReladb.html#.select">select</a></li><li data-type='method'><a href="WOrmReladb.html#.selectByPk">selectByPk</a></li></ul></li></ul><h3>Global</h3><ul><li><a href="global.html#cvFind">cvFind</a></li><li><a href="global.html#getColKind">getColKind</a></li><li><a href="global.html#getColScale">getColScale</a></li><li><a href="global.html#importModels">importModels</a></li><li><a href="global.html#isKindOk">isKindOk</a></li><li><a href="global.html#normPk">normPk</a></li></ul>
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="WOrmReladb.html">WOrmReladb</a><ul class='methods'><li data-type='method'><a href="WOrmReladb.html#.closeSequelize">closeSequelize</a></li><li data-type='method'><a href="WOrmReladb.html#.createStorage">createStorage</a></li><li data-type='method'><a href="WOrmReladb.html#.del">del</a></li><li data-type='method'><a href="WOrmReladb.html#.delAll">delAll</a></li><li data-type='method'><a href="WOrmReladb.html#.genModelsByDB">genModelsByDB</a></li><li data-type='method'><a href="WOrmReladb.html#.genModelsByTabs">genModelsByTabs</a></li><li data-type='method'><a href="WOrmReladb.html#.genTransaction">genTransaction</a></li><li data-type='method'><a href="WOrmReladb.html#.initSequelize">initSequelize</a></li><li data-type='method'><a href="WOrmReladb.html#.insert">insert</a></li><li data-type='method'><a href="WOrmReladb.html#.insertBulk">insertBulk</a></li><li data-type='method'><a href="WOrmReladb.html#.save">save</a></li><li data-type='method'><a href="WOrmReladb.html#.select">select</a></li><li data-type='method'><a href="WOrmReladb.html#.selectByPk">selectByPk</a></li></ul></li></ul><h3>Global</h3><ul><li><a href="global.html#cvFind">cvFind</a></li><li><a href="global.html#genDateChecker">genDateChecker</a></li><li><a href="global.html#getColKind">getColKind</a></li><li><a href="global.html#getColScale">getColScale</a></li><li><a href="global.html#importModels">importModels</a></li><li><a href="global.html#inDateRange">inDateRange</a></li><li><a href="global.html#isKindOk">isKindOk</a></li><li><a href="global.html#normPk">normPk</a></li></ul>
     
 </nav>
 
@@ -150,7 +150,7 @@ $eq $ne $gt $gte $lt $lte(純量)、$in $nin(純量陣列)、$and $or(條件物�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="cvFind.mjs.html">cvFind.mjs</a>, <a href="cvFind.mjs.html#line730">line 730</a>
+        <a href="cvFind.mjs.html">cvFind.mjs</a>, <a href="cvFind.mjs.html#line851">line 851</a>
     </li></ul></dd>
     
 
@@ -514,6 +514,169 @@ $eq $ne $gt $gte $lt $lte(純量)、$in $nin(純量陣列)、$and $or(條件物�
 
     
 
+    <h4 class="name" id="genDateChecker"><span class="type-signature"></span>genDateChecker<span class="signature">(attrs)</span><span class="type-signature"> &rarr; {function}</span></h4>
+
+    
+
+
+
+
+<dl class="details">
+    
+    <dt class="tag-description">Description:</dt>
+    <dd class="tag-description"><ul class="dummy"><li><p>產生寫入數據之DATE/DATEONLY欄範圍檢核函數(R12): 回傳之函數對單筆數據(物件)檢核各DATE、DATEONLY屬性之值,
+回傳第一個無效或範圍外(年份不在1–9999)之屬性名(依model屬性定義順序), 皆合法回傳null
+註: 與條件側共用inDateRange; 只檢核model中型別為DATE(date)與DATEONLY(dateonly)之屬性, 值為null或undefined者不檢;
+非物件之記錄回傳null(由呼叫端前段檢核負責)
+註: 通過檢核之物件值(Date及其子類別、包裝物件、陣列等)就地換成已檢核之標準值(Date或YYYY-MM-DD文字), 令檢查之值即使用之值(見chkWriteDate);
+僅換記錄自有屬性, 原型鏈上之屬性只讀不換(create與bulkCreate不讀原型鏈屬性, update會讀, 故原型鏈上具狀態之getter不在保證範圍)</p></li></ul></dd>
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="cvFind.mjs.html">cvFind.mjs</a>, <a href="cvFind.mjs.html#line415">line 415</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+    <h5 class="h5-parameters">Parameters:</h5>
+    
+
+<table class="params">
+    <thead>
+    <tr>
+        
+        <th>Name</th>
+        
+
+        <th>Type</th>
+
+        
+
+        
+
+        <th class="last">Description</th>
+    </tr>
+    </thead>
+
+    <tbody>
+    
+
+        <tr>
+            
+                <td class="name"><code>attrs</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">Object</span>
+
+
+
+            
+            </td>
+
+            
+
+            
+
+            <td class="description last"><p>輸入model之rawAttributes, 非物件時回傳恆為null之檢核函數</p></td>
+        </tr>
+
+    
+    </tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<h5 class="h5-returns">Returns:</h5>
+
+        
+<div class="param-desc">
+    <p>回傳檢核函數(rec)=&gt;屬性名字串或null</p>
+</div>
+
+
+
+<dl class="param-type">
+    <dt>
+        Type
+    </dt>
+    <dd>
+        
+<span class="param-type">function</span>
+
+
+
+    </dd>
+</dl>
+
+    
+
+
+
+        
+            
+
+    
+
     <h4 class="name" id="getColKind"><span class="type-signature"></span>getColKind<span class="signature">(attrs, field)</span><span class="type-signature"> &rarr; {String}</span></h4>
 
     
@@ -530,7 +693,7 @@ $eq $ne $gt $gte $lt $lte(純量)、$in $nin(純量陣列)、$and $or(條件物�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="cvFind.mjs.html">cvFind.mjs</a>, <a href="cvFind.mjs.html#line155">line 155</a>
+        <a href="cvFind.mjs.html">cvFind.mjs</a>, <a href="cvFind.mjs.html#line159">line 159</a>
     </li></ul></dd>
     
 
@@ -712,7 +875,7 @@ $eq $ne $gt $gte $lt $lte(純量)、$in $nin(純量陣列)、$and $or(條件物�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="cvFind.mjs.html">cvFind.mjs</a>, <a href="cvFind.mjs.html#line333">line 333</a>
+        <a href="cvFind.mjs.html">cvFind.mjs</a>, <a href="cvFind.mjs.html#line454">line 454</a>
     </li></ul></dd>
     
 
@@ -1278,6 +1441,164 @@ $eq $ne $gt $gte $lt $lte(純量)、$in $nin(純量陣列)、$and $or(條件物�
 
     
 
+    <h4 class="name" id="inDateRange"><span class="type-signature"></span>inDateRange<span class="signature">(ms)</span><span class="type-signature"> &rarr; {Boolean}</span></h4>
+
+    
+
+
+
+
+<dl class="details">
+    
+    <dt class="tag-description">Description:</dt>
+    <dd class="tag-description"><ul class="dummy"><li><p>判定時間(毫秒)換算UTC後年份是否在1–9999, 供條件側與寫入側共用(R4、R12); 無效時間(NaN、超出Date範圍)為false</p></li></ul></dd>
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="cvFind.mjs.html">cvFind.mjs</a>, <a href="cvFind.mjs.html#line341">line 341</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+    <h5 class="h5-parameters">Parameters:</h5>
+    
+
+<table class="params">
+    <thead>
+    <tr>
+        
+        <th>Name</th>
+        
+
+        <th>Type</th>
+
+        
+
+        
+
+        <th class="last">Description</th>
+    </tr>
+    </thead>
+
+    <tbody>
+    
+
+        <tr>
+            
+                <td class="name"><code>ms</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">Number</span>
+
+
+
+            
+            </td>
+
+            
+
+            
+
+            <td class="description last"><p>輸入時間毫秒數</p></td>
+        </tr>
+
+    
+    </tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<h5 class="h5-returns">Returns:</h5>
+
+        
+<div class="param-desc">
+    <p>回傳是否在範圍內</p>
+</div>
+
+
+
+<dl class="param-type">
+    <dt>
+        Type
+    </dt>
+    <dd>
+        
+<span class="param-type">Boolean</span>
+
+
+
+    </dd>
+</dl>
+
+    
+
+
+
+        
+            
+
+    
+
     <h4 class="name" id="isKindOk"><span class="type-signature"></span>isKindOk<span class="signature">(v, kind)</span><span class="type-signature"> &rarr; {Boolean}</span></h4>
 
     
@@ -1297,7 +1618,7 @@ $eq $ne $gt $gte $lt $lte(純量)、$in $nin(純量陣列)、$and $or(條件物�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="cvFind.mjs.html">cvFind.mjs</a>, <a href="cvFind.mjs.html#line355">line 355</a>
+        <a href="cvFind.mjs.html">cvFind.mjs</a>, <a href="cvFind.mjs.html#line476">line 476</a>
     </li></ul></dd>
     
 
@@ -1488,7 +1809,7 @@ DECIMAL主鍵欄之值小數位多於scale者寫入時會被四捨五入而改�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="cvFind.mjs.html">cvFind.mjs</a>, <a href="cvFind.mjs.html#line448">line 448</a>
+        <a href="cvFind.mjs.html">cvFind.mjs</a>, <a href="cvFind.mjs.html#line569">line 569</a>
     </li></ul></dd>
     
 
@@ -1740,7 +2061,7 @@ DECIMAL主鍵欄之值小數位多於scale者寫入時會被四捨五入而改�
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Mon Oct 19 2026 18:54:43 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Mon Oct 19 2026 23:23:31 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
 </footer>
 
 <script>prettyPrint();</script>
