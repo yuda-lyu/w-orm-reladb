@@ -136,7 +136,7 @@ async function testRollback() {
 
 
     //select all
-    let ssBeforeRollback = await w.select(null, connState)
+    let ssBeforeRollback = await w.select({}, connState)
     console.log('select all (before rollback)', ssBeforeRollback) //此時select可查到暫時有效的數據
     // => [
     //     { id: 'id-peter', name: 'peter(modify)', value: 123 },

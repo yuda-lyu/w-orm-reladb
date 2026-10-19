@@ -72,7 +72,7 @@ import pmQueue from 'wsemi/src/pmQueue.mjs'
 import WAutoSequelize from 'w-auto-sequelize/src/WAutoSequelize.mjs'
 import importModels from './importModels.mjs'
 import _genModelsByTabs from './genModelsByTabs.mjs'
-import cvFind, { getColKind, getColScale, normPk } from './cvFind.mjs'
+import cvFind, { getColKind, getColScale, normPk, chkFindShape } from './cvFind.mjs'
 
 
 //放置於全域宣告, 若使用useStable=true才可於當創建多實例時仍能全域控管
@@ -354,18 +354,15 @@ function WOrmReladb(opt = {}) {
 
     /**
      * 取cvFind所需之依賴物件
-     * 註: escape依方言產生字串常值(如mssql之N'...'), attrs供依欄位型別檢核條件之純量, dialect供判定方言能力,
-     * pk令主鍵欄之條件值依normPk正規化而與主鍵函數一致
+     * 註: attrs供欄名解析(嚴格鍵)與依欄位型別檢核條件之純量, pk令主鍵欄之條件值依normPk正規化而與主鍵函數一致
      *
      * @ignore
      * @param {Object} md 輸入資料表model物件
-     * @returns {Object} 回傳{escape, attrs, dialect, pk}
+     * @returns {Object} 回傳{attrs, pk}
      */
     function getFindCtx(md) {
         return {
-            escape: (v) => md.sequelize.escape(v),
             attrs: get(md, 'rawAttributes', {}),
-            dialect,
             pk: opt.pk,
         }
     }
@@ -603,18 +600,25 @@ function WOrmReladb(opt = {}) {
     /**
      * 查詢數據
      *
-     * 註: find由cvFind轉譯且與delAll共用, 同一find於兩函數由同一SQL謂詞決定命中
-     * 註: 支援欄位等值({欄位:值}, 值為null時比對IS NULL)與$eq、$ne、$gt、$gte、$lt、$lte、$in、$nin、$not、$regex($options僅i)、$exists, 以及$and、$or、$nor
-     * 註: 不支援之運算子、非純量之值、與欄位型別不符之純量(如數值欄給'abc')一律reject並發出error事件, 不靜默忽略或改變語意
-     * 註: 主鍵欄之條件值依主鍵欄型別正規化而與selectByPk等一致(如字串類主鍵欄之{id:123}即{id:'123'}, 整數類主鍵欄之'12'即12), 型別不符或無效者reject
-     * 註: NULL依SQL三值邏輯, 故$ne、$nin、$not、$nor不含該欄為NULL之數據; $exists:false即IS NULL
-     * 註: $regex僅支援字面子字串(含未跳脫正規式元字元者reject, 可用反斜線跳脫), 給i時不分大小寫, 未給i時大小寫依資料庫定序(sqlite之LIKE與mssql預設定序皆不分)
-     * 註: 欄位值為陣列時視同$in, 與MongoDB之陣列比對不同
-     * 註: find未給或為空物件時回傳全部數據; find非物件時亦回傳全部數據(現況保留)
+     * 使用須知(條件find為系列白名單, 規則同delAll, 見CLAUDE_rulebook.md之R11):
+     * 1. 不給條件即查詢全部數據: find未給、為undefined或為{}時回傳全部數據; 給了條件才是部分查詢。
+     * 2. 傳了值卻不是條件物件(null、陣列含[]與[{...}]、字串、數值、布林、函數、Date、RegExp、Map、Set、類別實例等)
+     *    一律整批reject, 不視為{}。
+     * 3. 條件僅支援系列白名單: 欄位等值{欄:純量}(多欄為AND)、欄位運算子$eq $ne $gt $gte $lt $lte(值為純量)與
+     *    $in $nin(值為純量陣列)、文件層$and $or(值為條件物件之非空陣列, 最多999項)。純量為字串、有限數字、布林、有效Date;
+     *    null僅可用於欄位等值、$eq、$ne。白名單外之運算子($not $nor $regex $options $exists $where $expr $like $ilike等)、
+     *    sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or、函數值、Symbol鍵、undefined值、空的$nin/$and/$or等
+     *    一律整批reject, 訊息為invalid find: 原因 at [路徑], 且於載入model與連線前即檢核。
+     * 4. 欄名須完全等於model之屬性名或資料庫欄名(區分大小寫), 且為字母或底線開頭之字母/數字/底線(最多128字元);
+     *    純量須符合欄位型別(如數值欄給'abc'會reject); 主鍵欄之條件值依主鍵欄型別正規化(字串類主鍵欄之{id:123}即{id:'123'})。
+     * 5. 與delAll共用同一檢核與同一條件, select(find)命中之數據即delAll(find)刪除之數據。
+     * 6. 語意差異(SQL式): $ne/$nin不命中欄位為NULL之數據(三值邏輯)。需明確表達時可用可攜寫法:
+     *    排除NULL為{$and:[{f:{$ne:null}},{f:{$ne:x}}]}, 含NULL為{$or:[{f:null},{f:{$ne:x}}]}; 字串比對之大小寫依資料庫定序。
+     *
      * 註: 恆回傳陣列, 無符合數據回傳空陣列
      *
      * @memberOf WOrmReladb
-     * @param {Object} [find={}] 輸入查詢條件物件
+     * @param {Object} [find={}] 輸入查詢條件物件(系列白名單, 規則同delAll之使用須知第1-4點); 未給、undefined或{}回傳全部數據; 非條件物件或白名單外運算子整批reject
      * @param {Object} [option={}] 輸入設定物件，預設為{}
      * @param {Object} [option.instance=null] 輸入實例instance物件，預設為null
      * @param {Object} [option.transaction=null] 輸入交易(transaction)物件，預設為null
@@ -642,13 +646,20 @@ function WOrmReladb(opt = {}) {
         //si
         let si = instance
 
+        //inited, 本次呼叫是否已進入initSequelize(僅此時finally才關閉sequelize; 預檢失敗於其前者不得關閉呼叫端先前持有之連線)
+        let inited = false
+
         try {
 
             //check, 實例已關閉屬整批性錯誤, 於入口快速失敗
             procClosed(instance)
 
+            //chkFindShape, 條件形狀不合法者(系列白名單, R11)於載入model與建立sequelize實例之前即拋錯: 不連線、不送出任何SQL, reject並發出error事件; 其後只使用檢核後之複本
+            let fd = chkFindShape(find)
+
             //initSequelize, 內部自動初始化須在try內: 其例外(如驅動缺失)與si.err同屬整批性錯誤, 方能於reject前發出error事件, 已建構之sequelize亦由finally關閉
             if (instance === null) {
+                inited = true
                 si = await initSequelize()
             }
 
@@ -660,8 +671,8 @@ function WOrmReladb(opt = {}) {
             //md
             let md = si.mds[opt.cl]
 
-            //useFind, 與delAll共用cvFind, 條件不合法者於此拋錯而reject並發出error事件
-            let useFind = cvFind(find, getFindCtx(md))
+            //useFind, 與delAll共用cvFind(對複本再檢核一次, 冪等), 欄名、欄位型別等翻譯層不合法者於此拋錯而reject並發出error事件
+            let useFind = cvFind(fd, getFindCtx(md))
 
             //setting, raw令回傳純數據物件而不含資料庫內部欄位
             let setting = {
@@ -686,7 +697,7 @@ function WOrmReladb(opt = {}) {
         finally {
 
             //closeSequelize
-            if (instance === null) { //內部自動初始化得close
+            if (instance === null &amp;&amp; inited) { //內部自動初始化得close
                 await closeSequelize('select')
             }
 
@@ -1647,16 +1658,29 @@ function WOrmReladb(opt = {}) {
 
 
     /**
-     * 依條件刪除多筆數據，需與del分開，避免未傳數據導致直接刪除全表
+     * 依條件刪除多筆數據(破壞性操作, 須審慎使用, 非必要不用; 刪除單筆請用del), 需與del分開，避免未傳數據導致直接刪除全表
+     *
+     * 使用須知:
+     * 1. 不給條件即刪除全部數據: find未給、為undefined或為{}時, 刪除資料表內全部數據, 不另行確認。給了條件才是部分刪除。
+     * 2. 傳了值卻不是條件物件(null、陣列含[]與[{...}]、字串、數值、布林、函數、Date、RegExp、Map、Set、類別實例等)
+     *    一律整批reject, 不視為{}, 不刪除任何數據。
+     * 3. 條件僅支援系列白名單: 欄位等值{欄:純量}(多欄為AND)、欄位運算子$eq $ne $gt $gte $lt $lte(值為純量)與
+     *    $in $nin(值為純量陣列)、文件層$and $or(值為條件物件之非空陣列, 最多999項)。純量為字串、有限數字、布林、有效Date;
+     *    null僅可用於欄位等值、$eq、$ne。白名單外之運算子($not $nor $regex $options $exists $where $expr $like $ilike等)、
+     *    sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or、子查詢、函數值、Symbol鍵、undefined值、
+     *    空的$nin/$and/$or等一律整批reject, 訊息為invalid find: 原因 at [路徑], 且不刪除任何數據。
+     * 4. 與select共用同一檢核與同一條件, select(find)命中之數據即本函數刪除之數據; 建議先以select(find)確認命中範圍再刪除。
+     *    欄名須完全等於model之屬性名或資料庫欄名(區分大小寫); 純量須符合欄位型別; 主鍵欄之條件值依主鍵欄型別正規化。
+     * 5. 條件值若來自可能為undefined、null或空陣列之變數, 呼叫端須先自行判斷; undefined值會reject而非被忽略,
+     *    空的$nin會reject, $in:[]則為恆假(刪除0筆)。
+     * 6. 語意差異(SQL式): $ne/$nin不命中欄位為NULL之數據(三值邏輯)。需明確表達時可用可攜寫法:
+     *    排除NULL為{$and:[{f:{$ne:null}},{f:{$ne:x}}]}, 含NULL為{$or:[{f:null},{f:{$ne:x}}]}; 字串比對之大小寫依資料庫定序。
      *
      * 註: n與nDeleted皆為實際刪除筆數，兩者恆相等，n不得取全表筆數
-     * 註: find未給或為空物件時刪除全部數據；條件無命中時回{n:0,nDeleted:0,ok:1}，不視為錯誤
-     * 註: find由cvFind轉譯且與select共用，刪除之數據即select(find)命中之數據；支援之條件與限制同select
-     * 註: 不支援之運算子、非純量之值、與欄位型別不符之純量一律reject並發出error事件，不刪除任何數據；主鍵欄之條件值依主鍵欄型別正規化，同select
-     * 註: find非物件(null、陣列、字串、數字)時刪除全部數據，此為現況保留，系列規格另案處理
+     * 註: 條件無命中時回{n:0,nDeleted:0,ok:1}，不視為錯誤
      *
      * @memberOf WOrmReladb
-     * @param {Object} [find={}] 輸入刪除條件物件，不給予find則代表刪除全部數據
+     * @param {Object} [find={}] 輸入刪除條件物件(系列白名單, 見使用須知)，不給予find則代表刪除全部數據
      * @param {Object} [option={}] 輸入設定物件，預設為{}
      * @param {Object} [option.instance=null] 輸入實例instance物件，預設為null
      * @param {Object} [option.transaction=null] 輸入交易(transaction)物件，預設為null
@@ -1684,13 +1708,20 @@ function WOrmReladb(opt = {}) {
         //si
         let si = instance
 
+        //inited, 本次呼叫是否已進入initSequelize(僅此時finally才關閉sequelize; 預檢失敗於其前者不得關閉呼叫端先前持有之連線)
+        let inited = false
+
         try {
 
             //check, 實例已關閉屬整批性錯誤, 於入口快速失敗
             procClosed(instance)
 
+            //chkFindShape, 條件形狀不合法者(系列白名單, R11)於載入model與建立sequelize實例之前即拋錯: 不連線、不送出任何SQL、不刪除任何數據; 其後只使用檢核後之複本
+            let fd = chkFindShape(find)
+
             //initSequelize, 內部自動初始化須在try內: 其例外(如驅動缺失)與si.err同屬整批性錯誤, 方能於reject前發出error事件, 已建構之sequelize亦由finally關閉
             if (instance === null) {
+                inited = true
                 si = await initSequelize()
             }
 
@@ -1702,8 +1733,8 @@ function WOrmReladb(opt = {}) {
             //md
             let md = si.mds[opt.cl]
 
-            //useFind, 與select共用cvFind, 令刪除之數據即select命中之數據; 條件不合法者於此拋錯而不刪除任何數據
-            let useFind = cvFind(find, getFindCtx(md))
+            //useFind, 與select共用cvFind(對複本再檢核一次, 冪等), 令刪除之數據即select命中之數據; 翻譯層不合法者於此拋錯而不刪除任何數據
+            let useFind = cvFind(fd, getFindCtx(md))
 
             //chkScopeForDelAll, model之預設scope會使刪除對象與select分歧者拒絕
             chkScopeForDelAll(md)
@@ -1735,7 +1766,7 @@ function WOrmReladb(opt = {}) {
         finally {
 
             //closeSequelize
-            if (instance === null) { //內部自動初始化得close
+            if (instance === null &amp;&amp; inited) { //內部自動初始化得close
                 await closeSequelize('delAll')
             }
 
@@ -1920,7 +1951,7 @@ export default WOrmReladb
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Fri Oct 16 2026 19:47:28 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Mon Oct 19 2026 18:54:43 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
 </footer>
 
 <script>prettyPrint();</script>

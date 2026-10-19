@@ -1,14 +1,17 @@
 import Sequelize from 'sequelize'
+import cvOrmFind from 'wsemi/src/cvOrmFind.mjs'
 
 
 //查詢條件(find)之轉譯, 供select與delAll共用, 令同一find於兩函數由同一SQL謂詞決定命中
 //
-//原select內之cvObj以lodash之each迭代並以Op[k]直譯$鍵, 有下列缺陷而不得供破壞性之delAll使用:
-//  1. 不支援之運算子成為鍵'undefined', 運算子物件被交給sequelize之欄位型別stringify:
-//     FLOAT成'NaN'、INTEGER成'[object Object]'、DATE成本地今日00:00, 致靜默無命中或刪錯列
-//  2. 具數值length之物件被當成陣列樣迭代而丟棄全部條件(回全表)、Symbol鍵被丟棄
-//  3. $regex轉LIKE而未跳脫萬用字元, 欄位層$not遇運算子物件被轉為!=
-//本模組改以白名單轉譯, 凡不能保證語意者一律拋錯, 規則見CLAUDE_rulebook.md之R1–R6;
+//分兩階段(規則見CLAUDE_rulebook.md之R11):
+//  1. 形狀檢核: 第一步經wsemi之cvOrmFind依系列白名單檢核並回傳全新之null原型深複本(檢查之值即使用之值), 之後只走訪複本;
+//     白名單外之運算子、非純量之值、非條件物件之find、異常結構(存取器、Symbol鍵、洞…)一律整批reject, 不靜默忽略、不改變語意、不擴大刪除範圍
+//  2. 翻譯: 本模組負責後端專屬之檢核與轉譯——欄名嚴格鍵、依欄位型別檢核純量、主鍵正規化(R8)、DATE範圍與ctx.dateNoTz、
+//     空集合之欄位引用($in:[]), 見R3–R5、R8
+//歷史: 原select內之cvObj以lodash之each迭代並以Op[k]直譯$鍵, 不支援之運算子成為鍵'undefined'、具數值length之物件被當成陣列樣迭代而丟棄全部條件,
+//不得供破壞性之delAll使用, 1.1.7起改自寫白名單; 第33項批1起形狀層改由cvOrmFind單一擁有, 本模組刪除Symbol/Op全集、$not $nor $regex $options $exists、
+//RegExp值、陣列值即$in、非物件視為{}等形狀層(破壞性變更見CLAUDE_rulebook.md與README)
 //主鍵值之正規化(normPk)亦屬本模組, 供主鍵函數與主鍵欄條件共用, 規則見R8
 
 
@@ -16,8 +19,17 @@ import Sequelize from 'sequelize'
 let Op = Sequelize.Op
 
 
-//sequelize之運算子Symbol全集, 非其成員之Symbol會被sequelize靜默丟棄, 故一律拒收
-let setOp = new Set(Object.values(Op))
+//形狀檢核之上限(傳給cvOrmFind): $and/$or長度999——SQLite平鋪$or/$and恰1000項即Expression tree is too large(DB錯誤), 本套件使用SQLite故下調(預設1000);
+//其餘上限用預設: 邏輯巢狀深度32、$in/$nin長度10000、節點總數100000、欄名128
+let optShape = { maxList: 999 }
+
+
+//$and/$or清單(含同一條件物件內並列欄位之隱含AND)項數超過此值者, 遞迴二分為平衡樹再交sequelize:
+//SQLite之運算式樹深度上限1000(Expression tree is too large), 平鋪之a OR b OR …為左深樹(深度隨項數線性成長), select因欄位帶表別名(`t`.`c`)而較delAll少容1項
+//(實測平鋪$or: select最多998項、delAll最多999項, 999項時select報DB錯誤而delAll照常刪除, 違反select命中即delAll刪除之對象一致);
+//巢狀層數亦會累加(32層 × 每層33項平鋪即超限, 外審sol F1), 另有巢狀遞迴上限(實測右深巢狀OR約830層, SQLITE_ERROR: Recursion limit);
+//二分後每個清單之樹深僅約log2(項數)+3, 邏輯巢狀上限32層下全樹深度恆遠低於兩種上限, select與delAll皆可執行
+let nFlat = 4
 
 
 //比較運算子, 值須為純量(null僅$eq與$ne)
@@ -29,41 +41,6 @@ let mCmp = {
     $lt: Op.lt,
     $lte: Op.lte,
 }
-
-
-//sequelize之Symbol運算子對應之$名稱, 令呼叫端以Symbol給條件時亦經同一檢核與轉譯
-let mSymCmp = new Map([
-    [Op.eq, '$eq'],
-    [Op.ne, '$ne'],
-    [Op.gt, '$gt'],
-    [Op.gte, '$gte'],
-    [Op.lt, '$lt'],
-    [Op.lte, '$lte'],
-    [Op.in, '$in'],
-    [Op.notIn, '$nin'],
-    [Op.not, '$not'],
-])
-
-
-//欄位層不接受之Symbol: 邏輯運算子於sequelize欄位層會提前返回而丟棄同層其他條件;
-//Op.values與Op.join不在sequelize之OperatorMap(各方言皆然), 欄位層遇之退回等值並把整個運算子物件交欄型stringify(DATEONLY成查詢當日、DATE成現在、INTEGER成'[object Object]')
-let setSymFieldNo = new Set([Op.and, Op.or, Op.values, Op.join])
-
-
-//sequelize以value[0]、value[1]取值之Symbol運算子, 值須為兩元素陣列(字串被逐字元取值、短陣列補NULL, NOT BETWEEN可命中全部非NULL列)
-let setSymBetween = new Set([Op.between, Op.notBetween])
-
-
-//sequelize以字串樣板(`${value}%`)插值之Symbol運算子: DATE欄之值(轉為Date後)會成為隨主機時區與語系而變之文字, 故不得用於DATE欄
-let setSymInterp = new Set([Op.startsWith, Op.endsWith, Op.substring])
-
-
-//LIKE之跳脫字元, 選用於各方言字串常值內皆無特殊意義者, 令ESCAPE子句不需依方言跳脫
-let cEsc = '!'
-
-
-//巢狀深度上限, 防循環參照與過深之條件
-let nDepthMax = 32
 
 
 //欄位型別分類, 以sequelize之型別類別判定(各方言之型別皆繼承之), 另以type.key補判
@@ -158,30 +135,11 @@ function err(msg, path) {
 
 
 /**
- * 是否為一般物件: 原型為Object.prototype或null者
- * 註: 不以toString判定, 因帶Symbol.toStringTag之一般物件會被誤判為非物件, 而class實例、Object.create(proto)會被誤判為一般物件,
- * 其條件可能放在原型上而取不到自有鍵, 被當成{}而刪全表
+ * 恆假之謂詞, 以明確之SQL表示, 不以空條件表示
+ * 註: sequelize會把空條件於OR、NOT內濾除而改變語意; 本模組僅用於$in:[]之f IS NULL AND 1 = 0(仍引用欄位, 見R5)
  *
  * @ignore
  */
-function isPlainObj(v) {
-    if (v === null || typeof v !== 'object') {
-        return false
-    }
-    let p = Object.getPrototypeOf(v)
-    return p === Object.prototype || p === null
-}
-
-
-/**
- * 恆真與恆假之謂詞, 以明確之SQL表示, 不以空條件表示
- * 註: sequelize會把空條件(如{}、空$and)於OR、NOT內濾除, 致恆真被當成不存在而改變語意(如$nor:[{}]成全部)
- *
- * @ignore
- */
-function sqlTrue() {
-    return Sequelize.literal('1 = 1')
-}
 function sqlFalse() {
     return Sequelize.literal('1 = 0')
 }
@@ -536,43 +494,31 @@ function normPk(v, kind, scale = null) {
     return { kind: 'invalid' }
 }
 
-
 /**
- * 檢核純量值: 字串、有限數值、布林、有效Date、Buffer, 以及允許時之null; 並須符合欄位型別分類
- * 註: 物件、陣列等不得交sequelize之型別stringify, 否則FLOAT成'NaN'、INTEGER成'[object Object]'、DATE成本地今日00:00而誤刪
+ * 檢核純量值: 字串、有限數值、布林、有效Date, 以及null(是否允許null已由cvOrmFind依運算子判定); 並須符合欄位型別分類
+ * 註: 物件、陣列等不得交sequelize之型別stringify, 否則FLOAT成'NaN'、INTEGER成'[object Object]'、DATE成本地今日00:00而誤刪;
+ * 形狀層(cvOrmFind)已保證僅此類值到達, 此處保留型別檢核作為fail-closed之防線(日後上游放寬時不得靜默放行)
  * 註: 主鍵欄(pk為true)之字串類、整數類與其他數值類以normPk正規化後回傳(如字串類主鍵欄之123即'123'), 無效或型別不符者拒收,
  * 令select與delAll對主鍵之認定與selectByPk、del等主鍵函數一致; 非主鍵欄不轉型
  * 註: kind為date且呼叫端以ctx.dateNoTz明示'local'(dateNoTz為'local')時, 無時區日期時間字串依主機時區轉為Date回傳(見parseNoTzLocal), 其餘值照舊判定
  *
  * @ignore
  */
-function chkScalar(v, path, allowNull, kind = 'any', scale = null, pk = false, dateNoTz = undefined) {
+function chkScalar(v, path, kind = 'any', scale = null, pk = false, dateNoTz = undefined) {
     if (v === null) {
-        if (allowNull) {
-            return v
-        }
-        err('null is not allowed here', path)
+        return v
     }
-    let ok = false
-    if (typeof v === 'string' || typeof v === 'boolean') {
-        ok = true
-    }
-    else if (typeof v === 'number') {
+    if (typeof v === 'number') {
         if (!Number.isFinite(v)) {
             err(`number must be finite, got [${v}]`, path)
         }
-        ok = true
     }
     else if (v instanceof Date) {
         if (isNaN(v.getTime())) {
             err('invalid Date', path)
         }
-        ok = true
     }
-    else if (Buffer.isBuffer(v)) {
-        ok = kind === 'any'
-    }
-    if (!ok) {
+    else if (typeof v !== 'string' && typeof v !== 'boolean') {
         err(`value must be a string, finite number, boolean, Date or null, got [${Object.prototype.toString.call(v)}]`, path)
     }
     if (pk && (kind === 'str' || kind === 'int' || kind === 'num')) {
@@ -602,398 +548,181 @@ function chkScalar(v, path, allowNull, kind = 'any', scale = null, pk = false, d
 
 
 /**
- * 取陣列之各元素, 稀疏陣列之洞與undefined一律拒收
- * 註: forEach與map會略過洞, 洞若被略過則$and之子式消失而成恆真
- *
- * @ignore
- */
-function getItems(arr, path) {
-    let rs = []
-    for (let i = 0; i < arr.length; i++) {
-        if (!(i in arr) || arr[i] === undefined) {
-            err('array must not contain holes or undefined', `${path}.${i}`)
-        }
-        rs.push(arr[i])
-    }
-    return rs
-}
-
-
-/**
- * 檢核sequelize原生Symbol運算子之值: 純量、純量陣列或sequelize之literal/fn/col
- * 註: 原生寫法由呼叫端自負語意, 但仍不得把物件交sequelize之型別stringify
- *
- * @ignore
- */
-function chkRawSym(x, path, kind, scale, pk, dateNoTz) {
-    if (x instanceof Sequelize.Utils.SequelizeMethod) {
-        return x
-    }
-    if (Array.isArray(x)) {
-        return getItems(x, path).map((y, i) => (y instanceof Sequelize.Utils.SequelizeMethod ? y : chkScalar(y, `${path}.${i}`, true, kind, scale, pk, dateNoTz)))
-    }
-    return chkScalar(x, path, true, kind, scale, pk, dateNoTz)
-}
-
-
-/**
- * 將正規式來源轉為字面字串, 僅接受無未跳脫元字元者
- *
- * @ignore
- */
-function regexToLiteral(src, path) {
-    let r = ''
-    let meta = '\\^$.|?*+()[]{}/'
-    for (let i = 0; i < src.length; i++) {
-        let c = src[i]
-        if (c === '\\') {
-            let n = src[i + 1]
-            if (n !== undefined && meta.indexOf(n) >= 0) {
-                r += n
-                i++
-                continue
-            }
-            err(`$regex supports literal substrings only, escape [\\${n === undefined ? '' : n}] is not supported`, path)
-        }
-        if (meta.indexOf(c) >= 0) {
-            err(`$regex supports literal substrings only, unescaped metacharacter [${c}] is not supported`, path)
-        }
-        r += c
-    }
-    if (r.indexOf('\u0000') >= 0) {
-        err('$regex must not contain NUL', path)
-    }
-    return r
-}
-
-
-/**
- * 正規化正規式旗標, 僅接受i; '$i'為既有寫法, 過渡期視同i
- *
- * @ignore
- */
-function normFlags(fs, path) {
-    if (fs === undefined || fs === null || fs === '') {
-        return false
-    }
-    if (typeof fs !== 'string') {
-        err('$options must be a string', path)
-    }
-    let s = fs === '$i' ? 'i' : fs
-    for (let c of s) {
-        if (c !== 'i') {
-            err(`$options/flags supports [i] only, got [${fs}]`, path)
-        }
-    }
-    return s.indexOf('i') >= 0
-}
-
-
-/**
- * 產生LIKE子字串條件, 跳脫萬用字元並帶ESCAPE子句; 不分大小寫時兩側皆以LOWER處理
- * 註: sqlite之LOWER只折疊ASCII, 故sqlite下給i而字面含非ASCII之大小寫字母者拒收, 不宣稱做不到之語意
- *
- * @ignore
- */
-function cvRegex(field, col, re, options, path, ctx, kind) {
-    if (kind !== 'str' && kind !== 'any') {
-        err(`$regex requires a string column, column type is [${kind}]`, path)
-    }
-    let src
-    let ci
-    if (re instanceof RegExp) {
-        if (options !== undefined) {
-            err('$options can not be used with a RegExp $regex', path)
-        }
-        let flags = re.flags.replace(/[gu]/g, '') //g、u不影響是否命中
-        src = re.source === '(?:)' ? '' : re.source //new RegExp('')之source為(?:), 即空字串
-        ci = normFlags(flags, path)
-    }
-    else if (typeof re === 'string') {
-        src = re
-        ci = normFlags(options, path)
-    }
-    else {
-        err('$regex must be a string or RegExp', path)
-    }
-    let lit = regexToLiteral(src, path)
-    if (ci && col[0] === '*') {
-        //sequelize之Col遇以*開頭之名稱一律回傳*, LOWER(col)成LOWER(*)
-        err(`unsupported column name [${col}], it can not be used with $regex and i`, path)
-    }
-    if (ci && ctx.dialect === 'sqlite') {
-        for (let c of lit) {
-            if (c.charCodeAt(0) > 127 && c.toLowerCase() !== c.toUpperCase()) {
-                err(`$regex with i supports ASCII letters only on sqlite, got [${c}]`, path)
-            }
-        }
-    }
-    let pat = `%${lit.replace(/[!%_[]/g, (c) => `${cEsc}${c}`)}%`
-    let q = ctx.escape(pat)
-    if (ci) {
-        //LOWER內須為資料庫之實際欄名col, model之屬性名與欄名可不同(欄名已由resolveAttr核對可安全交sequelize)
-        return Sequelize.where(Sequelize.fn('LOWER', Sequelize.col(col)), Op.like, Sequelize.literal(`LOWER(${q}) ESCAPE '${cEsc}'`))
-    }
-    return { [field]: { [Op.like]: Sequelize.literal(`${q} ESCAPE '${cEsc}'`) } }
-}
-
-
-/**
- * $in與$nin, 含null者另以IS [NOT] NULL補上, 與{欄位:null}一致; 空集合以恆假/恆真表示
+ * $in與$nin, 元素為純量(不含null, 已由cvOrmFind保證); 空$in以引用欄位之恆假表示
+ * 註: $nin:[]已由cvOrmFind拒收(恆真, 易因清單恰為空而刪全表); 此處再擋以免上游放寬時靜默放行
  *
  * @ignore
  */
 function cvIn(field, arr, path, neg, kind, scale, pk, dateNoTz) {
-    if (!Array.isArray(arr)) {
-        err(`${neg ? '$nin' : '$in'} must be an array`, path)
-    }
-    let hasNull = false
     let vs = []
-    getItems(arr, path).forEach((v, k) => {
-        if (v === null) {
-            hasNull = true
-            return
+    for (let i = 0; i < arr.length; i++) {
+        if (arr[i] === null) {
+            err('null is not allowed here', `${path}[${i}]`)
         }
-        vs.push(chkScalar(v, `${path}.${k}`, false, kind, scale, pk, dateNoTz))
-    })
+        vs.push(chkScalar(arr[i], `${path}[${i}]`, kind, scale, pk, dateNoTz))
+    }
     if (!neg) {
         if (vs.length === 0) {
-            return hasNull ? { [field]: null } : { [Op.and]: [{ [field]: null }, sqlFalse()] }
+            //f IS NULL恆為二值(永不為UNKNOWN), 整式二值, 且欄名會出現在SQL中, 不存在之欄由資料庫回報(R5)
+            return { [Op.and]: [{ [field]: null }, sqlFalse()] }
         }
-        let c = { [field]: { [Op.in]: vs } }
-        return hasNull ? { [Op.or]: [c, { [field]: null }] } : c
+        return { [field]: { [Op.in]: vs } }
     }
     if (vs.length === 0) {
-        return hasNull ? { [field]: { [Op.ne]: null } } : { [Op.or]: [{ [field]: null }, sqlTrue()] }
+        err('$nin with empty array is always true', path)
     }
-    let c = { [field]: { [Op.notIn]: vs } }
-    return hasNull ? { [Op.and]: [c, { [field]: { [Op.ne]: null } }] } : c
+    return { [field]: { [Op.notIn]: vs } }
 }
 
 
 /**
- * 欄位層條件, 回傳以AND結合之子式陣列
+ * 欄位層條件, 回傳以AND結合之子式陣列; v為純量、null、Date(等值)或運算子物件(null原型, 鍵為$eq $ne $gt $gte $lt $lte $in $nin)
  *
  * @ignore
  */
-function cvField(field, v, path, depth, ctx) {
-    if (depth > nDepthMax) {
-        err('find is too deep', path)
-    }
-    if (field === '' || field === '__proto__') {
-        err(`invalid column name [${field}]`, path)
-    }
-    if (v === undefined) {
-        err('value is undefined', path)
-    }
+function cvField(field, v, path, ctx) {
 
     //欄名先解析為model之屬性名再判型別與主鍵(R4欄名解析); attrs已給而解析不到者拒收, attrs未給者為any, 交資料庫處置
     let an = resolveAttr(ctx.attrs, ctx.attrIdx, field, path)
-    let col = an === null ? field : colOf(ctx.attrs, an) //資料庫實際欄名
     let kind = an === null ? 'any' : getColKind(ctx.attrs, an)
     let scale = an === null ? null : getColScale(ctx.attrs, an)
     let pk = ctx.pk !== undefined && an === ctx.pk //主鍵欄之純量依normPk正規化(R8)
     let dateNoTz = ctx.dateNoTz
-    if (Array.isArray(v)) {
-        //陣列值即$in(含null與空陣列之處置), 與MongoDB之陣列比對不同, 已文件化
-        return [cvIn(field, v, path, false, kind, scale, pk, dateNoTz)]
+
+    //欄位直給(等值)
+    if (v === null || typeof v !== 'object' || v instanceof Date) {
+        return [{ [field]: chkScalar(v, path, kind, scale, pk, dateNoTz) }]
     }
-    if (v instanceof RegExp) {
-        return [cvRegex(field, col, v, undefined, path, ctx, kind)]
-    }
-    if (!isPlainObj(v)) {
-        return [{ [field]: chkScalar(v, path, true, kind, scale, pk, dateNoTz) }]
-    }
-    let ks = Reflect.ownKeys(v)
-    if (ks.length === 0) {
-        err('empty operator object', path)
-    }
+
+    //運算子物件
     let simple = {}
     let nSimple = 0
     let cs = []
-    let hasRegex = false
-    for (let k of ks) {
-        let kp = `${path}.${String(k)}`
+    for (let k of Object.keys(v)) {
+        let kp = `${path}.${k}`
         let x = v[k]
-        let name = k
-        if (typeof k === 'symbol') {
-            if (!setOp.has(k) || setSymFieldNo.has(k)) {
-                err(`unsupported symbol operator [${String(k)}]`, kp)
+        if (k === '$in' || k === '$nin') {
+            if (!Array.isArray(x)) {
+                err(`${k} must be an array`, kp)
             }
-            name = mSymCmp.get(k)
-            if (name === undefined) {
-                if (kind === 'date' && setSymInterp.has(k)) {
-                    err(`operator [${String(k)}] is not supported on a date column`, kp)
-                }
-                if (setSymBetween.has(k)) {
-                    //值須為兩元素陣列, 元素為純量(不含null)或sequelize之方法物件
-                    if (!Array.isArray(x) || x.length !== 2) {
-                        err(`${String(k)} requires an array of two values`, kp)
-                    }
-                    cs.push({ [field]: { [k]: getItems(x, kp).map((y, i) => (y instanceof Sequelize.Utils.SequelizeMethod ? y : chkScalar(y, `${kp}.${i}`, false, kind, scale, pk, dateNoTz))) } })
-                    continue
-                }
-                //其餘sequelize之Symbol運算子為呼叫端自負之原生寫法, 值經檢核後各自成一子式
-                cs.push({ [field]: { [k]: chkRawSym(x, kp, kind, scale, pk, dateNoTz) } })
-                continue
-            }
+            cs.push(cvIn(field, x, kp, k === '$nin', kind, scale, pk, dateNoTz))
         }
-        if (typeof name !== 'string' || name[0] !== '$') {
-            err('nested object is not supported, operators must start with $', kp)
-        }
-        if (mCmp[name] !== undefined) {
-            let allowNull = name === '$eq' || name === '$ne'
-            let y = chkScalar(x, kp, allowNull, kind, scale, pk, dateNoTz)
-            if (Object.prototype.hasOwnProperty.call(simple, mCmp[name])) {
-                //同義之鍵(如$gt與Op.gt)各自成一子式, 不得互相覆寫
-                cs.push({ [field]: { [mCmp[name]]: y } })
-            }
-            else {
-                simple[mCmp[name]] = y
-                nSimple++
-            }
-        }
-        else if (name === '$in' || name === '$nin') {
-            cs.push(cvIn(field, x, kp, name === '$nin', kind, scale, pk, dateNoTz))
-        }
-        else if (name === '$exists') {
-            if (x !== true && x !== false && x !== 0 && x !== 1) {
-                err('$exists must be a boolean, 0 or 1', kp)
-            }
-            cs.push(x ? { [field]: { [Op.ne]: null } } : { [field]: null })
-        }
-        else if (name === '$regex') {
-            hasRegex = true
-            cs.push(cvRegex(field, col, x, v.$options, kp, ctx, kind))
-        }
-        else if (name === '$options') {
-            //由$regex一併處理
-        }
-        else if (name === '$not') {
-            if (Array.isArray(x)) {
-                err('$not does not accept an array', kp)
-            }
-            let ns = cvField(field, x, kp, depth + 1, ctx)
-            cs.push({ [Op.not]: { [Op.and]: ns } })
+        else if (Object.prototype.hasOwnProperty.call(mCmp, k)) {
+            //同欄之比較運算子併入同一欄位物件, 以AND結合
+            simple[mCmp[k]] = chkScalar(x, kp, kind, scale, pk, dateNoTz)
+            nSimple++
         }
         else {
-            err(`unsupported operator [${name}]`, kp)
+            err(`unsupported operator [${k}]`, kp)
         }
-    }
-    if (v.$options !== undefined && !hasRegex) {
-        err('$options requires $regex', path)
-    }
-    if (cs.length === 0 && nSimple === 0) {
-        //如僅有值為undefined之$options: 不產生任何子式, 該條件即消失而成恆真, delAll會刪全表
-        err('operator object has no operator', path)
     }
     if (nSimple > 0) {
         cs.unshift({ [field]: simple })
+    }
+    if (cs.length === 0) {
+        //不產生任何子式者條件即消失而成恆真, delAll會刪全表; cvOrmFind已拒收空運算子物件, 此處再擋(含非Date之物件值)
+        err('operator object has no operator', path)
     }
     return cs
 }
 
 
 /**
- * 文件層條件(含頂層邏輯運算子)
+ * 文件層條件(含$and、$or), o為cvOrmFind之複本(null原型, 鍵僅字串)
  *
  * @ignore
  */
-function cvDoc(o, path, depth, ctx) {
-    if (depth > nDepthMax) {
-        err('find is too deep', path)
-    }
-    if (!isPlainObj(o)) {
-        err('condition must be an object', path)
-    }
-    let cvList = (x, kp) => {
-        if (!Array.isArray(x)) {
-            err('logical operator requires an array', kp)
-        }
-        //空陣列拒收(同MongoDB), 以免呼叫端之條件清單恰為空時成為恆真而刪全表
-        if (x.length === 0) {
-            err('logical operator requires a nonempty array', kp)
-        }
-        return getItems(x, kp).map((y, i) => cvDoc(y, `${kp}.${i}`, depth + 1, ctx))
-    }
+function cvDoc(o, path, ctx) {
     let cs = []
-    for (let k of Reflect.ownKeys(o)) {
+    for (let k of Object.keys(o)) {
         let x = o[k]
-        let kp = path ? `${path}.${String(k)}` : String(k)
-        if (typeof k === 'symbol') {
-            if (k === Op.and) {
-                cs.push(cvAnd(cvList(x, kp)))
+        let kp = `${path}.${k}`
+        if (k === '$and' || k === '$or') {
+            if (!Array.isArray(x) || x.length === 0) {
+                err(`${k} requires a nonempty array`, kp)
             }
-            else if (k === Op.or) {
-                cs.push(cvOr(cvList(x, kp)))
+            let sub = []
+            for (let i = 0; i < x.length; i++) {
+                sub.push(cvDoc(x[i], `${kp}[${i}]`, ctx))
             }
-            else if (k === Op.not) {
-                cs.push({ [Op.not]: cvDoc(x, kp, depth + 1, ctx) })
-            }
-            else {
-                err(`unsupported symbol operator at document level [${String(k)}]`, kp)
-            }
-            continue
+            cs.push(cvGroup(k === '$and' ? cvAnd : cvOr, sub))
         }
-        if (k[0] === '$') {
-            if (k === '$and') {
-                cs.push(cvAnd(cvList(x, kp)))
-            }
-            else if (k === '$or') {
-                cs.push(cvOr(cvList(x, kp)))
-            }
-            else if (k === '$nor') {
-                cs.push({ [Op.not]: cvOr(cvList(x, kp)) })
-            }
-            else {
-                err(`unsupported operator [${k}]`, kp)
-            }
-            continue
+        else if (k[0] === '$') {
+            err(`unsupported operator [${k}]`, kp)
         }
-        cs.push(...cvField(k, x, kp, depth + 1, ctx))
+        else {
+            cs.push(...cvField(k, x, kp, ctx))
+        }
     }
-    return cvAnd(cs)
+    if (cs.length === 0) {
+        err('empty condition', path)
+    }
+    return cvGroup(cvAnd, cs)
 }
 
 
 /**
- * 以AND結合子式, 無子式者為恆真
+ * 以AND結合子式
  *
  * @ignore
  */
 function cvAnd(cs) {
-    if (cs.length === 0) {
-        return { [Op.and]: [sqlTrue()] }
-    }
     return { [Op.and]: cs }
 }
 
 
 /**
- * 以OR結合子式, 無子式者為恆假
+ * 以OR結合子式
  *
  * @ignore
  */
 function cvOr(cs) {
-    if (cs.length === 0) {
-        return { [Op.and]: [sqlFalse()] }
-    }
     return { [Op.or]: cs }
+}
+
+
+/**
+ * 子式過多者遞迴二分為平衡樹, 避免SQLite之運算式樹深度與遞迴上限(見nFlat); 語意不變(AND與OR皆滿足結合律, 含NULL之三值邏輯), 子式順序不變
+ *
+ * @ignore
+ */
+function cvGroup(fn, cs) {
+    if (cs.length <= nFlat) {
+        return fn(cs)
+    }
+    let k = Math.ceil(cs.length / 2)
+    return fn([cvGroup(fn, cs.slice(0, k)), cvGroup(fn, cs.slice(k))])
+}
+
+
+/**
+ * 檢核find之形狀(系列白名單, 由wsemi之cvOrmFind單一擁有, 規則見R11)並回傳全新之null原型深複本, 後續一律只使用複本(檢查之值即使用之值)
+ * 註: 未給/undefined/{}回傳空物件(全部); 其餘非條件物件、白名單外之運算子與值、異常結構一律throw Error('invalid find: 原因 at [路徑]')
+ * 註: maxList傳999(SQLite之運算式樹深度上限); select與delAll於載入model與建立sequelize實例之前先呼叫本函數, 使形狀不合法者不連線、不送出任何SQL
+ * 註: 對複本再呼叫為冪等(複本本身符合白名單)
+ *
+ * @ignore
+ * @param {*} find 輸入查詢條件
+ * @returns {Object} 回傳null原型之條件複本, 無自有鍵代表全部
+ */
+function chkFindShape(find) {
+    return cvOrmFind(find, optShape)
 }
 
 
 /**
  * 將查詢條件轉為sequelize之where, 供select與delAll共用, 令同一find於兩函數由同一SQL謂詞決定命中
  *
- * 註: 支援欄位等值與$eq、$ne、$gt、$gte、$lt、$lte、$in、$nin、$not、$regex($options僅i)、$exists, 以及$and、$or、$nor
- * 註: 不支援之運算子、非純量之值、與欄位型別不符之純量一律拋錯, 不得交sequelize之型別stringify(見本檔之chkScalar)
- * 註: NULL依SQL三值邏輯; $regex僅支援字面子字串; 非物件之find回{}(即全部), 此為現況保留
+ * 註: 第一步經chkFindShape(wsemi之cvOrmFind)依系列白名單檢核並取複本, 其後只走訪複本; 白名單: 欄位等值{欄:純量|null}、
+ * $eq $ne $gt $gte $lt $lte(純量)、$in $nin(純量陣列)、$and $or(條件物件之非空陣列); 其餘(含$not $nor $regex $options $exists、RegExp、Symbol鍵、陣列值)一律拋錯
+ * 註: 未給、undefined或{}回傳{}(全部); 其餘非條件物件(null、陣列、字串、數值等)拋錯, 不再視為{}
+ * 註: 與欄位型別不符之純量、不存在之欄一律拋錯, 不得交sequelize之型別stringify(見本檔之chkScalar); NULL依SQL三值邏輯
  *
  * @param {*} find 輸入查詢條件
  * @param {Object} ctx 輸入轉換所需之依賴物件
- * @param {Function} ctx.escape 輸入依方言將字串轉為SQL字串常值之函數, 通常為sequelize實例之escape
+ * @param {Function} [ctx.escape] 已不使用(原供$regex之LIKE字面常值; 第33項批1移除$regex), 保留接受以相容既有呼叫端
  * @param {Object} [ctx.attrs] 輸入執行where之model之rawAttributes, 供欄名解析(嚴格鍵: 鍵須與屬性名或資料庫欄名完全相符, 其餘拒收)、依欄位型別檢核純量與取得實際欄名; 未給時不解析鍵、不檢型別而交資料庫(見CLAUDE_rulebook.md之R4)
- * @param {String} [ctx.dialect] 輸入資料庫種類字串, 供判定方言能力(如sqlite之LOWER僅折疊ASCII)
+ * @param {String} [ctx.dialect] 已不使用(原供判定sqlite之LOWER僅折疊ASCII), 保留接受以相容既有呼叫端
  * @param {String} [ctx.pk] 輸入主鍵欄位名, 該欄之純量條件值依normPk正規化(如字串類主鍵欄之123即'123'), 未給時不正規化
  * @param {String} [ctx.dateNoTz] 輸入無時區日期時間字串之處置, 僅接受undefined(預設, 無時區者拒收)或'local'(依主機時區解析, 與以本地時間分量建構之Date同義), 其餘值拋錯; 僅作用於DATE欄, 供Jet等無時區後端之呼叫端明示啟用
  * @returns {Object} 回傳sequelize之where物件, 條件不合法時拋出錯誤
@@ -1005,18 +734,11 @@ function cvFind(find, ctx) {
         throw new Error(`invalid ctx: dateNoTz must be 'local' or undefined, got [${String(ctx.dateNoTz)}]`)
     }
 
-    //check, 非物件(undefined、null、字串、數值等純量)與陣列視為未給條件, 此為現況保留, 系列規格另案處理
-    if (find === null || typeof find !== 'object' || Array.isArray(find)) {
-        return {}
-    }
-
-    //check, 非一般物件(class實例、Object.create(proto)、Date、Map等)之條件可能不在自有鍵上, 拒收而不當成{}
-    if (!isPlainObj(find)) {
-        err('find must be a plain object')
-    }
+    //step1, 形狀檢核(R11), 其後一律只使用複本
+    let fd = chkFindShape(find)
 
     //check, 空物件為全部
-    if (Reflect.ownKeys(find).length === 0) {
+    if (Reflect.ownKeys(fd).length === 0) {
         return {}
     }
 
@@ -1026,9 +748,9 @@ function cvFind(find, ctx) {
     }
 
     //attrs之索引每次轉譯只建一次(內部欄位attrIdx, 不屬ctx之介面)
-    return cvDoc(find, '', 0, ctx && ctx.attrs ? { ...ctx, attrIdx: buildAttrIdx(ctx.attrs) } : ctx)
+    return cvDoc(fd, 'find', ctx && ctx.attrs ? { ...ctx, attrIdx: buildAttrIdx(ctx.attrs) } : ctx)
 }
 
 
-export { getColKind, getColScale, normPk }
+export { getColKind, getColScale, normPk, chkFindShape }
 export default cvFind

@@ -1,5 +1,6 @@
 import fs from 'fs'
 import { defineSuites } from './api-suite.mjs'
+import { defineWhitelistSuites } from './api-find-whitelist.mjs'
 
 
 //sqlite使用獨立暫存storage檔測試, 不使用專案根目錄之worm.sqlite
@@ -40,3 +41,4 @@ after(function() {
 
 
 defineSuites('sqlite', getOpt)
+defineWhitelistSuites('sqlite', getOpt)

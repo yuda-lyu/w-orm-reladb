@@ -122,10 +122,10 @@ export function defineSuites(label, getOpt) {
             assert.deepStrictEqual(sp[1], { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 })
         })
 
-        it('select $regex給i時不分大小寫', async function() {
-            //rulebook R6: $options為i時兩側LOWER, 不分大小寫不倚賴定序
-            let sr = await w.select({ name: { $regex: 'PeT', $options: 'i' } })
-            assert.deepStrictEqual(sr, [{ id: 'id-peter', name: 'peter(modify)', value: 123 }])
+        it('select $regex(白名單外)整批reject', async function() {
+            //rulebook R6/R11: $regex、$options已移除, 於形狀階段reject; 需子字串/不分大小寫者請select後於記憶體過濾
+            let r = await w.select({ name: { $regex: 'PeT', $options: 'i' } }).then(() => null).catch((err) => String(err.message || err))
+            assert.ok(r !== null && r.indexOf('invalid find: unsupported operator [$regex]') === 0, String(r))
         })
 
         it('del 刪除3筆並保留kettle', async function() {
@@ -421,7 +421,7 @@ export function defineSuites(label, getOpt) {
                 assert.ok(r.REJECT.indexOf('closed') >= 0, `${t} 之錯誤訊息未指明已關閉: ${r.REJECT}`)
             }
 
-            await chk('select', () => w.select(null, cs))
+            await chk('select', () => w.select({}, cs))
             await chk('selectByPk', () => w.selectByPk('k1', cs))
             await chk('insert', () => w.insert({ id: 'k9' }, cs))
             await chk('insertBulk', () => w.insertBulk({ id: 'k8' }, cs))
@@ -594,7 +594,7 @@ export function defineSuites(label, getOpt) {
                 assert.ok(r !== null, '未reject')
 
                 //交易內先前之寫入須保留, 本次之tx-2須不存在
-                let ssIn = await w.select(null, connState)
+                let ssIn = await w.select({}, connState)
                 let ids = ssIn.map((v) => v.id).sort()
                 assert.deepStrictEqual(ids, ['tx-1'])
 
@@ -821,7 +821,7 @@ export function defineSuites(label, getOpt) {
             assert.deepStrictEqual(md, [{ n: 1, nDeleted: 1, ok: 1 }])
 
             //交易內select可查到暫時有效的數據
-            let ssIn = sortByName(await w.select(null, connState))
+            let ssIn = sortByName(await w.select({}, connState))
             assert.strictEqual(ssIn.length, 2)
             assert.strictEqual(ssIn[0].name, 'kettle')
             assert.strictEqual(ssIn[1].name, 'peter(modify)')
@@ -925,6 +925,7 @@ export function defineSuites(label, getOpt) {
         })
 
         //[說明, find, 預期命中之id]
+        //(第33項批1: 白名單外之寫法〔$not $nor $regex $exists、RegExp、Symbol Op、陣列值、$in/$nin含null、空$nin、空子式〕已移至下方removed, 一律reject)
         let cases = [
             //R4 七欄型之等值
             ['STRING 等值', { s: 's1' }, ['r1']],
@@ -947,91 +948,41 @@ export function defineSuites(label, getOpt) {
             ['DECIMAL $in', { dec: { $in: [2.5] } }, ['r2']],
             ['DATE $in', { d: { $in: [new Date('2019-01-01T00:00:00Z')] } }, ['r1']],
             ['INTEGER $nin', { i: { $nin: [1, 3] } }, ['r2', 'r4', 'r5']],
-            ['INTEGER $not $gt', { i: { $not: { $gt: 2 } } }, ['r1', 'r2']],
-            ['FLOAT $not $lte', { f: { $not: { $lte: 2.5 } } }, ['r3', 'r4', 'r5']],
-            ['DATE $not $gt', { d: { $not: { $gt: new Date('2020-01-01T00:00:00Z') } } }, ['r1']],
             ['同欄多運算子', { i: { $gt: 1, $lt: 5 } }, ['r2', 'r3', 'r4']],
+            ['同欄三運算子併入同一欄位物件', { i: { $gt: 1, $lt: 5, $ne: 3 } }, ['r2', 'r4']],
             ['DATE 以帶時區之ISO字串比較', { d: { $lt: '2020-01-01T00:00:00Z' } }, ['r1']],
             ['DATE 以帶偏移之ISO字串比較', { d: { $lt: '2020-01-01T08:00:00+08:00' } }, ['r1']],
             ['DOUBLE $gt', { p: { $gt: 3.5 } }, ['r4', 'r5']],
-            ['DOUBLE $not $lte', { p: { $not: { $lte: 2.5 } } }, ['r3', 'r4', 'r5']],
             ['INTEGER 以數值字串比較', { i: '2' }, ['r2']],
             //R3 邏輯
             ['$and', { $and: [{ i: { $gte: 2 } }, { b: false }] }, ['r2', 'r4']],
             ['$or', { $or: [{ s: 's1' }, { i: 5 }] }, ['r1', 'r5']],
-            ['$nor(SQL三值)', { $nor: [{ s: 's1' }, { i: 5 }] }, ['r2', 'r3', 'r4']],
+            ['$and 內含$or', { $and: [{ $or: [{ s: 's1' }, { i: 5 }] }, { b: true }] }, ['r1', 'r5']],
             //R5 NULL
             ['{t:null}', { t: null }, ['r6']],
             ['$eq null', { t: { $eq: null } }, ['r6']],
-            ['$in [null] 與{t:null}一致', { t: { $in: [null] } }, ['r6']],
-            ['$in [null,值]', { t: { $in: [null, 'rose_mary'] } }, ['r3', 'r6']],
             ['$ne null', { t: { $ne: null } }, NN],
-            ['$nin [null] 與$ne null一致', { t: { $nin: [null] } }, NN],
-            ['$nin [null,值]', { t: { $nin: [null, 'rose_mary'] } }, ['r1', 'r2', 'r4', 'r5']],
-            ['$exists true', { i: { $exists: true } }, NN],
-            ['$exists false', { i: { $exists: false } }, ['r6']],
+            ['$ne不含NULL(SQL三值)', { t: { $ne: 'rose_mary' } }, ['r1', 'r2', 'r4', 'r5']],
+            ['$nin不含NULL(SQL三值)', { t: { $nin: ['rose_mary'] } }, ['r1', 'r2', 'r4', 'r5']],
+            ['可攜寫法: 排除NULL', { $and: [{ t: { $ne: null } }, { t: { $ne: 'rose_mary' } }] }, ['r1', 'r2', 'r4', 'r5']],
+            ['可攜寫法: 含NULL', { $or: [{ t: null }, { t: { $ne: 'rose_mary' } }] }, ['r1', 'r2', 'r4', 'r5', 'r6']],
             ['$in 空陣列為無', { i: { $in: [] } }, []],
-            ['$nin 空陣列為全部', { i: { $nin: [] } }, ALL],
-            ['$not $in 空陣列為全部', { i: { $not: { $in: [] } } }, ALL],
-            //R6 $regex
-            ['$regex 字面底線', { t: { $regex: '_' } }, ['r3']],
-            ['$regex 字面百分比', { t: { $regex: '%' } }, ['r4']],
-            ['$regex 跳脫之方括號', { t: { $regex: '\\[a-c\\]' } }, ['r5']],
-            ['$regex $options i', { t: { $regex: 'PET', $options: 'i' } }, ['r1', 'r2']],
-            ['$regex RegExp i', { t: { $regex: /PET/i } }, ['r1', 'r2']],
-            ['$regex $options $i(過渡期視同i)', { t: { $regex: 'PeT', $options: '$i' } }, ['r1', 'r2']],
-            ['RegExp 作為值', { t: /PET/i }, ['r1', 'r2']],
-            ['$not $regex', { t: { $not: { $regex: '_' } } }, ['r1', 'r2', 'r4', 'r5']],
             //R2 特殊鍵
             ['欄名length不得使條件失效', { s: 's1', length: 0 }, ['r1']],
             ['欄名length帶運算子', { length: { $gte: 5 } }, ['r3', 'r4', 'r5']],
-            ['欄名含$', { 'p$x': 'q' }, ['r1', 'r3']],
-            ['Symbol Op.or', { [Op.or]: [{ s: 's1' }, { s: 's2' }] }, ['r1', 'r2']],
-            ['Symbol Op.in', { i: { [Op.in]: [1, 2] } }, ['r1', 'r2']],
-            ['陣列值為IN', { i: [1, 2] }, ['r1', 'r2']],
-            ['陣列值含null同$in', { t: [null, 'rose_mary'] }, ['r3', 'r6']],
-            //空子式為恆真/恆假, 不得被濾除而改變語意
-            ['$or 含空條件為全部', { $or: [{}, { s: 's1' }] }, ALL],
-            ['$nor 含空條件為無', { $nor: [{}] }, []],
-            ['$nor 含空條件與他式為無', { $nor: [{}, { s: 's1' }] }, []],
-            ['$not $regex i', { t: { $not: { $regex: 'PET', $options: 'i' } } }, ['r3', 'r4', 'r5']],
-            ['$regex 空字串為非null', { t: { $regex: '' } }, NN],
-            ['$regex 空RegExp', { t: { $regex: new RegExp('') } }, NN],
-            ['$exists 1', { i: { $exists: 1 } }, NN],
-            ['$exists 0', { i: { $exists: 0 } }, ['r6']],
-            ['$options null視同未給(大小寫依定序)', { t: { $regex: 'rose', $options: null } }, ['r3']],
             ['DECIMAL 以不超過scale之字串', { dec: '1.25' }, ['r1']],
             ['DATE 以epoch數值比較', { d: { $lt: Date.parse('2020-01-01T00:00:00Z') } }, ['r1']],
-            ['同義之$lt與Op.lt', { i: { $lt: 3, [Op.lt]: 100 } }, ['r1', 'r2']],
-            ['$not $in [null]為非null', { i: { $not: { $in: [null] } } }, NN],
 
-            //審計02(規格句 R5): 欄名正確時, 空集合之各入口語意不變——$in:[]恆假、$nin:[]恆真且含NULL列(r6)、$not:{$in:[]}為全部;
-            //空集合改為引用其欄位(f IS NULL AND 1 = 0 / f IS NULL OR 1 = 1)後, 命中集合須與原常數形式相同; select命中 = delAll刪除(R1)
+            //審計02(規格句 R5): 欄名正確時, 空$in引用其欄位(f IS NULL AND 1 = 0)後, 命中集合須為無且不使其他分支失效; select命中 = delAll刪除(R1)
             ['TEXT $in 空陣列為無', { t: { $in: [] } }, []],
-            ['TEXT $nin 空陣列為全部(含NULL列)', { t: { $nin: [] } }, ALL],
-            ['TEXT 陣列值[]為無', { t: [] }, []],
-            ['Op.in 空陣列為無', { i: { [Op.in]: [] } }, []],
-            ['Op.notIn 空陣列為全部', { i: { [Op.notIn]: [] } }, ALL],
-            ['$not $nin 空陣列為無', { t: { $not: { $nin: [] } } }, []],
-            ['Symbol Op.not 包 Op.notIn 空陣列為無', { i: { [Op.not]: { [Op.notIn]: [] } } }, []],
-            ['$in空與$nin空並存為無', { t: { $in: [], $nin: [] } }, []],
-            ['$or 含空$nin 為全部', { $or: [{ t: { $nin: [] } }, { s: 'zz' }] }, ALL],
-            ['$and 含空$in 為無', { $and: [{ t: { $in: [] } }, { s: 's1' }] }, []],
-            ['$nor 含空$in 為全部', { $nor: [{ t: { $in: [] } }] }, ALL],
-            ['$nor 含空$nin 為無', { $nor: [{ t: { $nin: [] } }] }, []],
-            ['文件層Op.not 包空$in 為全部', { [Op.not]: { t: { $in: [] } } }, ALL],
-            ['主鍵欄 $nin 空陣列為全部', { id: { $nin: [] } }, ALL],
             ['主鍵欄 $in 空陣列為無', { id: { $in: [] } }, []],
-            ['DATE 欄 $nin 空陣列為全部', { d: { $nin: [] } }, ALL],
+            ['DATE 欄 $in 空陣列為無', { d: { $in: [] } }, []],
             ['BOOLEAN 欄 $in 空陣列為無', { b: { $in: [] } }, []],
-            ['空$nin 與其他欄條件AND', { $and: [{ t: { $nin: [] } }, { i: { $gt: 3 } }] }, ['r4', 'r5']],
+            ['$and 含空$in 為無', { $and: [{ t: { $in: [] } }, { s: 's1' }] }, []],
+            ['$or 含空$in 不使其他分支失效', { $or: [{ t: { $in: [] } }, { s: 's1' }] }, ['r1']],
+            ['$in空與$nin並存為無', { t: { $in: [], $nin: ['x'] } }, []],
             //BOOLEAN之比較依1/0
             ['BOOLEAN $gt false', { b: { $gt: false } }, ['r1', 'r3', 'r5']],
-            ['BOOLEAN $not $gt true', { b: { $not: { $gt: true } } }, NN],
-            //同義之鍵各自成立, Symbol之$not同$not
-            ['同義之鍵不得互相覆寫', { i: { $gt: 3, [Op.gt]: 1 } }, ['r4', 'r5']],
-            ['Symbol Op.not', { i: { [Op.not]: { [Op.gt]: 2 } } }, ['r1', 'r2']],
-            ['$and與Op.and並存', { $and: [{ i: { $gte: 2 } }], [Op.and]: [{ i: { $lte: 3 } }] }, ['r2', 'r3']],
         ]
 
         for (let [t, find, exp] of cases) {
@@ -1058,55 +1009,90 @@ export function defineSuites(label, getOpt) {
         })
 
         //[說明, find, reject訊息須含之字串]
+        //第33項批1: 形狀不合法者由wsemi之cvOrmFind於連線前reject(訊息格式invalid find: 原因 at [路徑]), 翻譯層(欄名嚴格鍵、欄位型別、主鍵)之reject維持
         let bads = [
             ['未知運算子', { i: { $foo: 1 } }, 'unsupported operator [$foo]'],
             ['頂層未知運算子', { $foo: 1 }, 'unsupported operator [$foo]'],
             ['sequelize專屬名稱', { s: { $like: 's%' } }, 'unsupported operator [$like]'],
             ['頂層$not', { $not: { s: 's1' } }, 'unsupported operator [$not]'],
             ['MongoDB之$type', { i: { $type: 'number' } }, 'unsupported operator [$type]'],
-            ['比較運算子之值為物件', { d: { $gt: { x: 1 } } }, 'value must be'],
+            ['比較運算子之值為物件', { d: { $gt: { x: 1 } } }, 'unsupported value type'],
             ['DATE欄收非日期字串', { d: { $lt: 'garbage' } }, 'does not match column type'],
             ['數值欄收非數值字串', { i: { $lt: 'abc' } }, 'does not match column type'],
             ['字串欄收數值', { s: 1 }, 'does not match column type'],
-            ['$regex含未跳脫元字元', { t: { $regex: '^pe' } }, 'unescaped metacharacter'],
-            ['$regex用於非字串欄', { i: { $regex: '1' } }, '$regex requires a string column'],
-            ['$options不支援之旗標', { t: { $regex: 'p', $options: 'm' } }, 'supports [i] only'],
-            ['undefined值', { s: undefined }, 'value is undefined'],
-            ['NaN', { i: NaN }, 'number must be finite'],
+            ['undefined值', { s: undefined }, 'undefined is not allowed'],
+            ['NaN', { i: NaN }, 'number is not finite'],
             ['空運算子物件', { i: {} }, 'empty operator object'],
-            ['巢狀欄位物件', { s: { a: 1 } }, 'nested object is not supported'],
-            ['空字串欄名', { '': 1 }, 'invalid column name'],
-            ['非sequelize運算子之Symbol', { [Symbol('or')]: [{ s: 's1' }] }, 'unsupported symbol operator'],
-            ['欄位層非運算子之Symbol', { i: { [Symbol('gt')]: 1 } }, 'unsupported symbol operator'],
-            ['欄位層Op.or', { i: { [Sequelize.Op.or]: [{ [Sequelize.Op.eq]: 1 }], [Sequelize.Op.gt]: 10 } }, 'unsupported symbol operator'],
-            ['稀疏陣列', { $and: new Array(2) }, 'holes or undefined'],
-            ['$regex含NUL', { t: { $regex: 'a' + String.fromCharCode(0) + 'x' } }, 'NUL'],
+            ['巢狀欄位物件', { s: { a: 1 } }, 'unexpected key'],
+            ['空字串欄名', { '': 1 }, 'unsupported column name'],
+            ['非sequelize運算子之Symbol', { [Symbol('or')]: [{ s: 's1' }] }, 'symbol key is not allowed'],
+            ['欄位層非運算子之Symbol', { i: { [Symbol('gt')]: 1 } }, 'symbol key is not allowed'],
+            ['欄位層Op.or', { i: { [Sequelize.Op.or]: [{ [Sequelize.Op.eq]: 1 }], [Sequelize.Op.gt]: 10 } }, 'symbol key is not allowed'],
+            ['稀疏陣列', { $and: new Array(2) }, 'sparse array hole'],
             ['整數欄超出安全整數', { i: Number('9007199254740993') }, 'does not match column type [int]'],
-            ['$and空陣列', { $and: [] }, 'nonempty array'],
-            ['$or空陣列', { $or: [] }, 'nonempty array'],
-            ['$nor空陣列', { $nor: [] }, 'nonempty array'],
+            ['$and空陣列', { $and: [] }, '$and with empty array'],
+            ['$or空陣列', { $or: [] }, '$or with empty array'],
+            ['$nor空陣列', { $nor: [] }, 'unsupported operator [$nor]'],
             ['DATE欄收無時區之日期字串', { d: { $lt: '2020-01-01' } }, 'does not match column type [date]'],
             ['DATE欄收不存在之日期', { d: { $lt: '2026-02-30T00:00:00Z' } }, 'does not match column type [date]'],
             ['DOUBLE欄收非數值字串', { p: { $lt: 'abc' } }, 'does not match column type [num]'],
-            ['$regex用於DOUBLE欄', { p: { $regex: '1' } }, '$regex requires a string column'],
             ['非十進位之數值字串', { i: { $lt: '0x10' } }, 'does not match column type [int]'],
             ['前後空白之數值字串', { i: ' 5' }, 'does not match column type [int]'],
             ['整數欄收指數或小數寫法之字串', { i: '1e3' }, 'does not match column type [int]'],
             ['DECIMAL欄收指數寫法之字串', { dec: '1e3' }, 'does not match column type [num]'],
             ['DECIMAL欄收超過scale之字串', { dec: '1.254' }, 'with scale [2]'],
             ['DATE欄收超出Date範圍之epoch', { d: { $lt: 1e16 } }, 'does not match column type [date]'],
-            ['原型上之條件', Object.create({ s: 's1' }), 'find must be a plain object'],
-            ['帶toStringTag之物件', { s: 's1', [Symbol.toStringTag]: 'Q' }, 'unsupported symbol operator'],
-            ['欄位層Op.or空陣列', { i: { [Sequelize.Op.or]: [] } }, 'unsupported symbol operator'],
+            ['原型上之條件', Object.create({ s: 's1' }), 'condition must be a plain object'],
+            ['帶toStringTag之物件', { s: 's1', [Symbol.toStringTag]: 'Q' }, 'condition must be a plain object'],
+            ['欄位層Op.or空陣列', { i: { [Sequelize.Op.or]: [] } }, 'symbol key is not allowed'],
+
+            //第33項批1(R11): 白名單外之寫法一律reject(原為支援或部分支援, 見帳本〈破壞性變更紀錄(第33項批1)〉)
+            ['欄位層$not', { i: { $not: { $gt: 2 } } }, 'unsupported operator [$not]'],
+            ['$not包空$in', { i: { $not: { $in: [] } } }, 'unsupported operator [$not]'],
+            ['文件層$nor', { $nor: [{ s: 's1' }, { i: 5 }] }, 'unsupported operator [$nor]'],
+            ['$nor含空條件', { $nor: [{}] }, 'unsupported operator [$nor]'],
+            ['$exists true', { i: { $exists: true } }, 'unsupported operator [$exists]'],
+            ['$exists false', { i: { $exists: false } }, 'unsupported operator [$exists]'],
+            ['$regex', { t: { $regex: '_' } }, 'unsupported operator [$regex]'],
+            ['$regex + $options', { t: { $regex: 'PET', $options: 'i' } }, 'unsupported operator [$regex]'],
+            ['$regex RegExp值', { t: { $regex: /PET/i } }, 'unsupported operator [$regex]'],
+            ['單獨$options', { t: { $options: 'i' } }, 'unsupported operator [$options]'],
+            ['$regex用於非字串欄', { i: { $regex: '1' } }, 'unsupported operator [$regex]'],
+            ['RegExp作為值', { t: /PET/i }, 'unsupported value type [RegExp]'],
+            ['陣列值即$in(已移除)', { i: [1, 2] }, 'array value is not supported, use $in'],
+            ['空陣列值', { t: [] }, 'array value is not supported, use $in'],
+            ['陣列值含null', { t: [null, 'rose_mary'] }, 'array value is not supported, use $in'],
+            ['Symbol Op.or', { [Op.or]: [{ s: 's1' }, { s: 's2' }] }, 'symbol key is not allowed'],
+            ['Symbol Op.in', { i: { [Op.in]: [1, 2] } }, 'symbol key is not allowed'],
+            ['Symbol Op.notIn空陣列', { i: { [Op.notIn]: [] } }, 'symbol key is not allowed'],
+            ['Symbol Op.not', { i: { [Op.not]: { [Op.gt]: 2 } } }, 'symbol key is not allowed'],
+            ['Symbol Op.between', { i: { [Op.between]: [1, 2] } }, 'symbol key is not allowed'],
+            ['Symbol Op.like', { t: { [Op.like]: 'p%' } }, 'symbol key is not allowed'],
+            ['同義之$lt與Op.lt', { i: { $lt: 3, [Op.lt]: 100 } }, 'symbol key is not allowed'],
+            ['$and與Op.and並存', { $and: [{ i: { $gte: 2 } }], [Op.and]: [{ i: { $lte: 3 } }] }, 'symbol key is not allowed'],
+            ['$in含null', { t: { $in: [null, 'rose_mary'] } }, 'null is not allowed here'],
+            ['$in:[null]', { t: { $in: [null] } }, 'null is not allowed here'],
+            ['$nin含null', { t: { $nin: [null, 'rose_mary'] } }, 'null is not allowed here'],
+            ['$nin:[null]', { t: { $nin: [null] } }, 'null is not allowed here'],
+            ['比較運算子之值為null', { i: { $gt: null } }, 'null is not allowed here'],
+            ['空$nin', { i: { $nin: [] } }, '$nin with empty array is always true'],
+            ['$or含空$nin', { $or: [{ t: { $nin: [] } }, { s: 'zz' }] }, '$nin with empty array is always true'],
+            ['$or含空條件', { $or: [{}, { s: 's1' }] }, 'empty condition'],
+            ['$and含空條件', { $and: [{}] }, 'empty condition'],
+            ['欄名含$', { 'p$x': 'q' }, 'unsupported column name [p$x]'],
+            ['頂層null(原為全部)', null, 'condition must be a plain object'],
+            ['頂層陣列(原為全部)', [], 'condition must be a plain object'],
+            ['頂層字串(原為全部)', 's1', 'condition must be a plain object'],
 
             //run04(規格句 R4欄名解析 嚴格鍵): 鍵須與屬性名或資料庫欄名完全相符, 其餘一律於轉譯階段reject, 不倚賴資料庫之識別字解析(兩方言同結果、兩函數訊息相同);
             //原sqlite下型別不符之變體鍵使delAll刪除全部非NULL列, 並有sqlite隱含欄rowid、引號被sequelize刪除而成既有欄、mssql之全形/尾端空白/可忽略字元等價之繞過
+            //(第33項批1: 尾端空白、全形空白、可忽略字元等含非字母數字底線者於形狀階段即reject為unsupported column name; 全形字母、等價字母等仍屬欄名文法, 由嚴格鍵reject為unknown column name)
             ['欄名大小寫變體 × 非數值字串', { I: { $lt: 'abc' } }, 'unknown column name [I]'],
             ['欄名大小寫變體 × 非日期字串', { D: { $lt: 'garbage' } }, 'unknown column name [D]'],
             ['欄名全形變體(mssql預設定序視為同一識別字)', { 'ｉ': { $lt: 'abc' } }, 'unknown column name'],
-            ['欄名尾端空白(mssql忽略識別字尾端空白)', { 'i ': { $lt: 'abc' } }, 'unknown column name'],
-            ['欄名尾端全形空白', { ['i' + String.fromCharCode(0x3000)]: { $lt: 'abc' } }, 'unknown column name'],
-            ['欄名附加可忽略字元(mssql預設定序視為同一識別字)', { ['i' + String.fromCharCode(0xFEFF)]: { $lt: 'abc' } }, 'unknown column name'],
+            ['欄名尾端空白(mssql忽略識別字尾端空白)', { 'i ': { $lt: 'abc' } }, 'unsupported column name'],
+            ['欄名尾端全形空白', { ['i' + String.fromCharCode(0x3000)]: { $lt: 'abc' } }, 'unsupported column name'],
+            ['欄名附加可忽略字元(mssql預設定序視為同一識別字)', { ['i' + String.fromCharCode(0xFEFF)]: { $lt: 'abc' } }, 'unsupported column name'],
             ['欄名以mssql預設定序之等價字元(U+026A)取代i', { [String.fromCharCode(0x26A)]: { $lt: 'abc' } }, 'unknown column name'],
             ['sqlite隱含欄rowid(attrs未列)', { rowid: { $lt: 'abc' } }, 'unknown column name [rowid]'],
             ['欄名含反引號(sqlite之quoteIdentifier刪除之而成i)', { 'i`': { $lt: 'abc' } }, 'unsupported column name'],
@@ -1115,38 +1101,29 @@ export function defineSuites(label, getOpt) {
             ['欄名含雙引號', { 'i"': { $lt: 'abc' } }, 'unsupported column name'],
             ['欄名含點(JSON路徑/表.欄)', { 'i.x': { $lt: 'abc' } }, 'unsupported column name'],
             ['Object.prototype成員名', { constructor: { $lt: 'abc' } }, 'unsupported column name [constructor]'],
-            //run04(sol H1): 僅有值為undefined之$options不產生任何子式, 條件消失而成恆真, delAll刪全表
-            ['僅$options為undefined', { s: { $options: undefined } }, 'operator object has no operator'],
+            //run04(sol H1)於第33項批1: $options不再受理, 僅有$options者為白名單外之運算子
+            ['僅$options為undefined', { s: { $options: undefined } }, 'unsupported operator [$options]'],
             //審計02 外審 opus [2](規格句 R4 DATE: 換算UTC後年份須在1–9999): 年10000起 sequelize 以5位數格式化, sqlite 以文字比較致 $gt 命中並刪除全部日期列
             ['DATE欄收UTC年10000之Date', { d: { $gt: new Date(253402300800000) } }, 'does not match column type [date]'],
             ['DATE欄收UTC年10000之epoch', { d: { $gt: 253402300800000 } }, 'does not match column type [date]'],
             ['DATE欄收UTC年10000之ISO字串', { d: { $gt: '9999-12-31T23:30:00-05:00' } }, 'does not match column type [date]'],
             ['DATE欄收UTC年0000之epoch', { d: { $lt: -62135596800001 } }, 'does not match column type [date]'],
-            ['讀值拋錯之getter', Object.defineProperty({}, 's', {
+            ['讀值之getter不被執行而reject(存取器屬性)', Object.defineProperty({}, 's', {
                 enumerable: true,
                 get: () => {
                     throw new Error('getter boom')
                 }
-            }), 'getter boom'],
+            }), 'accessor property is not allowed'],
         ]
 
         //run04(規格句 R3欄位引用不變式、R4嚴格鍵、系列最低要求②③): attrs已給時不存在之欄 × 空集合各入口於轉譯階段reject(原常數形式使delAll清空全表;
         //HEAD改為引用欄位後仰賴資料庫回報, 現由嚴格鍵直接reject, 兩函數訊息相同, mssql同一語句多次引用不存在之欄而err.message為空之情形不再可達)
         for (let [t, col, find] of [
             ['空$in', 'nocol', { nocol: { $in: [] } }],
-            ['空$nin', 'nocol', { nocol: { $nin: [] } }],
-            ['陣列值[]', 'nocol', { nocol: [] }],
-            ['Op.in空陣列', 'nocol', { nocol: { [Sequelize.Op.in]: [] } }],
-            ['Op.notIn空陣列', 'nocol', { nocol: { [Sequelize.Op.notIn]: [] } }],
-            ['$not包空$in', 'nocol', { nocol: { $not: { $in: [] } } }],
-            ['$not包空$nin', 'nocol', { nocol: { $not: { $nin: [] } } }],
-            ['Symbol Op.not包Op.notIn空陣列', 'nocol', { nocol: { [Sequelize.Op.not]: { [Sequelize.Op.notIn]: [] } } }],
-            ['$in空與$nin空並存', 'nocol', { nocol: { $in: [], $nin: [] } }],
-            ['$or含空$nin', 'nocol', { $or: [{ nocol: { $nin: [] } }, { id: 'zz' }] }],
+            ['$or含空$in', 'nocol', { $or: [{ nocol: { $in: [] } }, { id: 'zz' }] }],
             ['$and含空$in', 'nocol', { $and: [{ nocol: { $in: [] } }, { id: 'r1' }] }],
-            ['$nor含空$in', 'nocol', { $nor: [{ nocol: { $in: [] } }] }],
-            ['文件層Op.not包空$in', 'nocol', { [Sequelize.Op.not]: { nocol: { $in: [] } } }],
-            ['欄名打錯且排除清單恰為空', 'sttus', { sttus: { $nin: [] } }],
+            ['欄名打錯且空$in', 'sttus', { sttus: { $in: [] } }],
+            ['欄名打錯且$in有值', 'sttus', { sttus: { $in: ['x'] } }],
         ]) {
             bads.push([`不存在之欄 × ${t}`, find, `unknown column name [${col}]`])
         }
@@ -1261,13 +1238,10 @@ export function defineSuites(label, getOpt) {
                 ['等值', { id: 123 }, ['123']],
                 ['$eq', { id: { $eq: 45 } }, ['45']],
                 ['$in', { id: { $in: [123, 45] } }, ['123', '45']],
-                ['陣列值即$in', { id: [123, 'abc'] }, ['123', 'abc']],
                 ['$nin', { id: { $nin: [123] } }, ['45', 'abc']],
                 ['$ne', { id: { $ne: 45 } }, ['123', 'abc']],
-                ['$not', { id: { $not: { $eq: 123 } } }, ['45', 'abc']],
                 ['$gt以字串比較', { id: { $gt: 2 } }, ['45', 'abc']],
                 ['$or', { $or: [{ id: 123 }, { name: 'nabc' }] }, ['123', 'abc']],
-                ['Op.in', { id: { [Sequelize.Op.in]: [45] } }, ['45']],
             ]
             for (let [t, find, exp] of cases) {
                 it(`select與delAll 主鍵欄之數字條件值視為字串且兩者一致: ${t}`, async function() {
@@ -1398,10 +1372,10 @@ export function defineSuites(label, getOpt) {
                 ['欄名大小寫變體+$in字串', { Id: { $in: ['12', '5'] } }, 'unknown column name [Id]'],
                 ['欄名大小寫變體+非整數', { Id: 12.4 }, 'unknown column name [Id]'],
                 ['欄名全形變體+前導零', { 'ＩＤ': '012' }, 'unknown column name'],
-                ['欄名尾端空白+前導零', { 'id ': '012' }, 'unknown column name'],
-                ['欄名大寫+尾端空白+前導零', { 'ID  ': '012' }, 'unknown column name'],
-                ['欄名尾端全形空白+前導零', { ['id' + ws]: '012' }, 'unknown column name'],
-                ['欄名附加可忽略字元+前導零', { ['id' + fe]: '012' }, 'unknown column name'],
+                ['欄名尾端空白+前導零', { 'id ': '012' }, 'unsupported column name'],
+                ['欄名大寫+尾端空白+前導零', { 'ID  ': '012' }, 'unsupported column name'],
+                ['欄名尾端全形空白+前導零', { ['id' + ws]: '012' }, 'unsupported column name'],
+                ['欄名附加可忽略字元+前導零', { ['id' + fe]: '012' }, 'unsupported column name'],
                 ['欄名以U+026A取代i+前導零', { [ip + 'd']: '012' }, 'unknown column name'],
                 ['欄名含反引號+前導零', { 'i`d': '012' }, 'unsupported column name'],
                 ['欄名含方括號+前導零', { 'i[d]': '012' }, 'unsupported column name'],
@@ -1552,11 +1526,8 @@ export function defineSuites(label, getOpt) {
             ['$ne(SQL三值不含NULL列)', { d: { $ne: '2026-06-15T08:30:15' } }, (t) => t !== T(S0)],
             ['$in', { d: { $in: ['2026-01-01T00:00:00', '2026-12-31T23:59:59.999'] } }, (t) => t === T([2026, 1, 1]) || t === T([2026, 12, 31, 23, 59, 59, 999])],
             ['$nin(SQL三值不含NULL列)', { d: { $nin: ['2026-01-01T00:00:00', '2026-12-31T23:59:59.999'] } }, (t) => t !== T([2026, 1, 1]) && t !== T([2026, 12, 31, 23, 59, 59, 999])],
-            ['陣列值即$in', { d: ['2026-01-01T00:00:00', '2026-06-15T08:30:15'] }, (t) => t === T([2026, 1, 1]) || t === T(S0)],
-            ['$not.$gt(SQL三值不含NULL列)', { d: { $not: { $gt: '2026-06-15T08:30:15' } } }, (t) => !(t > T(S0))],
             ['範圍$gte+$lt', { d: { $gte: '2026-06-15T00:00:00', $lt: '2026-06-16T00:00:00' } }, (t) => t >= T([2026, 6, 15]) && t < T([2026, 6, 16])],
-            ['Op.between', { d: { [Sequelize.Op.between]: ['2026-06-15T08:30:15', '2026-12-31T23:59:59.999'] } }, (t) => t >= T(S0) && t <= T([2026, 12, 31, 23, 59, 59, 999])],
-            ['Op.in', { d: { [Sequelize.Op.in]: ['2026-01-01T00:00:00'] } }, (t) => t === T([2026, 1, 1])],
+            ['$gte+$lte同欄(取代原Op.between)', { d: { $gte: '2026-06-15T08:30:15', $lte: '2026-12-31T23:59:59.999' } }, (t) => t >= T(S0) && t <= T([2026, 12, 31, 23, 59, 59, 999])],
             ['$in混有帶時區字串', { d: { $in: ['2026-01-01T00:00:00', '2026-06-15T00:30:15.123Z'] } }, (t) => t === T([2026, 1, 1]) || t === Date.parse('2026-06-15T00:30:15.123Z')],
             ['null照舊', { d: null }, ['r5']],
         ]
@@ -1656,11 +1627,8 @@ export function defineSuites(label, getOpt) {
             ['INTEGER 等值(另一列)', 'ageNum', 'age_num', 6, ['r2']],
             ['INTEGER $gt', 'ageNum', 'age_num', { $gt: 5 }, ['r2', 'r3']],
             ['INTEGER 數值字串', 'ageNum', 'age_num', '7', ['r3']],
-            ['INTEGER 空$nin', 'ageNum', 'age_num', { $nin: [] }, ['r1', 'r2', 'r3', 'r4']], //A2: 空集合$nin為恆真(含NULL列)
             ['INTEGER 空$in', 'ageNum', 'age_num', { $in: [] }, []],
             ['TEXT 等值', 'title', 'physical_title', 'Peter', ['r2']],
-            ['TEXT $regex', 'title', 'physical_title', { $regex: '_' }, ['r1']], //底線為字面
-            ['TEXT $regex i', 'title', 'physical_title', { $regex: 'E', $options: 'i' }, ['r1', 'r2']],
             ['DATE $lt ISO字串', 'at', 'at_col', { $lt: '2026-06-01T00:00:00Z' }, ['r1']],
             ['DATE $gt epoch', 'at', 'at_col', { $gt: Date.parse('2020-01-01T00:00:00Z') }, ['r2', 'r3']],
             ['DATE $in 混合', 'at', 'at_col', { $in: [new Date('2019-01-01T00:00:00Z'), '2026-06-15T00:00:00Z', Date.parse('2026-06-02T00:00:00Z')] }, ['r1', 'r2']],
@@ -1684,21 +1652,15 @@ export function defineSuites(label, getOpt) {
         //屬性名鍵仍由sequelize映射為資料庫欄名; 不存在之欄須由資料庫回報而不得清空或刪除
         let ctx0 = () => ({ escape: (v) => sq.escape(v), dialect: label })
         let hit0 = async (find) => (await md.findAll({ where: cvFind(find, ctx0()), raw: true })).map((v) => v.id).sort()
-        it('未給attrs: 空集合$in/$nin/陣列值於資料庫實跑之命中(A2), 欄名經sequelize映射', async function() {
+        it('未給attrs: 空集合$in於資料庫實跑之命中(A2), 欄名經sequelize映射', async function() {
             await seed()
             assert.deepStrictEqual(await hit0({ ageNum: { $in: [] } }), [])
-            assert.deepStrictEqual(await hit0({ ageNum: [] }), [])
-            assert.deepStrictEqual(await hit0({ ageNum: { $nin: [] } }), ALL)
-            assert.deepStrictEqual(await hit0({ ageNum: { $not: { $in: [] } } }), ALL)
-            assert.deepStrictEqual(await hit0({ age_num: { $nin: [] } }), ALL)
+            assert.deepStrictEqual(await hit0({ age_num: { $in: [] } }), [])
             assert.deepStrictEqual(await hit0({ ageNum: 5 }), ['r1'])
         })
         for (let [t, find] of [
-            ['$nin:[]', { nocol: { $nin: [] } }],
             ['$in:[]', { nocol: { $in: [] } }],
-            ['陣列值[]', { nocol: [] }],
-            ['$not:{$in:[]}', { nocol: { $not: { $in: [] } } }],
-            ['$or含空$nin', { $or: [{ nocol: { $nin: [] } }, { id: 'zz' }] }],
+            ['$or含空$in', { $or: [{ nocol: { $in: [] } }, { id: 'zz' }] }],
         ]) {
             it(`未給attrs: 不存在之欄 × 空集合由資料庫回報而reject, 資料不變: ${t}`, async function() {
                 await seed()
@@ -1715,7 +1677,7 @@ export function defineSuites(label, getOpt) {
             ['整數欄之欄名 × 非數值字串', { age_num: { $lt: 'abc' } }, '[int]'],
             ['整數欄之欄名大小寫變體(不解析)', { AGE_NUM: 'abc' }, 'unknown column name [AGE_NUM]'],
             ['DATE欄之欄名 × 非日期字串', { at_col: { $lt: 'garbage' } }, '[date]'],
-            ['整數欄之欄名 × $regex', { age_num: { $regex: '1' } }, 'requires a string column'],
+            ['整數欄之欄名 × $regex(白名單外)', { age_num: { $regex: '1' } }, 'unsupported operator [$regex]'],
             ['DATE欄之欄名大小寫變體 × 合法epoch', { AT_COL: { $gt: Date.parse('2030-01-01T00:00:00Z') } }, 'unknown column name [AT_COL]'],
             ['屬性rb(欄rc) × 非數值字串', { rb: { $lt: 'abc' } }, '[int]'],
             ['欄名rc × 非數值字串', { rc: { $lt: 'abc' } }, '[int]'],
@@ -1843,8 +1805,7 @@ export function defineSuites(label, getOpt) {
             ['等值', { a: 5 }],
             ['$gt', { a: { $gt: 100 } }],
             ['$in', { a: { $in: [5] } }],
-            ['空$nin', { a: { $nin: [] } }],
-            ['$exists', { a: { $exists: true } }],
+            ['空$in', { a: { $in: [] } }],
         ]) {
             it(`映射後之欄名為空字串: 兩函數皆reject且資料不變: ${t}`, async function() {
                 //mssql之sync會把rawAttributes.a.field由''正規化為'a'(2026-10-16實測), 該model於mssql無此形態; sqlite不正規化(實測 WHERE (5) 刪全表), 故僅sqlite實跑, 兩方言之轉譯階段拒收由單元測試涵蓋
@@ -1858,8 +1819,6 @@ export function defineSuites(label, getOpt) {
         for (let [t, find] of [
             ['等值', { w: 'needle' }],
             ['$in', { w: { $in: ['needle'] } }],
-            ['$regex', { w: { $regex: 'needle' } }],
-            ['$regex + i(原LOWER引用完整欄名而命中另一列)', { w: { $regex: 'needle', $options: 'i' } }],
         ]) {
             it(`首尾皆$且中間有換行之欄名: 兩函數皆reject且資料不變: ${t}`, async function() {
                 await rej(mdV, [{ id: 'r1', t: 'needle', w: 'x' }, { id: 'r2', t: 'x', w: 'needle' }, { id: 'r3' }], find, 'unsupported column name [$\nname$]')
@@ -1870,7 +1829,7 @@ export function defineSuites(label, getOpt) {
             ['先定義者 × 日期字串', { sa: { $lt: '2030-01-01T00:00:00Z' } }],
             ['先定義者 × epoch', { sa: { $gt: 1893456000000 } }],
             ['先定義者 × Date', { sa: new Date(0) }],
-            ['先定義者 × 空$nin', { sa: { $nin: [] } }],
+            ['先定義者 × 空$in', { sa: { $in: [] } }],
         ]) {
             it(`共用一欄且欄名恰為先定義者之名稱: 兩函數皆reject且資料不變: ${t}`, async function() {
                 await rej(mdS, [{ id: 'r1', sb: 1 }, { id: 'r2', sb: 2 }, { id: 'r3' }], find, 'ambiguous column name [sa]')

@@ -148,9 +148,9 @@ async function test() {
     console.log('select by $or, $and, $ne, $in, $nin', spc)
 
 
-    //select by regex
-    let sr = await w.select({ name: { $regex: 'PeT', $options: 'i' } })
-    console.log('selectReg', sr)
+    //select by equality (there is no pattern matching: filter in memory for substrings)
+    let sr = await w.select({ name: 'peter(modify)' })
+    console.log('selectEq', sr)
 
 
     //del
@@ -204,7 +204,7 @@ test()
 //   { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 },
 //   { id: '{random id}', name: 'kettle', value: 456 }
 // ]
-// selectReg [
+// selectEq [
 //   { id: 'id-peter', name: 'peter(modify)', value: 123 }
 // ]
 // change del

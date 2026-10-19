@@ -129,7 +129,7 @@ async function testCommit() {
 
 
     //select all
-    let ssBeforeCommit = await w.select(null, connState)
+    let ssBeforeCommit = await w.select({}, connState)
     console.log('select all (before commit)', ssBeforeCommit) //此時select可查到暫時有效的數據
     // => [
     //     { id: 'id-peter', name: 'peter(modify)', value: 123 },

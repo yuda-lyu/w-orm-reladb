@@ -53,29 +53,60 @@ The all-or-nothing guarantee is provided by a transaction, not by the batch stat
 
 Note also that a plain call made without `option.instance` opens and closes its own connection, so it ends any instance you are holding. Do not mix the two styles against the same `WOrmReladb` object.
 
-### Conditions (`find`) for `select` and `delAll`
+### Condition (`find`) whitelist for `select` and `delAll`
 
-`select(find)` and `delAll(find)` translate `find` through one shared function, so **the rows `delAll` deletes are exactly the rows `select` returns** for the same `find`.
+`select(find)` and `delAll(find)` accept the same series wide whitelist (shared with the other `w-orm-*` packages through `cvOrmFind` of `wsemi`) and translate it through one function, so **the rows `delAll` deletes are exactly the rows `select` returns** for the same `find`. Anything outside the whitelist **rejects as a whole** (and emits `error`) before the model files are loaded and before a connection is made or any SQL is sent: nothing is ignored, reinterpreted or deleted. The error message is `invalid find: <reason> at [<path>]`; the shared whitelist check never echoes the offending value (the column type check described below may quote it).
 
 | Form | Meaning |
 |---|---|
-| `{ col: value }` | equality; `null` means `IS NULL`; an array means `$in` |
-| `$eq` `$ne` `$gt` `$gte` `$lt` `$lte` | comparison; the value must be a string, finite number, boolean, `Date` or (for `$eq` / `$ne`) `null` |
-| `$in` `$nin` | an array of the values above; `null` inside matches / excludes `NULL` like `{ col: null }` does |
-| `$not` | `{ col: { $not: { $gt: 2 } } }` becomes `NOT (col > 2)` |
-| `$exists` | `true` is `IS NOT NULL`, `false` is `IS NULL` |
-| `$regex` with `$options: 'i'` | a **literal substring** match; `%` `_` `[` are matched literally |
-| `$and` `$or` `$nor` | arrays of conditions; `$nor: [a, b]` is `NOT (a OR b)` |
+| `find` omitted, `undefined` or `{}` | all rows (for `delAll`: **every row is deleted**, see below) |
+| `{ col: value }` | equality; several columns are combined with AND; the value is a string (no NUL, no lone surrogate), a finite number, a boolean, a valid `Date`, or `null` (`IS NULL`) |
+| `$eq` `$ne` `$gt` `$gte` `$lt` `$lte` | comparison with a scalar (`null` only for `$eq` / `$ne`); several operators on one column are combined with AND |
+| `$in` `$nin` | an array of scalars (no `null`); `$in: []` matches nothing, `$nin: []` rejects |
+| `$and` `$or` | a non empty array of non empty condition objects, **at most 999 items** (SQLite fails at 1000 flat items; 999 is the shared limit for the packages running on SQLite) |
 
-Anything that cannot be translated with its meaning intact **rejects** (and emits `error`) instead of being ignored: unknown operators (including sequelize names such as `$like` and a top level `$not`), objects or arrays where a value is expected, values that do not fit the column type (for example `'abc'` or `'1e3'` against an integer column, a decimal string with more fractional digits than the column's scale, a date string without a time zone such as `'2020-01-01'` — use a `Date`, an epoch number or `'2020-01-01T00:00:00Z'` — or an integer beyond `Number.MAX_SAFE_INTEGER`, which should be passed as a decimal string instead), `$regex` patterns containing unescaped regular expression metacharacters (escape them, e.g. `'a\\.c'`), and, on sqlite, `$options: 'i'` with non ASCII letters (sqlite's `LOWER` folds ASCII only). sequelize's own `Op` symbols are still accepted.
+Limits: nesting depth 32, `$in` / `$nin` at most 10000 values, at most 100000 nodes, column names of 1 to 128 characters matching `^[\p{L}_][\p{L}\p{M}\p{N}_]*$` (so no dots, quotes, hyphens, spaces or a leading `$`).
 
-Differences from MongoDB you should know: `NULL` follows SQL three valued logic, so `$ne`, `$nin`, `$not` and `$nor` do not match rows whose column is `NULL`; a plain array value is treated as `$in`; without `i`, case sensitivity follows the database collation (sqlite's `LIKE` and mssql's default collation are case insensitive). A `find` that is not an object (`null`, an array, a string) is treated as `{}`, i.e. all rows.
+Everything else rejects, among them: a `find` that is not a plain condition object (`null`, an array, a string, a number, a boolean, a function, a `Date`, a `RegExp`, a `Map`, a class instance …, which are **never** treated as `{}`), `$not` `$nor` `$regex` `$options` `$exists` `$where` `$expr` `$like` `$ilike` and any other operator, `$and` / `$or` inside a column, sequelize `Op` symbols, a `RegExp` value, an array as a column value (write `$in`), `undefined`, functions, symbols, `BigInt`, `Buffer`, `NaN`, `±Infinity` and invalid `Date` values, symbol keys, getters and non enumerable keys, sparse arrays or arrays with extra properties, empty operator objects, empty `$and` / `$or` or a `{}` inside them.
 
-Column names in a `find` must match the model exactly: the attribute name, or the database column name (`field`) of exactly one attribute. Any other spelling is rejected with `unknown column name`: a different letter case, full width forms, trailing spaces, a column the model does not list (sqlite's hidden `rowid` included) or a virtual attribute. Databases resolve identifiers with their own collation rules (the default collation of mssql treats `id`, `ID`, `ＩＤ`, `id ` and `ɪd` as the same column) and the ORM rewrites names before they reach the database, so a spelling that is not an exact match could slip past the type checks above (`{ VALUE: { $lt: 'abc' } }` used to delete every non `NULL` row on sqlite); the error message suggests the closest name. Names that the ORM rewrites or re-interprets are rejected with `unsupported column name`: empty names, names containing quote characters, brackets or dots, names that start and end with `$` (even with a line break in between, or a lone `$`), names that are members of `Object.prototype` (or `__proto__`), an attribute whose `field` is set but is not a string, and a column starting with `*` under `$regex` with `i`; an attribute whose column is also the name of another attribute, and an attribute that shares its column with an attribute defined later (only the last one defined of a shared column is accepted), are rejected as `ambiguous column name`, because the ORM would serialize the value with the type of the other attribute, or the type of the column is decided by another one. The `attrs` you hand to `cvFind` must be the `rawAttributes` of the model that runs the query (a plain object without symbol keys and with enumerable keys only), otherwise `cvFind` throws `invalid ctx`. In the native operators, `Op.values` and `Op.join` are rejected (the ORM does not know them as comparators), and `Op.between` / `Op.notBetween` take an array of exactly two values. `delAll` is also refused for a model whose `defaultScope` has `limit`, `offset`, `group`, `having`, a non-empty `include`, or a `where` that uses `Op.and` (`select` and `delete` would not touch the same rows). The model must therefore list every column you query (a model generated by `genModelsByTabs` does). A name that matches nothing is rejected before the database is reached, an empty `$in` / `$nin` included (`delAll({ misspelled: { $nin: [] } })` rejects instead of matching every row), and so is an operator object that yields no condition (`{ s: { $options: undefined } }`). A `DATE` value (a `Date`, an epoch number, truncated to whole milliseconds, or an ISO string with a time zone) must fall in the years 1 to 9999 (UTC) and is always sent as a `Date`; `Op.startsWith`, `Op.endsWith` and `Op.substring` are rejected on a `DATE` column.
+On top of the whitelist this package checks, and rejects what cannot be translated with its meaning intact: values that do not fit the column type (for example `'abc'` or `'1e3'` against an integer column, a decimal string with more fractional digits than the column's scale, a date string without a time zone such as `'2020-01-01'` — use a `Date`, an epoch number or `'2020-01-01T00:00:00Z'` — or an integer beyond `Number.MAX_SAFE_INTEGER`, which should be passed as a decimal string instead) and column names that the model does not list (see below).
+
+Differences from MongoDB you should know: `NULL` follows SQL three valued logic, so `$ne` and `$nin` do not match rows whose column is `NULL`. To say it explicitly use the portable forms (they return the same rows on every `w-orm-*` package): leave `NULL` out with `{ $and: [{ f: { $ne: null } }, { f: { $ne: x } }] }`, or keep it with `{ $or: [{ f: null }, { f: { $ne: x } }] }`. Equality and comparison of strings follow the database collation (sqlite compares binary and is case sensitive, the default collation of mssql is case insensitive), and there is no pattern matching: to search for a substring, `select` and filter in memory.
+
+**`delAll` needs care.** `delAll()`, `delAll(undefined)` and `delAll({})` delete every row without asking; only a condition makes it a partial delete. Use it sparingly and prefer `del` for single rows; a `find` that is not a condition object rejects instead of deleting everything. Check what a condition matches with `select(find)` first. If the condition comes from a variable that may be `undefined`, `null` or an empty array, decide that yourself before calling: `undefined` values and `$nin: []` reject (they are never ignored), `$in: []` matches nothing.
+
+Column names in a `find` must match the model exactly: the attribute name, or the database column name (`field`) of exactly one attribute. Any other spelling is rejected with `unknown column name`: a different letter case, full width forms, a column the model does not list (sqlite's hidden `rowid` included) or a virtual attribute. Databases resolve identifiers with their own collation rules (the default collation of mssql treats `id`, `ID`, `ＩＤ`, `id ` and `ɪd` as the same column) and the ORM rewrites names before they reach the database, so a spelling that is not an exact match could slip past the type checks above (`{ VALUE: { $lt: 'abc' } }` used to delete every non `NULL` row on sqlite); the error message suggests the closest name. Names that the ORM rewrites or re-interprets are rejected with `unsupported column name`: names outside the grammar above, names that are members of `Object.prototype` (such as `constructor`, `valueOf`), an attribute whose `field` is set but is not a string, or whose database column name is empty, contains quote characters, brackets or dots, or starts and ends with `$`; an attribute whose column is also the name of another attribute, and an attribute that shares its column with an attribute defined later (only the last one defined of a shared column is accepted), are rejected as `ambiguous column name`, because the ORM would serialize the value with the type of the other attribute, or the type of the column is decided by another one. The `attrs` you hand to `cvFind` must be the `rawAttributes` of the model that runs the query (a plain object without symbol keys and with enumerable keys only), otherwise `cvFind` throws `invalid ctx`. `delAll` is also refused for a model whose `defaultScope` has `limit`, `offset`, `group`, `having`, a non-empty `include`, or a `where` that uses `Op.and` (`select` and `delete` would not touch the same rows). The model must therefore list every column you query (a model generated by `genModelsByTabs` does). A name that matches nothing is rejected before the database is reached, an empty `$in` included (`delAll({ misspelled: { $in: [] } })` rejects instead of matching nothing silently). A `DATE` value (a `Date`, an epoch number, truncated to whole milliseconds, or an ISO string with a time zone) must fall in the years 1 to 9999 (UTC) and is always sent as a `Date`.
 
 A primary key value whose type does not fit the primary key column (for example `'abc'` or `12.4` for an integer key; a number for a string key is converted to its string form instead) is an invalid key: `selectByPk` returns `null`, `del` reports that row with `ok: 0`, and `insert`, `insertBulk` and `save` reject without writing anything.
 
 Model files are only read, never rewritten; an `id` column that lacks `primaryKey: true` is treated as the primary key in memory.
+
+### Breaking changes: condition whitelist
+
+The condition syntax was cut down to the whitelist above (series wide, issue "condition whitelist"). The "before" column is what the previous release (1.1.9) did, checked by running it on sqlite against six rows; there is no transition period.
+
+| `find` | before (1.1.9) | now |
+|---|---|---|
+| `null`, `[]`, `[{ id: 'a' }]`, a string, a number, `true`, a function, a `BigInt`, a `Symbol`, a `Proxy` around `{}` as the whole `find` | `select` returned **every row** and `delAll` **deleted every row** (treated as `{}`) | rejects: `invalid find: condition must be a plain object …` (a `Proxy` around `{}`: `an empty find must be an ordinary object`) |
+| `$not`, `$nor`, `$exists` | supported | rejects (`unsupported operator`); express it with `$ne` / `$nin` / `$and` / `$or` (see the portable forms above) |
+| `$regex` with `$options`, a `RegExp` value | literal substring match through `LIKE` | rejects; `select` and filter in memory |
+| an array as a column value, `{ col: [1, 2] }` | treated as `$in` (a `null` inside included) | rejects: `array value is not supported, use $in`; write `{ col: { $in: [1, 2] } }` |
+| sequelize `Op` symbols as keys (`Op.or`, `Op.in`, `Op.between`, `Op.like`, `Op.and`, `Op.not` …) | accepted | rejects: `symbol key is not allowed` |
+| `null` inside `$in` | accepted (`IN (…) OR IS NULL`) | rejects; use `{ $or: [{ col: null }, { col: { $in: […] } }] }` |
+| `null` inside `$nin` | accepted (`NOT IN (…) AND IS NOT NULL`) | rejects; drop the `null`: `{ col: { $nin: […] } }` already skips `NULL` rows (SQL three valued logic); for `$nin: [null]` alone use `{ col: { $ne: null } }` |
+| `$nin: []` | matched **every row** (`delAll` deleted all) | rejects |
+| `$and: [{}]`, `$or: [{}]` | matched **every row** | rejects: `empty condition` |
+| a getter or non enumerable property, an array with extra properties, a string with a lone surrogate | accepted (the getter was called) | rejects |
+| a `Buffer` value on a column the model does not classify (for example `BLOB`) | accepted (`= X'…'`) | rejects: `unsupported value type` |
+| a string containing NUL | database error | rejects |
+| `$and` / `$or` with 999 items | `select` failed on sqlite with `Expression tree is too large` while `delAll` went through | accepted (the translation turns long lists, and columns listed side by side, into balanced trees, so nesting and length do not add up to the database limits), the limit is 999 items |
+| `$and` / `$or` with more than 999 items | database error on sqlite | rejects before the database is reached |
+| `$in` / `$nin` with more than 10000 values | accepted | rejects |
+| a chain of 32 nested `$and` levels | rejects (`find is too deep`) | accepted (the limit is 32 levels) |
+| a column name outside `^[\p{L}_][\p{L}\p{M}\p{N}_]*$` (for example `p$x`) | accepted when the model listed that column | rejects: `unsupported column name` |
+| the same object repeated so that the condition expands exponentially | database error or the process ran out of memory | rejects: `condition is too large` |
+
+`select(null, connState)` and `delAll(null)` style calls must become `select({}, connState)` / `delAll({})` (or no argument). The options `ctx.escape` and `ctx.dialect` of `cvFind` are no longer used (they were only needed by `$regex`) and are ignored.
 
 ### Concurrency
 
@@ -246,9 +277,9 @@ async function test() {
     console.log('select by $or, $and, $ne, $in, $nin', spc)
 
 
-    //select by regex
-    let sr = await w.select({ name: { $regex: 'PeT', $options: 'i' } })
-    console.log('selectReg', sr)
+    //select by equality (there is no pattern matching: filter in memory for substrings)
+    let sr = await w.select({ name: 'peter(modify)' })
+    console.log('selectEq', sr)
 
 
     //del
@@ -299,7 +330,7 @@ test()
 //   { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 },
 //   { id: '{random id}', name: 'kettle', value: 456 }
 // ]
-// selectReg [
+// selectEq [
 //   { id: 'id-peter', name: 'peter(modify)', value: 123 }
 // ]
 // change del
@@ -443,7 +474,7 @@ async function testCommit() {
 
 
     //select all
-    let ssBeforeCommit = await w.select(null, connState)
+    let ssBeforeCommit = await w.select({}, connState)
     console.log('select all (before commit)', ssBeforeCommit) //此時select可查到暫時有效的數據
     // => [
     //     { id: 'id-peter', name: 'peter(modify)', value: 123 },
@@ -660,7 +691,7 @@ async function testRollback() {
 
 
     //select all
-    let ssBeforeRollback = await w.select(null, connState)
+    let ssBeforeRollback = await w.select({}, connState)
     console.log('select all (before rollback)', ssBeforeRollback) //此時select可查到暫時有效的數據
     // => [
     //     { id: 'id-peter', name: 'peter(modify)', value: 123 },
@@ -883,9 +914,9 @@ async function test() {
     console.log('select by $or, $and, $ne, $in, $nin', spc)
 
 
-    //select by regex
-    let sr = await w.select({ name: { $regex: 'PeT', $options: 'i' } })
-    console.log('selectReg', sr)
+    //select by equality (there is no pattern matching: filter in memory for substrings)
+    let sr = await w.select({ name: 'peter(modify)' })
+    console.log('selectEq', sr)
 
 
     //del
@@ -936,7 +967,7 @@ test()
 //   { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 },
 //   { id: '{random id}', name: 'kettle', value: 456 }
 // ]
-// selectReg [
+// selectEq [
 //   { id: 'id-peter', name: 'peter(modify)', value: 123 }
 // ]
 // change del
@@ -1087,7 +1118,7 @@ async function testCommit() {
 
 
     //select all
-    let ssBeforeCommit = await w.select(null, connState)
+    let ssBeforeCommit = await w.select({}, connState)
     console.log('select all (before commit)', ssBeforeCommit) //此時select可查到暫時有效的數據
     // => [
     //     { id: 'id-peter', name: 'peter(modify)', value: 123 },
@@ -1311,7 +1342,7 @@ async function testRollback() {
 
 
     //select all
-    let ssBeforeRollback = await w.select(null, connState)
+    let ssBeforeRollback = await w.select({}, connState)
     console.log('select all (before rollback)', ssBeforeRollback) //此時select可查到暫時有效的數據
     // => [
     //     { id: 'id-peter', name: 'peter(modify)', value: 123 },
@@ -1541,9 +1572,9 @@ async function test() {
     console.log('select by $or, $and, $ne, $in, $nin', spc)
 
 
-    //select by regex
-    let sr = await w.select({ name: { $regex: 'PeT', $options: 'i' } })
-    console.log('selectReg', sr)
+    //select by equality (there is no pattern matching: filter in memory for substrings)
+    let sr = await w.select({ name: 'peter(modify)' })
+    console.log('selectEq', sr)
 
 
     //del
@@ -1594,7 +1625,7 @@ test()
 //   { id: 'id-rosemary', name: 'rosemary(modify)', value: 123.456 },
 //   { id: '{random id}', name: 'kettle', value: 456 }
 // ]
-// selectReg [
+// selectEq [
 //   { id: 'id-peter', name: 'peter(modify)', value: 123 }
 // ]
 // change del
