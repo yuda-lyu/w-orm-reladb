@@ -1,6 +1,6 @@
 {
   "name": "w-orm-reladb",
-  "version": "1.1.10",
+  "version": "1.1.11",
   "main": "dist/w-orm-reladb.umd.js",
   "dependencies": {
     "json5": "^2.2.3",
@@ -14,7 +14,7 @@
     "msg": "install sqlcipher fo the protection when db=sqlite"
   },
   "devDependencies": {
-    "w-package-tools": "^1.1.18"
+    "w-package-tools": "^1.1.21"
   },
   "scripts": {
     "test": "mocha --parallel \"test/*.test.mjs\" --timeout 180000",

@@ -108,6 +108,47 @@ The condition syntax was cut down to the whitelist above (series wide, issue "co
 
 `select(null, connState)` and `delAll(null)` style calls must become `select({}, connState)` / `delAll({})` (or no argument). The options `ctx.escape` and `ctx.dialect` of `cvFind` are no longer used (they were only needed by `$regex`) and are ignored.
 
+### Dates on write: years 1 to 9999
+
+`insert`, `insertBulk` and `save` **reject** a `DATE` or `DATEONLY` value that is not a valid time in the years 1 to 9999, on every dialect. Why: sqlite stores a date as text (`'2026-01-01 00:00:00.000 +00:00'`), and a year outside the range gives text that does not sort like the time it stands for. `new Date(8.64e15)`, the usual "never expires" sentinel, is stored as `'275760-09-13 …'`, which sorts *before* `'3000-…'`, so `delAll({ d: { $lt: someDate } })` deleted it and `$gt` missed it. mssql (`datetimeoffset`, `date`) only covers years 1 to 9999 anyway and fails in the database; this package now refuses before sending, so both dialects behave the same.
+
+| Column | The value is checked as | Rejected examples | Accepted examples |
+|---|---|---|---|
+| `DATE` | the time it stands for (a `Date`, an epoch number, a date string, whatever `new Date(value)` accepts), by its UTC year | `new Date(8.64e15)`, `new Date(-8.64e15)`, `new Date('+010000-01-01T00:00:00Z')`, `'0000-12-31T23:59:59.999Z'`, `8.64e15` | `new Date('0001-01-01T00:00:00.000Z')`, `new Date('9999-12-31T23:59:59.999Z')`, `null` |
+| `DATEONLY` | the `YYYY-MM-DD` text that is actually stored (the calendar year of the host time zone for a `Date`) | the same values as above, `'+010000-01-01'`, `'0000-12-31'` | `'0001-01-01'`, `'9999-12-31'`, `'2026-06-15'` |
+
+The whole call rejects (`save` too: it does not turn this into a per row `ok: 0`) and **nothing is written**, even for the valid rows of the same batch. The error is emitted once as the `error` event before the promise rejects, and no `change` event is emitted. The message never quotes the value, it names the position and the column of the first offender (in the order the model lists its attributes):
+
+```alias
+invalid data: date is not a valid time in years 1-9999 at [data[1].expireAt]
+```
+
+For a "never expires" marker write `null` (the usual choice, and `{ expireAt: null }` is queryable), or `new Date('9999-12-31T23:59:59.999Z')`.
+
+A value that is not a valid time at all is rejected the same way: `new Date(NaN)`, `NaN`, `Infinity`, `''`, `false`, `'garbage'`, an epoch beyond ±8.64e15, a `BigInt` or a `Symbol` (only `0`, the epoch, is a valid falsy value). sqlite would store the text `Invalid date`, which sorts after every year, so `$gt` and `delAll` would match it by mistake, and mssql fails in the database. Objects that sequelize converts more than once (`Date` subclasses, `new Number(…)`, arrays, objects with their own `valueOf` / `toString`) are evaluated once and replaced in the copy of your data by the checked value, so what is checked is exactly what is stored. `Sequelize.fn` / `literal` / `col` values are SQL expressions you chose and are not checked. Only the value given for the attribute is checked: a custom `set` function of the model that rewrites it afterwards is not.
+
+**Rows written before this version are not migrated or read differently.** A row that already holds an out of range date (sqlite text such as `275760-09-13 …`, `-271821-…`, `10000-…`, `0000-…`) still sorts wrongly: conditions on that column can match it by mistake or miss it, and `delAll` follows the same comparison. Clean it up yourself, for example by reading the rows without a date condition and writing `null` (or the 9999 value above) over the stored text:
+
+```alias
+let rows = await w.select({})
+// sqlite returns the stored text; a well formed date starts with a 4 digit year from 0001
+let bad = rows.filter((v) => typeof v.expireAt === 'string' && (!/^\d{4}-/.test(v.expireAt) || v.expireAt.startsWith('0000-')))
+await w.save(bad.map((v) => ({ id: v.id, expireAt: null })))
+```
+
+### Breaking changes: dates on write
+
+Checked by running the previous release (1.1.10) on sqlite.
+
+| Written value (`DATE` / `DATEONLY` column) | before (1.1.10) | now |
+|---|---|---|
+| `new Date(8.64e15)`, `new Date(-8.64e15)`, `8.64e15`, `-8.64e15`, `'+010000-01-01T00:00:00Z'`, `'0000-12-31T23:59:59.999Z'` | stored as the text `275760-09-13 …`, `-271821-04-20 …`, `10000-01-01 …`, `0000-12-31 …` (in a `DATEONLY` column `275760-09-13`, `Invalid date`, `10000-01-01`, `0000-12-31`) | `insert` / `insertBulk` / `save` reject as a whole (`invalid data: date is not a valid time in years 1-9999 at [data[i].column]`), nothing is written |
+| the same values on mssql | the database failed the conversion (`Conversion failed when converting date and/or time from character string.`): `insert` rejected but kept the valid rows before the offender, `insertBulk` rejected and wrote nothing, `save` resolved with `ok: 0` for that row and wrote the others | rejected before sending as a whole, nothing is written, with the same message |
+| years 1 to 9999 (`0001-01-01T00:00:00.000Z` … `9999-12-31T23:59:59.999Z`) | stored | stored (unchanged) |
+| `new Date(NaN)`, `NaN`, `''`, `false`, `'garbage'`, `1e16`, a `BigInt`, a `Symbol` | sqlite: stored as the text `Invalid date` (it sorts after every year); mssql: the database failed the conversion | rejected as a whole, nothing is written (`0`, the epoch, stays valid) |
+
+`inDateRange` and `genDateChecker` are new exports of `src/cvFind.mjs`; the condition side (`select` / `delAll`) and the write side use the same range test.
+
 ### Concurrency
 
 The scope of the atomicity guarantee, by range:

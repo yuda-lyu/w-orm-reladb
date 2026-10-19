@@ -3,6 +3,7 @@ import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { defineSuites } from './api-suite.mjs'
 import { defineWhitelistSuites } from './api-find-whitelist.mjs'
+import { defineDateWriteSuites } from './api-date-write.mjs'
 
 
 //測試自行創建docker容器供MSSQL服務, 測試結束即銷毀, 故僅需環境已安裝docker
@@ -115,3 +116,4 @@ after(async function() {
 
 defineSuites('mssql', getOpt)
 defineWhitelistSuites('mssql', getOpt)
+defineDateWriteSuites('mssql', getOpt)

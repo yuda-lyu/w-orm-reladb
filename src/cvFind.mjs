@@ -19,6 +19,10 @@ import cvOrmFind from 'wsemi/src/cvOrmFind.mjs'
 let Op = Sequelize.Op
 
 
+//SQL運算式(Sequelize.fn、literal、col等)之基底類別, 寫入DATE欄之值為此類者由呼叫端明示, 不檢(R12)
+let SM = Sequelize.Utils.SequelizeMethod
+
+
 //形狀檢核之上限(傳給cvOrmFind): $and/$or長度999——SQLite平鋪$or/$and恰1000項即Expression tree is too large(DB錯誤), 本套件使用SQLite故下調(預設1000);
 //其餘上限用預設: 邏輯巢狀深度32、$in/$nin長度10000、節點總數100000、欄名128
 let optShape = { maxList: 999 }
@@ -311,15 +315,132 @@ function resolveAttr(attrs, idx, field, path) {
 }
 
 
+//DATE可接受之年份範圍, 條件側(isKindOk、parseNoTzLocal)與寫入側(genDateChecker)共用之唯一定義(R4、R12)
+let yearMin = 1
+let yearMax = 9999
+
+
 /**
- * 判定時間(毫秒)換算UTC後年份是否在1–9999
- * 註: sequelize以YYYY格式化DATE, 年10000起為5位數, sqlite以文字比較致{d:{$gt:年10000}}命中全部日期列; mssql之datetimeoffset範圍亦為0001–9999
+ * 判定年份是否在1–9999
+ * 註: sequelize以YYYY格式化DATE, 年10000起為5位數、年0與負年份亦非4位數, sqlite以文字比較致時間序與字典序不一致(哨兵8.64e15被$lt某日期誤中、$gt漏中);
+ * mssql之datetimeoffset與date範圍亦為0001–9999
  *
  * @ignore
  */
+function inYearRange(y) {
+    return y >= yearMin && y <= yearMax
+}
+
+
+/**
+ * 判定時間(毫秒)換算UTC後年份是否在1–9999, 供條件側與寫入側共用(R4、R12); 無效時間(NaN、超出Date範圍)為false
+ *
+ * @param {Number} ms 輸入時間毫秒數
+ * @returns {Boolean} 回傳是否在範圍內
+ */
 function inDateRange(ms) {
-    let y = new Date(ms).getUTCFullYear()
-    return y >= 1 && y <= 9999
+    return inYearRange(new Date(ms).getUTCFullYear())
+}
+
+
+/**
+ * 取DATEONLY欄把值轉為實際存入之YYYY-MM-DD文字之函數(sequelize之DATEONLY._sanitize)
+ * 註: 真正之rawAttributes其type為型別實例; 手造attrs可能給型別建構子(如Sequelize.DATEONLY)或只有key之物件, 此時用sequelize內建DATEONLY之_sanitize(兩者同一函數);
+ * 取不到(sequelize版本漂移)時於換算時拋錯, 由chkWriteDate視為無效而拒收(fail-closed, 版本漂移另有單元測試之guard案)
+ *
+ * @ignore
+ */
+function getDateOnlySanitizer(type) {
+    let t = type && typeof type._sanitize === 'function' ? type : DT.DATEONLY.prototype
+    return (v) => t._sanitize(v, {})
+}
+
+
+/**
+ * 檢核寫入DATE/DATEONLY欄之單一值(R12), 回傳{ok, v}: ok為是否為「年份在1–9999之有效時間」, v為建議寫回之標準值(undefined表示維持原值)
+ * 註: date——以sequelize之DATE._sanitize同一轉換取得時間(Date原樣, 其餘truthy值new Date(值)), 以inDateRange判定UTC年份;
+ * falsy值sequelize不轉換, 僅0(epoch 0)有效, 其餘('', false, NaN)會被存為文字Invalid date而拒收
+ * 註: dateonly——sequelize以moment(值)依主機本地時間格式化為YYYY-MM-DD文字存入, 以該型別之_sanitize所得之文字(= 實際存入者)判定:
+ * 須為4位數年且在1–9999(範圍外年份之文字形狀為5位以上、帶負號或年0000, 如new Date(8.64e15)得275760-09-13、new Date(-8.64e15)得-271821-04-20), Invalid date文字亦拒收
+ * 註: 無效時間(Invalid Date、NaN、無法解析之字串、超出Date範圍之數值、BigInt與Symbol…)一律拒收: sqlite存為文字Invalid date, 其字典序大於任何年份而使$gt命中、delAll誤刪,
+ * mssql則由資料庫報錯, 兩方言不一致(外審Argon F5; 與條件側無效Date一律reject同)
+ * 註: 檢查之值即使用之值——物件值(Date及其子類別、包裝物件、陣列、含自訂valueOf/toString者)可被sequelize再度求值而得不同結果, 故回傳已檢核之標準值(Date或YYYY-MM-DD文字)供呼叫端換上;
+ * 原始值(字串、數值)不可變, 不換
+ * 註: Sequelize.fn、literal、col等SQL運算式(SequelizeMethod)由呼叫端明示, sequelize不轉換, 不檢
+ *
+ * @ignore
+ */
+function chkWriteDate(v, kind, sanitize) {
+    if (v instanceof SM) {
+        return { ok: true, v: undefined }
+    }
+    if (!v) {
+        return { ok: v === 0, v: undefined }
+    }
+    if (typeof v === 'bigint' || typeof v === 'symbol') {
+        return { ok: false, v: undefined } //BigInt與Symbol不是時間(new Date(1n)拋錯, moment(1n)卻視為年2001), 一律拒收
+    }
+    try {
+        if (kind === 'date') {
+            let ms = (v instanceof Date ? v : new Date(v)).getTime()
+            if (!inDateRange(ms)) {
+                return { ok: false, v: undefined }
+            }
+            return { ok: true, v: typeof v === 'object' ? new Date(ms) : undefined }
+        }
+        let s = sanitize(v)
+        let m = typeof s === 'string' ? s.match(reDateOnly) : null
+        if (m === null || !inYearRange(Number(m[1]))) {
+            return { ok: false, v: undefined }
+        }
+        return { ok: true, v: typeof v === 'object' ? s : undefined }
+    }
+    catch (err) {
+        return { ok: false, v: undefined } //換算時拋錯(Symbol、BigInt、無原型物件等)亦非有效時間
+    }
+}
+
+
+/**
+ * 產生寫入數據之DATE/DATEONLY欄範圍檢核函數(R12): 回傳之函數對單筆數據(物件)檢核各DATE、DATEONLY屬性之值,
+ * 回傳第一個無效或範圍外(年份不在1–9999)之屬性名(依model屬性定義順序), 皆合法回傳null
+ * 註: 與條件側共用inDateRange; 只檢核model中型別為DATE(date)與DATEONLY(dateonly)之屬性, 值為null或undefined者不檢;
+ * 非物件之記錄回傳null(由呼叫端前段檢核負責)
+ * 註: 通過檢核之物件值(Date及其子類別、包裝物件、陣列等)就地換成已檢核之標準值(Date或YYYY-MM-DD文字), 令檢查之值即使用之值(見chkWriteDate);
+ * 僅換記錄自有屬性, 原型鏈上之屬性只讀不換(create與bulkCreate不讀原型鏈屬性, update會讀, 故原型鏈上具狀態之getter不在保證範圍)
+ *
+ * @param {Object} attrs 輸入model之rawAttributes, 非物件時回傳恆為null之檢核函數
+ * @returns {Function} 回傳檢核函數(rec)=>屬性名字串或null
+ */
+function genDateChecker(attrs) {
+    let cols = []
+    if (attrs !== null && typeof attrs === 'object') {
+        for (let k of Object.keys(attrs)) {
+            let kind = getColKind(attrs, k)
+            if (kind === 'date' || kind === 'dateonly') {
+                cols.push({ k, kind, san: kind === 'dateonly' ? getDateOnlySanitizer(attrs[k].type) : null })
+            }
+        }
+    }
+    return (rec) => {
+        if (rec === null || typeof rec !== 'object') {
+            return null
+        }
+        for (let c of cols) {
+            let v = rec[c.k]
+            if (v === null || v === undefined) {
+                continue
+            }
+            let r = chkWriteDate(v, c.kind, c.san)
+            if (!r.ok) {
+                return c.k
+            }
+            if (r.v !== undefined && Object.prototype.hasOwnProperty.call(rec, c.k)) {
+                rec[c.k] = r.v
+            }
+        }
+        return null
+    }
 }
 
 
@@ -752,5 +873,5 @@ function cvFind(find, ctx) {
 }
 
 
-export { getColKind, getColScale, normPk, chkFindShape }
+export { getColKind, getColScale, normPk, chkFindShape, inDateRange, genDateChecker }
 export default cvFind
