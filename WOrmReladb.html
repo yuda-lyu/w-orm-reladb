@@ -750,7 +750,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line525">line 525</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line522">line 522</a>
     </li></ul></dd>
     
 
@@ -858,7 +858,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1716">line 1716</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1747">line 1747</a>
     </li></ul></dd>
     
 
@@ -972,7 +972,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1429">line 1429</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1440">line 1440</a>
     </li></ul></dd>
     
 
@@ -1293,18 +1293,32 @@
 <dl class="details">
     
     <dt class="tag-description">Description:</dt>
-    <dd class="tag-description"><ul class="dummy"><li><p>依條件刪除多筆數據，需與del分開，避免未傳數據導致直接刪除全表</p>
+    <dd class="tag-description"><ul class="dummy"><li><p>依條件刪除多筆數據(破壞性操作, 須審慎使用, 非必要不用; 刪除單筆請用del), 需與del分開，避免未傳數據導致直接刪除全表</p>
+<p>使用須知:</p>
+<ol>
+<li>不給條件即刪除全部數據: find未給、為undefined或為{}時, 刪除資料表內全部數據, 不另行確認。給了條件才是部分刪除。</li>
+<li>傳了值卻不是條件物件(null、陣列含[]與[{...}]、字串、數值、布林、函數、Date、RegExp、Map、Set、類別實例等)
+一律整批reject, 不視為{}, 不刪除任何數據。</li>
+<li>條件僅支援系列白名單: 欄位等值{欄:純量}(多欄為AND)、欄位運算子$eq $ne $gt $gte $lt $lte(值為純量)與
+$in $nin(值為純量陣列)、文件層$and $or(值為條件物件之非空陣列, 最多999項)。純量為字串、有限數字、布林、有效Date;
+null僅可用於欄位等值、$eq、$ne。白名單外之運算子($not $nor $regex $options $exists $where $expr $like $ilike等)、
+sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or、子查詢、函數值、Symbol鍵、undefined值、
+空的$nin/$and/$or等一律整批reject, 訊息為invalid find: 原因 at [路徑], 且不刪除任何數據。</li>
+<li>與select共用同一檢核與同一條件, select(find)命中之數據即本函數刪除之數據; 建議先以select(find)確認命中範圍再刪除。
+欄名須完全等於model之屬性名或資料庫欄名(區分大小寫); 純量須符合欄位型別; 主鍵欄之條件值依主鍵欄型別正規化。</li>
+<li>條件值若來自可能為undefined、null或空陣列之變數, 呼叫端須先自行判斷; undefined值會reject而非被忽略,
+空的$nin會reject, $in:[]則為恆假(刪除0筆)。</li>
+<li>語意差異(SQL式): $ne/$nin不命中欄位為NULL之數據(三值邏輯)。需明確表達時可用可攜寫法:
+排除NULL為{$and:[{f:{$ne:null}},{f:{$ne:x}}]}, 含NULL為{$or:[{f:null},{f:{$ne:x}}]}; 字串比對之大小寫依資料庫定序。</li>
+</ol>
 <p>註: n與nDeleted皆為實際刪除筆數，兩者恆相等，n不得取全表筆數
-註: find未給或為空物件時刪除全部數據；條件無命中時回{n:0,nDeleted:0,ok:1}，不視為錯誤
-註: find由cvFind轉譯且與select共用，刪除之數據即select(find)命中之數據；支援之條件與限制同select
-註: 不支援之運算子、非純量之值、與欄位型別不符之純量一律reject並發出error事件，不刪除任何數據；主鍵欄之條件值依主鍵欄型別正規化，同select
-註: find非物件(null、陣列、字串、數字)時刪除全部數據，此為現況保留，系列規格另案處理</p></li></ul></dd>
+註: 條件無命中時回{n:0,nDeleted:0,ok:1}，不視為錯誤</p></li></ul></dd>
     
 
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1618">line 1618</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1642">line 1642</a>
     </li></ul></dd>
     
 
@@ -1413,7 +1427,7 @@
                 </td>
             
 
-            <td class="description last"><p>輸入刪除條件物件，不給予find則代表刪除全部數據</p></td>
+            <td class="description last"><p>輸入刪除條件物件(系列白名單, 見使用須知)，不給予find則代表刪除全部數據</p></td>
         </tr>
 
     
@@ -1634,7 +1648,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1758">line 1758</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1789">line 1789</a>
     </li></ul></dd>
     
 
@@ -2162,7 +2176,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1806">line 1806</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1837">line 1837</a>
     </li></ul></dd>
     
 
@@ -2467,7 +2481,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line541">line 541</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line538">line 538</a>
     </li></ul></dd>
     
 
@@ -2575,7 +2589,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line458">line 458</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line455">line 455</a>
     </li></ul></dd>
     
 
@@ -2762,7 +2776,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line804">line 804</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line815">line 815</a>
     </li></ul></dd>
     
 
@@ -3141,7 +3155,7 @@ mssql因綁定參數數量上限會由驅動層自動拆為多語句送出，實
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line980">line 980</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line991">line 991</a>
     </li></ul></dd>
     
 
@@ -3475,7 +3489,7 @@ mssql因綁定參數數量上限會由驅動層自動拆為多語句送出，實
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1313">line 1313</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1324">line 1324</a>
     </li></ul></dd>
     
 
@@ -3837,21 +3851,29 @@ mssql因綁定參數數量上限會由驅動層自動拆為多語句送出，實
     
     <dt class="tag-description">Description:</dt>
     <dd class="tag-description"><ul class="dummy"><li><p>查詢數據</p>
-<p>註: find由cvFind轉譯且與delAll共用, 同一find於兩函數由同一SQL謂詞決定命中
-註: 支援欄位等值({欄位:值}, 值為null時比對IS NULL)與$eq、$ne、$gt、$gte、$lt、$lte、$in、$nin、$not、$regex($options僅i)、$exists, 以及$and、$or、$nor
-註: 不支援之運算子、非純量之值、與欄位型別不符之純量(如數值欄給'abc')一律reject並發出error事件, 不靜默忽略或改變語意
-註: 主鍵欄之條件值依主鍵欄型別正規化而與selectByPk等一致(如字串類主鍵欄之{id:123}即{id:'123'}, 整數類主鍵欄之'12'即12), 型別不符或無效者reject
-註: NULL依SQL三值邏輯, 故$ne、$nin、$not、$nor不含該欄為NULL之數據; $exists:false即IS NULL
-註: $regex僅支援字面子字串(含未跳脫正規式元字元者reject, 可用反斜線跳脫), 給i時不分大小寫, 未給i時大小寫依資料庫定序(sqlite之LIKE與mssql預設定序皆不分)
-註: 欄位值為陣列時視同$in, 與MongoDB之陣列比對不同
-註: find未給或為空物件時回傳全部數據; find非物件時亦回傳全部數據(現況保留)
-註: 恆回傳陣列, 無符合數據回傳空陣列</p></li></ul></dd>
+<p>使用須知(條件find為系列白名單, 規則同delAll, 見CLAUDE_rulebook.md之R11):</p>
+<ol>
+<li>不給條件即查詢全部數據: find未給、為undefined或為{}時回傳全部數據; 給了條件才是部分查詢。</li>
+<li>傳了值卻不是條件物件(null、陣列含[]與[{...}]、字串、數值、布林、函數、Date、RegExp、Map、Set、類別實例等)
+一律整批reject, 不視為{}。</li>
+<li>條件僅支援系列白名單: 欄位等值{欄:純量}(多欄為AND)、欄位運算子$eq $ne $gt $gte $lt $lte(值為純量)與
+$in $nin(值為純量陣列)、文件層$and $or(值為條件物件之非空陣列, 最多999項)。純量為字串、有限數字、布林、有效Date;
+null僅可用於欄位等值、$eq、$ne。白名單外之運算子($not $nor $regex $options $exists $where $expr $like $ilike等)、
+sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or、函數值、Symbol鍵、undefined值、空的$nin/$and/$or等
+一律整批reject, 訊息為invalid find: 原因 at [路徑], 且於載入model與連線前即檢核。</li>
+<li>欄名須完全等於model之屬性名或資料庫欄名(區分大小寫), 且為字母或底線開頭之字母/數字/底線(最多128字元);
+純量須符合欄位型別(如數值欄給'abc'會reject); 主鍵欄之條件值依主鍵欄型別正規化(字串類主鍵欄之{id:123}即{id:'123'})。</li>
+<li>與delAll共用同一檢核與同一條件, select(find)命中之數據即delAll(find)刪除之數據。</li>
+<li>語意差異(SQL式): $ne/$nin不命中欄位為NULL之數據(三值邏輯)。需明確表達時可用可攜寫法:
+排除NULL為{$and:[{f:{$ne:null}},{f:{$ne:x}}]}, 含NULL為{$or:[{f:null},{f:{$ne:x}}]}; 字串比對之大小寫依資料庫定序。</li>
+</ol>
+<p>註: 恆回傳陣列, 無符合數據回傳空陣列</p></li></ul></dd>
     
 
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line576">line 576</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line580">line 580</a>
     </li></ul></dd>
     
 
@@ -3960,7 +3982,7 @@ mssql因綁定參數數量上限會由驅動層自動拆為多語句送出，實
                 </td>
             
 
-            <td class="description last"><p>輸入查詢條件物件</p></td>
+            <td class="description last"><p>輸入查詢條件物件(系列白名單, 規則同delAll之使用須知第1-4點); 未給、undefined或{}回傳全部數據; 非條件物件或白名單外運算子整批reject</p></td>
         </tr>
 
     
@@ -4184,7 +4206,7 @@ mssql因綁定參數數量上限會由驅動層自動拆為多語句送出，實
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line674">line 674</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line685">line 685</a>
     </li></ul></dd>
     
 
@@ -4510,7 +4532,7 @@ mssql因綁定參數數量上限會由驅動層自動拆為多語句送出，實
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Fri Oct 16 2026 19:47:28 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Mon Oct 19 2026 18:54:43 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
 </footer>
 
 <script>prettyPrint();</script>
