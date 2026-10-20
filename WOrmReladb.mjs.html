@@ -29,7 +29,7 @@
 <nav >
     
     
-    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="WOrmReladb.html">WOrmReladb</a><ul class='methods'><li data-type='method'><a href="WOrmReladb.html#.closeSequelize">closeSequelize</a></li><li data-type='method'><a href="WOrmReladb.html#.createStorage">createStorage</a></li><li data-type='method'><a href="WOrmReladb.html#.del">del</a></li><li data-type='method'><a href="WOrmReladb.html#.delAll">delAll</a></li><li data-type='method'><a href="WOrmReladb.html#.genModelsByDB">genModelsByDB</a></li><li data-type='method'><a href="WOrmReladb.html#.genModelsByTabs">genModelsByTabs</a></li><li data-type='method'><a href="WOrmReladb.html#.genTransaction">genTransaction</a></li><li data-type='method'><a href="WOrmReladb.html#.initSequelize">initSequelize</a></li><li data-type='method'><a href="WOrmReladb.html#.insert">insert</a></li><li data-type='method'><a href="WOrmReladb.html#.insertBulk">insertBulk</a></li><li data-type='method'><a href="WOrmReladb.html#.save">save</a></li><li data-type='method'><a href="WOrmReladb.html#.select">select</a></li><li data-type='method'><a href="WOrmReladb.html#.selectByPk">selectByPk</a></li></ul></li></ul><h3>Global</h3><ul><li><a href="global.html#cvFind">cvFind</a></li><li><a href="global.html#genDateChecker">genDateChecker</a></li><li><a href="global.html#getColKind">getColKind</a></li><li><a href="global.html#getColScale">getColScale</a></li><li><a href="global.html#importModels">importModels</a></li><li><a href="global.html#inDateRange">inDateRange</a></li><li><a href="global.html#isKindOk">isKindOk</a></li><li><a href="global.html#normPk">normPk</a></li></ul>
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="WOrmReladb.html">WOrmReladb</a><ul class='methods'><li data-type='method'><a href="WOrmReladb.html#.closeSequelize">closeSequelize</a></li><li data-type='method'><a href="WOrmReladb.html#.createStorage">createStorage</a></li><li data-type='method'><a href="WOrmReladb.html#.del">del</a></li><li data-type='method'><a href="WOrmReladb.html#.delAll">delAll</a></li><li data-type='method'><a href="WOrmReladb.html#.genModelsByDB">genModelsByDB</a></li><li data-type='method'><a href="WOrmReladb.html#.genModelsByTabs">genModelsByTabs</a></li><li data-type='method'><a href="WOrmReladb.html#.genTransaction">genTransaction</a></li><li data-type='method'><a href="WOrmReladb.html#.initSequelize">initSequelize</a></li><li data-type='method'><a href="WOrmReladb.html#.insert">insert</a></li><li data-type='method'><a href="WOrmReladb.html#.insertBulk">insertBulk</a></li><li data-type='method'><a href="WOrmReladb.html#.save">save</a></li><li data-type='method'><a href="WOrmReladb.html#.select">select</a></li><li data-type='method'><a href="WOrmReladb.html#.selectByPk">selectByPk</a></li></ul></li></ul><h3>Global</h3><ul><li><a href="global.html#chkPkWf">chkPkWf</a></li><li><a href="global.html#chkWf">chkWf</a></li><li><a href="global.html#cvFind">cvFind</a></li><li><a href="global.html#genDateChecker">genDateChecker</a></li><li><a href="global.html#getColKind">getColKind</a></li><li><a href="global.html#getColScale">getColScale</a></li><li><a href="global.html#importModels">importModels</a></li><li><a href="global.html#inDateRange">inDateRange</a></li><li><a href="global.html#isKindOk">isKindOk</a></li><li><a href="global.html#normPk">normPk</a></li></ul>
     
 </nav>
 
@@ -69,10 +69,11 @@ import arrHas from 'wsemi/src/arrHas.mjs'
 import pmSeries from 'wsemi/src/pmSeries.mjs'
 import pm2resolve from 'wsemi/src/pm2resolve.mjs'
 import pmQueue from 'wsemi/src/pmQueue.mjs'
+import chkOrmStr from 'wsemi/src/chkOrmStr.mjs'
 import WAutoSequelize from 'w-auto-sequelize/src/WAutoSequelize.mjs'
 import importModels from './importModels.mjs'
 import _genModelsByTabs from './genModelsByTabs.mjs'
-import cvFind, { getColKind, getColScale, normPk, chkFindShape, genDateChecker } from './cvFind.mjs'
+import cvFind, { getColKind, getColScale, normPk, chkWf, chkFindShape, genDateChecker } from './cvFind.mjs'
 
 
 //放置於全域宣告, 若使用useStable=true才可於當創建多實例時仍能全域控管
@@ -83,6 +84,14 @@ let pmq = pmQueue(1)
  * 操作關聯式資料庫
  *
  * 注意: 各model內id欄位不是主鍵(primary key)時需要強制更改成為主鍵，否則sequelize無法匯入
+ *
+ * 注意: opt.url、opt.db、opt.cl、opt.storage(儲存位址名稱與路徑)含孤立代理碼元(UTF-16代理對被拆開後只剩一半，String.prototype.isWellFormed()為false)者，
+ * 建構時即拋出invalid opt.&lt;名>: string contains lone surrogate(不回顯值)：UTF-8轉換會把孤立代理碼元改寫為U+FFFD，不同名稱將指向同一儲存
+ *
+ * 注意: 寫入與主鍵查詢之字串須良構(第66項)：主鍵不得含孤立代理碼元或NUL，insert、insertBulk、save之數據字串值與鍵名(含巢狀、陣列元素)不得含孤立代理碼元(值之NUL不拒)；
+ * 不合格者insert與insertBulk整批reject、save與del該筆ok為0附err、selectByPk回傳null，詳見各函數說明與README。
+ * 註: mssql預設排序規則(如SQL_Latin1_General_CP1_CI_AS)下字串相等由排序規則決定，良構字串亦可能相等('a'、'a'+emoji、'a'+U+FFFD)，屬資料庫語意不在檢核範圍，
+ * 需精確比對時請以二進位排序規則(如Latin1_General_100_BIN2)建表
  *
  * @class
  * @param {Object} [opt={}] 輸入設定物件，預設{}
@@ -134,6 +143,18 @@ function WOrmReladb(opt = {}) {
     if (!isestr(opt.storage)) {
         opt.storage = './worm.db' //storage, only use for sqlite
     }
+
+
+    //儲存位址名稱(opt.db、opt.cl、opt.url、opt.storage)含孤立代理碼元者建構時即拋出(第66項, R13):
+    //路徑與名稱經UTF-8轉換後孤立代理碼元被改寫為U+FFFD, 不同名稱會指向同一儲存(如兩個不同之storage路徑共用同一個sqlite檔);
+    //須先於opt.url之解析(其錯誤訊息會回顯opt.url); 訊息為固定詞彙且不回顯值, 此處不檢NUL(不屬本規則)
+    for (let k of ['db', 'cl', 'url', 'storage']) {
+        let why = chkOrmStr(opt[k], { nul: false })
+        if (why !== null) {
+            throw new Error(`invalid opt.${k}: ${why}`)
+        }
+    }
+
     opt.storage = path.resolve(opt.storage)
     if (!isbol(opt.useEncryption)) {
         opt.useEncryption = false
@@ -269,6 +290,8 @@ function WOrmReladb(opt = {}) {
      * 判定主鍵值是否有效(與主鍵欄型別無關之判定)
      * 註: select以外之五函數對主鍵之認定一律以本函數與normPkOf為準，令selectByPk之[命中]與insert、save、del內對既有數據之認定一致
      * 註: 有效即非空字串或有限數值(含0), new String與new Number取原始值; NaN、±Infinity、布林、物件等為無效(見cvFind.mjs之normPk)
+     * 註: 含孤立代理碼元或NUL之字串亦為無效(第66項, R13)，故selectByPk回null；寫入側(insert、insertBulk、save、del)於procPk之前即由chkWf逐筆檢出，
+     * 令autoGenPk為true時呼叫端所給之不合格字串不被當成[未給主鍵]而以自動產生之主鍵取代
      *
      * @ignore
      * @param {*} v 輸入主鍵值
@@ -412,17 +435,22 @@ function WOrmReladb(opt = {}) {
      * 正規化各筆數據之主鍵值並就地寫回, 型別不符者整批拋出
      * 註: 須於procPk之後、任何寫入之前一次完成; 已給主鍵而型別不符屬呼叫端未履行契約, 不以自動產生之主鍵取代
      * 註: 正規化值寫回數據, 令寫入值與其後各函數之比對值一致(如字串類主鍵欄之123存為'123'), 事件之數據亦為實際寫入者
+     * 註: 訊息只含筆數索引與主鍵欄名, 不回顯主鍵值(第66項, R13)
      *
      * @ignore
      * @param {Object} md 輸入資料表model物件
      * @param {Array} data 輸入已補齊主鍵之數據陣列
+     * @param {Array} [bads=[]] 輸入chkWf之逐筆訊息陣列, 非null者(save之不合格筆, 已另行處置為逐筆失敗)略過
      * @returns {undefined} 無回傳值
      */
-    function normPks(md, data) {
+    function normPks(md, data, bads = []) {
         data.forEach((v, k) => {
+            if (get(bads, k, null) !== null) {
+                return
+            }
             let r = normPkOf(md, get(v, opt.pk))
             if (r.kind !== 'ok') {
-                throw new Error(`invalid data[${k}].${opt.pk}[${get(v, opt.pk)}], type does not match pk column [${opt.pk}]`)
+                throw new Error(`invalid data[${k}].${opt.pk}, type does not match pk column [${opt.pk}]`)
             }
             v[opt.pk] = r.v
         })
@@ -440,11 +468,15 @@ function WOrmReladb(opt = {}) {
      * @ignore
      * @param {Object} md 輸入資料表model物件
      * @param {Array} data 輸入已補齊並正規化主鍵之數據陣列
+     * @param {Array} [bads=[]] 輸入chkWf之逐筆訊息陣列, 非null者(save之不合格筆, 已另行處置為逐筆失敗)略過
      * @returns {undefined} 無回傳值
      */
-    function chkDates(md, data) {
+    function chkDates(md, data, bads = []) {
         let chk = genDateChecker(get(md, 'rawAttributes', {}))
         data.forEach((v, k) => {
+            if (get(bads, k, null) !== null) {
+                return
+            }
             let col = chk(v)
             if (col !== null) {
                 throw new Error(`invalid data: date is not a valid time in years 1-9999 at [data[${k}].${col}]`)
@@ -742,6 +774,7 @@ function WOrmReladb(opt = {}) {
      *
      * 註: 主鍵欄位取自opt.pk，預設為id，支援由呼叫端指定
      * 註: 主鍵未命中或主鍵值無效皆回傳null而不reject，[命中]之判定基準與insert、save、del內對既有數據之認定一致
+     * 註: 含孤立代理碼元或NUL之字串主鍵(含new String包裝者)為無效而回傳null，不連線、不送查詢(第66項, R13): UTF-8存放之資料庫會把孤立代理碼元改寫為U+FFFD，若照送會命中他筆
      * 註: 主鍵值依主鍵欄型別正規化後查詢: 字串類主鍵欄之有限數字以String(v)處置(selectByPk(123)即查'123'), 整數類主鍵欄之標準整數寫法字串轉為數值;
      * 型別不符(整數類主鍵欄給'012'、12.4、'abc'等)亦屬主鍵值無效而回傳null
      * 註: 本函數不得有副作用，故不創建資料表
@@ -770,10 +803,13 @@ function WOrmReladb(opt = {}) {
             return Promise.reject(err)
         }
 
-        //check, 未給有效主鍵值視為查無數據, 不送查詢以免無效值被轉為null而誤中其他數據
-        if (!isEffPk(pk)) {
+        //check, 未給有效主鍵值視為查無數據, 不送查詢以免無效值被轉為null而誤中其他數據;
+        //含孤立代理碼元或NUL之字串亦為無效(R13); 包裝物件(new String、new Number)只求值一次, 其後以原始值查詢(檢查之值即使用之值)
+        let r0 = normPk(pk, 'any')
+        if (r0.kind !== 'ok') {
             return null
         }
+        pk = r0.v
 
         //check
         if (opt.useEncryption &amp;&amp; dialect === 'sqlite') {
@@ -874,6 +910,10 @@ function WOrmReladb(opt = {}) {
      * 錯誤訊息為invalid data: date is not a valid time in years 1-9999 at [data[索引].欄名]，不回顯值；sqlite以文字存日期，範圍外年份之文字與時間序不一致，會使以日期為條件之delAll刪錯列，
      * 故兩方言一律於送出前拒收；無效時間(Invalid Date、NaN、無法解析之字串、空字串等，sqlite會存為字典序大於任何年份之文字Invalid date，mssql則由資料庫報錯)亦一併reject；
      * 庫內既有之範圍外日期不遷移，須自行清理或改寫(見README)
+     * 註: 主鍵與數據之字串須良構(第66項, R13): 主鍵不得含孤立代理碼元(UTF-16代理對被拆開後只剩一半, UTF-8存放時被改寫為U+FFFD而使不同主鍵寫成同一鍵)或NUL，
+     * 數據之字串值與鍵名(含巢狀物件、陣列元素、Map/Set等，不論欄位是否在model內)不得含孤立代理碼元(值之NUL不拒)；U+FFFD本身與成對代理(emoji等)為良構，照常接受。
+     * 任一筆不合格即reject且同批皆不寫入，訊息為invalid id: 原因 at [data[索引].主鍵欄]或invalid data: 原因 at [data[索引].路徑]，不回顯值；
+     * 不隨opt.autoGenPk改變(autoGenPk為true時亦不以自動產生之主鍵取代呼叫端所給之不合格主鍵)，檢核先於連線與model載入，作用於複本
      * 註: option.returnList開啟時改回與輸入等長且保序之逐筆結果陣列[{n,nInserted,ok}]，
      * 聚合計數只答得出[有幾筆是新的]而答不出[是哪幾筆]，而後者正是去重之產出物；
      * 逐筆元素之n與ok恆為1，資訊由nInserted承載，不變式為
@@ -917,9 +957,6 @@ function WOrmReladb(opt = {}) {
             }
         }
 
-        //cloneDeep
-        data = cloneDeep(data)
-
         //isErr, res
         let isErr = false
         let res = null
@@ -927,13 +964,25 @@ function WOrmReladb(opt = {}) {
         //si
         let si = instance
 
+        //inited, 本次呼叫是否已進入initSequelize(僅此時finally才關閉sequelize; 預檢失敗於其前者不得關閉呼叫端先前持有之連線)
+        let inited = false
+
         try {
 
             //check, 實例已關閉屬整批性錯誤, 於入口快速失敗
             procClosed(instance)
 
+            //chkWf, 主鍵與資料之字串良構(孤立代理碼元、主鍵之NUL)逐筆檢核(R13): 先於連線、model載入與任何寫入, 檢查之物件即cloneDeep後之複本且其後只使用該複本;
+            //任一筆不合格即整批拋出(以索引最小者為準)而不寫入任何一筆, 不隨autoGenPk改變, 不以自動產生之主鍵取代不合格之主鍵
+            let bads = chkWf(isarr(data) ? data : [data], opt.pk, true)
+            let iBad = bads.findIndex((v) => v !== null)
+            if (iBad >= 0) {
+                throw new Error(bads[iBad])
+            }
+
             //initSequelize, 內部自動初始化須在try內: 其例外(如驅動缺失)與si.err同屬整批性錯誤, 方能於reject前發出error事件, 已建構之sequelize亦由finally關閉
             if (instance === null) {
+                inited = true
                 si = await initSequelize()
             }
 
@@ -1023,7 +1072,7 @@ function WOrmReladb(opt = {}) {
         finally {
 
             //closeSequelize
-            if (instance === null) { //內部自動初始化得close
+            if (instance === null &amp;&amp; inited) { //內部自動初始化得close
                 await closeSequelize('insert')
             }
 
@@ -1056,6 +1105,7 @@ function WOrmReladb(opt = {}) {
      * 註: 主鍵值依主鍵欄型別正規化後寫入(字串類主鍵欄之123存為'123')；型別不符(整數類主鍵欄給'012'等)即reject且同批皆不寫入
      * 註: DATE、DATEONLY欄之值換算後年份須在1–9999，範圍外或無效者(如new Date(8.64e15)、new Date(NaN))即reject且同批皆不寫入，訊息為invalid data: date is not a valid time in years 1-9999 at [data[索引].欄名]，
      * 不回顯值，兩方言一致於送出前拒收，規則同insert
+     * 註: 主鍵與數據之字串須良構(孤立代理碼元、主鍵之NUL)，不合格者整批reject且同批皆不寫入，規則同insert(第66項, R13)
      * 註: [全有全無]為獨立於T7之額外要求——T7僅保證每筆之[檢查主鍵不存在]與[寫入]為原子，不保證整批。
      * mssql因綁定參數數量上限會由驅動層自動拆為多語句送出，實測1000筆之批次於末筆撞主鍵時已有946筆落盤，
      * 故一律以交易包覆並於失敗時回滾；呼叫端已給transaction時改以巢狀交易(SAVEPOINT)包覆，
@@ -1092,9 +1142,6 @@ function WOrmReladb(opt = {}) {
             }
         }
 
-        //cloneDeep
-        data = cloneDeep(data)
-
         //isErr, res
         let isErr = false
         let res = null
@@ -1102,13 +1149,25 @@ function WOrmReladb(opt = {}) {
         //si
         let si = instance
 
+        //inited, 本次呼叫是否已進入initSequelize(僅此時finally才關閉sequelize; 預檢失敗於其前者不得關閉呼叫端先前持有之連線)
+        let inited = false
+
         try {
 
             //check, 實例已關閉屬整批性錯誤, 於入口快速失敗
             procClosed(instance)
 
+            //chkWf, 主鍵與資料之字串良構(孤立代理碼元、主鍵之NUL)逐筆檢核(R13): 先於連線、model載入與任何寫入, 檢查之物件即cloneDeep後之複本且其後只使用該複本;
+            //任一筆不合格即整批拋出(以索引最小者為準)而不寫入任何一筆, 不隨autoGenPk改變, 不以自動產生之主鍵取代不合格之主鍵
+            let bads = chkWf(isarr(data) ? data : [data], opt.pk, true)
+            let iBad = bads.findIndex((v) => v !== null)
+            if (iBad >= 0) {
+                throw new Error(bads[iBad])
+            }
+
             //initSequelize, 內部自動初始化須在try內: 其例外(如驅動缺失)與si.err同屬整批性錯誤, 方能於reject前發出error事件, 已建構之sequelize亦由finally關閉
             if (instance === null) {
+                inited = true
                 si = await initSequelize()
             }
 
@@ -1191,7 +1250,7 @@ function WOrmReladb(opt = {}) {
         finally {
 
             //closeSequelize
-            if (instance === null) { //內部自動初始化得close
+            if (instance === null &amp;&amp; inited) { //內部自動初始化得close
                 await closeSequelize('insertBulk')
             }
 
@@ -1228,9 +1287,10 @@ function WOrmReladb(opt = {}) {
      * @param {Boolean} autoInsert 輸入是否於查無數據時自動改以插入處理布林值
      * @param {Object|null} transaction 輸入交易(transaction)物件
      * @param {Array} ks 輸入model之欄位名陣列
+     * @param {Number} k 輸入數據於陣列內之索引，供訊息使用(訊息不回顯主鍵值)
      * @returns {Promise} 回傳Promise，resolve回傳本筆儲存結果，本筆失敗時亦resolve並以ok為0回報
      */
-    async function saveOne(md, v, autoInsert, transaction, ks) {
+    async function saveOne(md, v, autoInsert, transaction, ks, k) {
 
         //nTry, 預測錯誤時重試, 給予有限次數令其收斂
         let nTry = 3
@@ -1369,7 +1429,7 @@ function WOrmReladb(opt = {}) {
                 nInserted: 0,
                 nModified: 0,
                 ok: 0,
-                err: `can not save data by ${opt.pk}[${pkv}] in ${nTry} tries`,
+                err: `can not save data[${k}].${opt.pk} in ${nTry} tries`,
             }
         }
 
@@ -1397,6 +1457,8 @@ function WOrmReladb(opt = {}) {
      * 註: 主鍵值依主鍵欄型別正規化(字串類主鍵欄之123即'123')；型別不符(整數類主鍵欄給'012'等)屬呼叫端未履行契約，整批reject且同批皆不寫入
      * 註: DATE、DATEONLY欄之值換算後年份須在1–9999，範圍外或無效者(如new Date(8.64e15)、new Date(NaN))屬呼叫端未履行契約，整批reject且同批皆不寫入(含autoInsert為false而不會寫入者；不降為該筆ok為0)，
      * 訊息為invalid data: date is not a valid time in years 1-9999 at [data[索引].欄名]，不回顯值，兩方言一致於送出前拒收，規則同insert
+     * 註: 主鍵與數據之字串須良構(孤立代理碼元、主鍵之NUL；規則同insert, 第66項, R13)，但不合格者為該筆失敗而非整批reject：該筆ok為0並附err(invalid id: 原因 at [data[索引].主鍵欄]或invalid data: 原因 at [data[索引].路徑]，不回顯值)，
+     * 不讀取資料庫、不寫入(含autoInsert為false)，同批其他筆照常處理；不隨opt.autoGenPk改變。全部筆數皆不合格時不連線
      *
      * @memberOf WOrmReladb
      * @param {Object|Array} data 輸入數據物件或陣列
@@ -1412,9 +1474,6 @@ function WOrmReladb(opt = {}) {
         if (!iseobj(data) &amp;&amp; !isearr(data)) {
             return []
         }
-
-        //cloneDeep
-        data = cloneDeep(data)
 
         //instance
         let instance = get(option, 'instance', null)
@@ -1439,23 +1498,32 @@ function WOrmReladb(opt = {}) {
         //si
         let si = instance
 
+        //inited, 本次呼叫是否已進入initSequelize(僅此時finally才關閉sequelize; 預檢失敗於其前者不得關閉呼叫端先前持有之連線)
+        let inited = false
+
         try {
 
             //check, 實例已關閉屬整批性錯誤, 於入口快速失敗
             procClosed(instance)
 
-            //initSequelize, 內部自動初始化須在try內: 其例外(如驅動缺失)與si.err同屬整批性錯誤, 方能於reject前發出error事件, 已建構之sequelize亦由finally關閉
-            if (instance === null) {
+            //chkWf, 主鍵與資料之字串良構(孤立代理碼元、主鍵之NUL)逐筆檢核(R13): 先於連線、model載入與任何讀取、寫入、刪除, 檢查之物件即cloneDeep後之複本且其後只使用該複本;
+            //不合格者為該筆失敗(ok為0附err, 同批其他筆照常), bads為逐筆訊息(合格者為null); 不隨autoGenPk改變
+            let bads = chkWf(isarr(data) ? data : [data], opt.pk, true)
+            let nOk = bads.filter((v) => v === null).length
+
+            //initSequelize, 內部自動初始化須在try內: 其例外(如驅動缺失)與si.err同屬整批性錯誤, 方能於reject前發出error事件, 已建構之sequelize亦由finally關閉; 全部不合格者無須連線
+            if (instance === null &amp;&amp; nOk > 0) {
+                inited = true
                 si = await initSequelize()
             }
 
             //check
-            if (si.err) {
+            if (si !== null &amp;&amp; si.err) {
                 throw si.err
             }
 
             //md
-            let md = si.mds[opt.cl]
+            let md = si === null ? null : si.mds[opt.cl]
 
             //check
             if (!isarr(data)) {
@@ -1464,21 +1532,34 @@ function WOrmReladb(opt = {}) {
 
             //procPk, 須於任何寫入之前一次完成, 令autoGenPk為false而拋錯時同批之有效筆數亦不會被寫入
             data = map(data, (v, k) => {
-                return procPk(md, v, k)
+                return bads[k] !== null ? v : procPk(md, v, k)
             })
 
             //normPks, 主鍵值依主鍵欄型別正規化後寫回, 型別不符者整批reject且不寫入任何一筆
-            normPks(md, data)
+            normPks(md, data, bads)
 
             //chkDates, DATE、DATEONLY欄之值須為年份在1–9999之有效時間, 範圍外或無效者整批reject且不寫入任何一筆(含autoInsert為false而不會寫入者; 與條件側共用範圍判定, 見R12)
-            chkDates(md, data)
+            chkDates(md, data, bads)
 
             //ks, model之欄位名, 供合併後比對時濾除非欄位之鍵
             let ks = keys(get(md, 'rawAttributes', {}))
 
             //pmSeries
-            res = await pmSeries(data, async(v) => {
-                return saveOne(md, v, autoInsert, transaction, ks)
+            res = await pmSeries(data, async(v, k) => {
+
+                //check, 字串不合格之筆為該筆失敗: 不讀取資料庫、不寫入, 同批其他筆照常
+                if (bads[k] !== null) {
+                    emitError('save', [v], bads[k])
+                    return {
+                        n: 1,
+                        nInserted: 0,
+                        nModified: 0,
+                        ok: 0,
+                        err: bads[k],
+                    }
+                }
+
+                return saveOne(md, v, autoInsert, transaction, ks, k)
             })
 
         }
@@ -1489,7 +1570,7 @@ function WOrmReladb(opt = {}) {
         finally {
 
             //closeSequelize
-            if (instance === null) { //內部自動初始化得close
+            if (instance === null &amp;&amp; inited) { //內部自動初始化得close
                 await closeSequelize('save')
             }
 
@@ -1517,6 +1598,8 @@ function WOrmReladb(opt = {}) {
      * 不中斷其餘筆數，以此與[主鍵未命中]之ok為1區辨；主鍵值與主鍵欄型別不符者(整數類主鍵欄給'012'等)亦同
      * 註: 主鍵值依主鍵欄型別正規化後刪除(字串類主鍵欄之123即'123')，正規化值寫回該筆數據
      * 註: 本函數不受opt.autoGenPk影響，於任一設定下皆不補值
+     * 註: 主鍵含孤立代理碼元或NUL者(含new String包裝者；UTF-8存放之資料庫會把孤立代理碼元改寫為U+FFFD而刪到他筆)為該筆失敗，ok為0並附err(invalid id: 原因 at [data[索引].主鍵欄]，不回顯值)，
+     * 不送查詢，同批其他筆照常；只檢主鍵，其他欄位不檢(第66項, R13)；全部筆數皆不合格時不連線。其他無效主鍵之err亦不回顯主鍵值(invalid data[索引].主鍵欄…)
      *
      * @memberOf WOrmReladb
      * @param {Object|Array} data 輸入數據物件或陣列，會查找各數據的opt.pk值，有存在者就刪除
@@ -1531,9 +1614,6 @@ function WOrmReladb(opt = {}) {
         if (!iseobj(data) &amp;&amp; !isearr(data)) {
             return []
         }
-
-        //cloneDeep
-        data = cloneDeep(data)
 
         //instance
         let instance = get(option, 'instance', null)
@@ -1555,23 +1635,32 @@ function WOrmReladb(opt = {}) {
         //si
         let si = instance
 
+        //inited, 本次呼叫是否已進入initSequelize(僅此時finally才關閉sequelize; 預檢失敗於其前者不得關閉呼叫端先前持有之連線)
+        let inited = false
+
         try {
 
             //check, 實例已關閉屬整批性錯誤, 於入口快速失敗
             procClosed(instance)
 
-            //initSequelize, 內部自動初始化須在try內: 其例外(如驅動缺失)與si.err同屬整批性錯誤, 方能於reject前發出error事件, 已建構之sequelize亦由finally關閉
-            if (instance === null) {
+            //chkWf, 主鍵之字串良構(孤立代理碼元、主鍵之NUL)逐筆檢核(R13): 先於連線、model載入與任何讀取、寫入、刪除, 檢查之物件即cloneDeep後之複本且其後只使用該複本;
+            //不合格者為該筆失敗(ok為0附err, 同批其他筆照常), bads為逐筆訊息(合格者為null); 不隨autoGenPk改變
+            let bads = chkWf(isarr(data) ? data : [data], opt.pk, false)
+            let nOk = bads.filter((v) => v === null).length
+
+            //initSequelize, 內部自動初始化須在try內: 其例外(如驅動缺失)與si.err同屬整批性錯誤, 方能於reject前發出error事件, 已建構之sequelize亦由finally關閉; 全部不合格者無須連線
+            if (instance === null &amp;&amp; nOk > 0) {
+                inited = true
                 si = await initSequelize()
             }
 
             //check
-            if (si.err) {
+            if (si !== null &amp;&amp; si.err) {
                 throw si.err
             }
 
             //md
-            let md = si.mds[opt.cl]
+            let md = si === null ? null : si.mds[opt.cl]
 
             //check
             if (!isarr(data)) {
@@ -1579,10 +1668,22 @@ function WOrmReladb(opt = {}) {
             }
 
             //pmSeries
-            res = await pmSeries(data, async(v) => {
+            res = await pmSeries(data, async(v, k) => {
 
                 //rest
                 let rest = null
+
+                //check, 主鍵字串不合格之筆為該筆失敗: 不送查詢, 同批其他筆照常
+                if (bads[k] !== null) {
+                    rest = {
+                        n: 0,
+                        nDeleted: 0,
+                        ok: 0,
+                        err: bads[k],
+                    }
+                    emitError('del', [v], rest.err)
+                    return rest
+                }
 
                 //pkv
                 let pkv = get(v, opt.pk)
@@ -1595,7 +1696,7 @@ function WOrmReladb(opt = {}) {
                         n: 0,
                         nDeleted: 0,
                         ok: 0,
-                        err: `invalid ${opt.pk}[${pkv}]`,
+                        err: `invalid data[${k}].${opt.pk}`,
                     }
 
                     //emit
@@ -1613,7 +1714,7 @@ function WOrmReladb(opt = {}) {
                         n: 0,
                         nDeleted: 0,
                         ok: 0,
-                        err: `invalid ${opt.pk}[${pkv}], type does not match pk column`,
+                        err: `invalid data[${k}].${opt.pk}, type does not match pk column`,
                     }
 
                     //emit
@@ -1679,7 +1780,7 @@ function WOrmReladb(opt = {}) {
         finally {
 
             //closeSequelize
-            if (instance === null) { //內部自動初始化得close
+            if (instance === null &amp;&amp; inited) { //內部自動初始化得close
                 await closeSequelize('del')
             }
 
@@ -1936,6 +2037,24 @@ function WOrmReladb(opt = {}) {
     //     return closeSequelize('external')
     // }
     ee.genTransaction = genTransaction
+
+
+    //snap, 數據於呼叫當下即同步複製(R13): useStable時各函數經佇列延後執行(pmQueue於執行前delay), 若於函數內才複製,
+    //呼叫端於呼叫後立即改動原數據(如重用同一陣列)會影響實際檢核與寫入之值; 函數內只使用此複本, 檢核與寫入皆作用於同一份複本
+    //複製拋錯(如getter拋錯)與函數內之其他錯誤同為rejected promise
+    let snap = (fn) => {
+        return function(data, ...rest) {
+            let d
+            try {
+                d = cloneDeep(data)
+            }
+            catch (err) {
+                return Promise.reject(err)
+            }
+            return fn(d, ...rest)
+        }
+    }
+
     if (opt.useStable) {
         //用佇列(同時最大執行數1且先進先執行)處理高併發之情形
         //若沒管控:
@@ -1947,18 +2066,18 @@ function WOrmReladb(opt = {}) {
         ee.selectByPk = function() {
             return pmq(selectByPk, ...arguments)
         }
-        ee.insert = function() {
-            return pmq(insert, ...arguments)
-        }
-        ee.insertBulk = function() {
-            return pmq(insertBulk, ...arguments)
-        }
-        ee.save = function() {
-            return pmq(save, ...arguments)
-        }
-        ee.del = function() {
-            return pmq(del, ...arguments)
-        }
+        ee.insert = snap((...args) => {
+            return pmq(insert, ...args)
+        })
+        ee.insertBulk = snap((...args) => {
+            return pmq(insertBulk, ...args)
+        })
+        ee.save = snap((...args) => {
+            return pmq(save, ...args)
+        })
+        ee.del = snap((...args) => {
+            return pmq(del, ...args)
+        })
         ee.delAll = function() {
             return pmq(delAll, ...arguments)
         }
@@ -1966,10 +2085,10 @@ function WOrmReladb(opt = {}) {
     else {
         ee.select = select
         ee.selectByPk = selectByPk
-        ee.insert = insert
-        ee.insertBulk = insertBulk
-        ee.save = save
-        ee.del = del
+        ee.insert = snap(insert)
+        ee.insertBulk = snap(insertBulk)
+        ee.save = snap(save)
+        ee.del = snap(del)
         ee.delAll = delAll
     }
 
@@ -1992,7 +2111,7 @@ export default WOrmReladb
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Tue Oct 20 2026 04:13:54 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Wed Oct 21 2026 00:55:02 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
 </footer>
 
 <script>prettyPrint();</script>

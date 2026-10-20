@@ -29,7 +29,7 @@
 <nav >
     
     
-    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="WOrmReladb.html">WOrmReladb</a><ul class='methods'><li data-type='method'><a href="WOrmReladb.html#.closeSequelize">closeSequelize</a></li><li data-type='method'><a href="WOrmReladb.html#.createStorage">createStorage</a></li><li data-type='method'><a href="WOrmReladb.html#.del">del</a></li><li data-type='method'><a href="WOrmReladb.html#.delAll">delAll</a></li><li data-type='method'><a href="WOrmReladb.html#.genModelsByDB">genModelsByDB</a></li><li data-type='method'><a href="WOrmReladb.html#.genModelsByTabs">genModelsByTabs</a></li><li data-type='method'><a href="WOrmReladb.html#.genTransaction">genTransaction</a></li><li data-type='method'><a href="WOrmReladb.html#.initSequelize">initSequelize</a></li><li data-type='method'><a href="WOrmReladb.html#.insert">insert</a></li><li data-type='method'><a href="WOrmReladb.html#.insertBulk">insertBulk</a></li><li data-type='method'><a href="WOrmReladb.html#.save">save</a></li><li data-type='method'><a href="WOrmReladb.html#.select">select</a></li><li data-type='method'><a href="WOrmReladb.html#.selectByPk">selectByPk</a></li></ul></li></ul><h3>Global</h3><ul><li><a href="global.html#cvFind">cvFind</a></li><li><a href="global.html#genDateChecker">genDateChecker</a></li><li><a href="global.html#getColKind">getColKind</a></li><li><a href="global.html#getColScale">getColScale</a></li><li><a href="global.html#importModels">importModels</a></li><li><a href="global.html#inDateRange">inDateRange</a></li><li><a href="global.html#isKindOk">isKindOk</a></li><li><a href="global.html#normPk">normPk</a></li></ul>
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="WOrmReladb.html">WOrmReladb</a><ul class='methods'><li data-type='method'><a href="WOrmReladb.html#.closeSequelize">closeSequelize</a></li><li data-type='method'><a href="WOrmReladb.html#.createStorage">createStorage</a></li><li data-type='method'><a href="WOrmReladb.html#.del">del</a></li><li data-type='method'><a href="WOrmReladb.html#.delAll">delAll</a></li><li data-type='method'><a href="WOrmReladb.html#.genModelsByDB">genModelsByDB</a></li><li data-type='method'><a href="WOrmReladb.html#.genModelsByTabs">genModelsByTabs</a></li><li data-type='method'><a href="WOrmReladb.html#.genTransaction">genTransaction</a></li><li data-type='method'><a href="WOrmReladb.html#.initSequelize">initSequelize</a></li><li data-type='method'><a href="WOrmReladb.html#.insert">insert</a></li><li data-type='method'><a href="WOrmReladb.html#.insertBulk">insertBulk</a></li><li data-type='method'><a href="WOrmReladb.html#.save">save</a></li><li data-type='method'><a href="WOrmReladb.html#.select">select</a></li><li data-type='method'><a href="WOrmReladb.html#.selectByPk">selectByPk</a></li></ul></li></ul><h3>Global</h3><ul><li><a href="global.html#chkPkWf">chkPkWf</a></li><li><a href="global.html#chkWf">chkWf</a></li><li><a href="global.html#cvFind">cvFind</a></li><li><a href="global.html#genDateChecker">genDateChecker</a></li><li><a href="global.html#getColKind">getColKind</a></li><li><a href="global.html#getColScale">getColScale</a></li><li><a href="global.html#importModels">importModels</a></li><li><a href="global.html#inDateRange">inDateRange</a></li><li><a href="global.html#isKindOk">isKindOk</a></li><li><a href="global.html#normPk">normPk</a></li></ul>
     
 </nav>
 
@@ -75,13 +75,19 @@
     
     <dt class="tag-description">Description:</dt>
     <dd class="tag-description"><ul class="dummy"><li><p>操作關聯式資料庫</p>
-<p>注意: 各model內id欄位不是主鍵(primary key)時需要強制更改成為主鍵，否則sequelize無法匯入</p></li></ul></dd>
+<p>注意: 各model內id欄位不是主鍵(primary key)時需要強制更改成為主鍵，否則sequelize無法匯入</p>
+<p>注意: opt.url、opt.db、opt.cl、opt.storage(儲存位址名稱與路徑)含孤立代理碼元(UTF-16代理對被拆開後只剩一半，String.prototype.isWellFormed()為false)者，
+建構時即拋出invalid opt.&lt;名&gt;: string contains lone surrogate(不回顯值)：UTF-8轉換會把孤立代理碼元改寫為U+FFFD，不同名稱將指向同一儲存</p>
+<p>注意: 寫入與主鍵查詢之字串須良構(第66項)：主鍵不得含孤立代理碼元或NUL，insert、insertBulk、save之數據字串值與鍵名(含巢狀、陣列元素)不得含孤立代理碼元(值之NUL不拒)；
+不合格者insert與insertBulk整批reject、save與del該筆ok為0附err、selectByPk回傳null，詳見各函數說明與README。
+註: mssql預設排序規則(如SQL_Latin1_General_CP1_CI_AS)下字串相等由排序規則決定，良構字串亦可能相等('a'、'a'+emoji、'a'+U+FFFD)，屬資料庫語意不在檢核範圍，
+需精確比對時請以二進位排序規則(如Latin1_General_100_BIN2)建表</p></li></ul></dd>
     
 
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line55">line 55</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line64">line 64</a>
     </li></ul></dd>
     
 
@@ -750,7 +756,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line546">line 546</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line578">line 578</a>
     </li></ul></dd>
     
 
@@ -858,7 +864,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1788">line 1788</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1889">line 1889</a>
     </li></ul></dd>
     
 
@@ -966,13 +972,15 @@
 註: 未帶有效主鍵者為該筆之輸入問題，回ok為0與err且不送查詢條件(以免無效值被轉為null而誤中其他數據)，
 不中斷其餘筆數，以此與[主鍵未命中]之ok為1區辨；主鍵值與主鍵欄型別不符者(整數類主鍵欄給'012'等)亦同
 註: 主鍵值依主鍵欄型別正規化後刪除(字串類主鍵欄之123即'123')，正規化值寫回該筆數據
-註: 本函數不受opt.autoGenPk影響，於任一設定下皆不補值</p></li></ul></dd>
+註: 本函數不受opt.autoGenPk影響，於任一設定下皆不補值
+註: 主鍵含孤立代理碼元或NUL者(含new String包裝者；UTF-8存放之資料庫會把孤立代理碼元改寫為U+FFFD而刪到他筆)為該筆失敗，ok為0並附err(invalid id: 原因 at [data[索引].主鍵欄]，不回顯值)，
+不送查詢，同批其他筆照常；只檢主鍵，其他欄位不檢(第66項, R13)；全部筆數皆不合格時不連線。其他無效主鍵之err亦不回顯主鍵值(invalid data[索引].主鍵欄…)</p></li></ul></dd>
     
 
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1481">line 1481</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1564">line 1564</a>
     </li></ul></dd>
     
 
@@ -1318,7 +1326,7 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1683">line 1683</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1784">line 1784</a>
     </li></ul></dd>
     
 
@@ -1648,7 +1656,7 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1830">line 1830</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1931">line 1931</a>
     </li></ul></dd>
     
 
@@ -2176,7 +2184,7 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1878">line 1878</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1979">line 1979</a>
     </li></ul></dd>
     
 
@@ -2481,7 +2489,7 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line562">line 562</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line594">line 594</a>
     </li></ul></dd>
     
 
@@ -2589,7 +2597,7 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line479">line 479</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line511">line 511</a>
     </li></ul></dd>
     
 
@@ -2771,6 +2779,10 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
 錯誤訊息為invalid data: date is not a valid time in years 1-9999 at [data[索引].欄名]，不回顯值；sqlite以文字存日期，範圍外年份之文字與時間序不一致，會使以日期為條件之delAll刪錯列，
 故兩方言一律於送出前拒收；無效時間(Invalid Date、NaN、無法解析之字串、空字串等，sqlite會存為字典序大於任何年份之文字Invalid date，mssql則由資料庫報錯)亦一併reject；
 庫內既有之範圍外日期不遷移，須自行清理或改寫(見README)
+註: 主鍵與數據之字串須良構(第66項, R13): 主鍵不得含孤立代理碼元(UTF-16代理對被拆開後只剩一半, UTF-8存放時被改寫為U+FFFD而使不同主鍵寫成同一鍵)或NUL，
+數據之字串值與鍵名(含巢狀物件、陣列元素、Map/Set等，不論欄位是否在model內)不得含孤立代理碼元(值之NUL不拒)；U+FFFD本身與成對代理(emoji等)為良構，照常接受。
+任一筆不合格即reject且同批皆不寫入，訊息為invalid id: 原因 at [data[索引].主鍵欄]或invalid data: 原因 at [data[索引].路徑]，不回顯值；
+不隨opt.autoGenPk改變(autoGenPk為true時亦不以自動產生之主鍵取代呼叫端所給之不合格主鍵)，檢核先於連線與model載入，作用於複本
 註: option.returnList開啟時改回與輸入等長且保序之逐筆結果陣列[{n,nInserted,ok}]，
 聚合計數只答得出[有幾筆是新的]而答不出[是哪幾筆]，而後者正是去重之產出物；
 逐筆元素之n與ok恆為1，資訊由nInserted承載，不變式為
@@ -2780,7 +2792,7 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line843">line 843</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line883">line 883</a>
     </li></ul></dd>
     
 
@@ -3152,6 +3164,7 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
 註: 主鍵值依主鍵欄型別正規化後寫入(字串類主鍵欄之123存為'123')；型別不符(整數類主鍵欄給'012'等)即reject且同批皆不寫入
 註: DATE、DATEONLY欄之值換算後年份須在1–9999，範圍外或無效者(如new Date(8.64e15)、new Date(NaN))即reject且同批皆不寫入，訊息為invalid data: date is not a valid time in years 1-9999 at [data[索引].欄名]，
 不回顯值，兩方言一致於送出前拒收，規則同insert
+註: 主鍵與數據之字串須良構(孤立代理碼元、主鍵之NUL)，不合格者整批reject且同批皆不寫入，規則同insert(第66項, R13)
 註: [全有全無]為獨立於T7之額外要求——T7僅保證每筆之[檢查主鍵不存在]與[寫入]為原子，不保證整批。
 mssql因綁定參數數量上限會由驅動層自動拆為多語句送出，實測1000筆之批次於末筆撞主鍵時已有946筆落盤，
 故一律以交易包覆並於失敗時回滾；呼叫端已給transaction時改以巢狀交易(SAVEPOINT)包覆，
@@ -3161,7 +3174,7 @@ mssql因綁定參數數量上限會由驅動層自動拆為多語句送出，實
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1024">line 1024</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1074">line 1074</a>
     </li></ul></dd>
     
 
@@ -3491,13 +3504,15 @@ mssql因綁定參數數量上限會由驅動層自動拆為多語句送出，實
 註: opt.autoGenPk為true(預設)時未帶有效主鍵者自動產生，為false時未帶有效主鍵即reject且同批皆不寫入
 註: 主鍵值依主鍵欄型別正規化(字串類主鍵欄之123即'123')；型別不符(整數類主鍵欄給'012'等)屬呼叫端未履行契約，整批reject且同批皆不寫入
 註: DATE、DATEONLY欄之值換算後年份須在1–9999，範圍外或無效者(如new Date(8.64e15)、new Date(NaN))屬呼叫端未履行契約，整批reject且同批皆不寫入(含autoInsert為false而不會寫入者；不降為該筆ok為0)，
-訊息為invalid data: date is not a valid time in years 1-9999 at [data[索引].欄名]，不回顯值，兩方言一致於送出前拒收，規則同insert</p></li></ul></dd>
+訊息為invalid data: date is not a valid time in years 1-9999 at [data[索引].欄名]，不回顯值，兩方言一致於送出前拒收，規則同insert
+註: 主鍵與數據之字串須良構(孤立代理碼元、主鍵之NUL；規則同insert, 第66項, R13)，但不合格者為該筆失敗而非整批reject：該筆ok為0並附err(invalid id: 原因 at [data[索引].主鍵欄]或invalid data: 原因 at [data[索引].路徑]，不回顯值)，
+不讀取資料庫、不寫入(含autoInsert為false)，同批其他筆照常處理；不隨opt.autoGenPk改變。全部筆數皆不合格時不連線</p></li></ul></dd>
     
 
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1362">line 1362</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1424">line 1424</a>
     </li></ul></dd>
     
 
@@ -3881,7 +3896,7 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line604">line 604</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line636">line 636</a>
     </li></ul></dd>
     
 
@@ -4206,6 +4221,7 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
     <dd class="tag-description"><ul class="dummy"><li><p>由主鍵查詢單筆數據，因由資料庫依主鍵索引取值且僅回傳單筆，不需如select提取全部符合數據再處理，故數據量大時效能較佳</p>
 <p>註: 主鍵欄位取自opt.pk，預設為id，支援由呼叫端指定
 註: 主鍵未命中或主鍵值無效皆回傳null而不reject，[命中]之判定基準與insert、save、del內對既有數據之認定一致
+註: 含孤立代理碼元或NUL之字串主鍵(含new String包裝者)為無效而回傳null，不連線、不送查詢(第66項, R13): UTF-8存放之資料庫會把孤立代理碼元改寫為U+FFFD，若照送會命中他筆
 註: 主鍵值依主鍵欄型別正規化後查詢: 字串類主鍵欄之有限數字以String(v)處置(selectByPk(123)即查'123'), 整數類主鍵欄之標準整數寫法字串轉為數值;
 型別不符(整數類主鍵欄給'012'、12.4、'abc'等)亦屬主鍵值無效而回傳null
 註: 本函數不得有副作用，故不創建資料表</p></li></ul></dd>
@@ -4214,7 +4230,7 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line709">line 709</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line742">line 742</a>
     </li></ul></dd>
     
 
@@ -4540,7 +4556,7 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Tue Oct 20 2026 04:13:54 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Wed Oct 21 2026 00:55:02 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
 </footer>
 
 <script>prettyPrint();</script>
