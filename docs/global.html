@@ -29,7 +29,7 @@
 <nav >
     
     
-    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="WOrmReladb.html">WOrmReladb</a><ul class='methods'><li data-type='method'><a href="WOrmReladb.html#.closeSequelize">closeSequelize</a></li><li data-type='method'><a href="WOrmReladb.html#.createStorage">createStorage</a></li><li data-type='method'><a href="WOrmReladb.html#.del">del</a></li><li data-type='method'><a href="WOrmReladb.html#.delAll">delAll</a></li><li data-type='method'><a href="WOrmReladb.html#.genModelsByDB">genModelsByDB</a></li><li data-type='method'><a href="WOrmReladb.html#.genModelsByTabs">genModelsByTabs</a></li><li data-type='method'><a href="WOrmReladb.html#.genTransaction">genTransaction</a></li><li data-type='method'><a href="WOrmReladb.html#.initSequelize">initSequelize</a></li><li data-type='method'><a href="WOrmReladb.html#.insert">insert</a></li><li data-type='method'><a href="WOrmReladb.html#.insertBulk">insertBulk</a></li><li data-type='method'><a href="WOrmReladb.html#.save">save</a></li><li data-type='method'><a href="WOrmReladb.html#.select">select</a></li><li data-type='method'><a href="WOrmReladb.html#.selectByPk">selectByPk</a></li></ul></li></ul><h3>Global</h3><ul><li><a href="global.html#cvFind">cvFind</a></li><li><a href="global.html#genDateChecker">genDateChecker</a></li><li><a href="global.html#getColKind">getColKind</a></li><li><a href="global.html#getColScale">getColScale</a></li><li><a href="global.html#importModels">importModels</a></li><li><a href="global.html#inDateRange">inDateRange</a></li><li><a href="global.html#isKindOk">isKindOk</a></li><li><a href="global.html#normPk">normPk</a></li></ul>
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="WOrmReladb.html">WOrmReladb</a><ul class='methods'><li data-type='method'><a href="WOrmReladb.html#.closeSequelize">closeSequelize</a></li><li data-type='method'><a href="WOrmReladb.html#.createStorage">createStorage</a></li><li data-type='method'><a href="WOrmReladb.html#.del">del</a></li><li data-type='method'><a href="WOrmReladb.html#.delAll">delAll</a></li><li data-type='method'><a href="WOrmReladb.html#.genModelsByDB">genModelsByDB</a></li><li data-type='method'><a href="WOrmReladb.html#.genModelsByTabs">genModelsByTabs</a></li><li data-type='method'><a href="WOrmReladb.html#.genTransaction">genTransaction</a></li><li data-type='method'><a href="WOrmReladb.html#.initSequelize">initSequelize</a></li><li data-type='method'><a href="WOrmReladb.html#.insert">insert</a></li><li data-type='method'><a href="WOrmReladb.html#.insertBulk">insertBulk</a></li><li data-type='method'><a href="WOrmReladb.html#.save">save</a></li><li data-type='method'><a href="WOrmReladb.html#.select">select</a></li><li data-type='method'><a href="WOrmReladb.html#.selectByPk">selectByPk</a></li></ul></li></ul><h3>Global</h3><ul><li><a href="global.html#chkPkWf">chkPkWf</a></li><li><a href="global.html#chkWf">chkWf</a></li><li><a href="global.html#cvFind">cvFind</a></li><li><a href="global.html#genDateChecker">genDateChecker</a></li><li><a href="global.html#getColKind">getColKind</a></li><li><a href="global.html#getColScale">getColScale</a></li><li><a href="global.html#importModels">importModels</a></li><li><a href="global.html#inDateRange">inDateRange</a></li><li><a href="global.html#isKindOk">isKindOk</a></li><li><a href="global.html#normPk">normPk</a></li></ul>
     
 </nav>
 
@@ -130,6 +130,380 @@
 
     
 
+    <h4 class="name" id="chkPkWf"><span class="type-signature"></span>chkPkWf<span class="signature">(v)</span><span class="type-signature"> &rarr; {String|null}</span></h4>
+
+    
+
+
+
+
+<dl class="details">
+    
+    <dt class="tag-description">Description:</dt>
+    <dd class="tag-description"><ul class="dummy"><li><p>檢核主鍵值之字串良構: 字串(含new String之原始值)不得含孤立代理碼元或NUL(第66項, R13)</p>
+<p>註: 判定單一出處為wsemi之chkOrmStr(預設連NUL一併檢查, 主鍵與條件側同標準); 非字串回傳null(其有效性由normPk判定)
+註: 先依normPk同一規則拆包裝物件(new String), 令其與原始字串同處置</p></li></ul></dd>
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="cvFind.mjs.html">cvFind.mjs</a>, <a href="cvFind.mjs.html#line637">line 637</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+    <h5 class="h5-parameters">Parameters:</h5>
+    
+
+<table class="params">
+    <thead>
+    <tr>
+        
+        <th>Name</th>
+        
+
+        <th>Type</th>
+
+        
+
+        
+
+        <th class="last">Description</th>
+    </tr>
+    </thead>
+
+    <tbody>
+    
+
+        <tr>
+            
+                <td class="name"><code>v</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">*</span>
+
+
+
+            
+            </td>
+
+            
+
+            
+
+            <td class="description last"><p>輸入主鍵值</p></td>
+        </tr>
+
+    
+    </tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<h5 class="h5-returns">Returns:</h5>
+
+        
+<div class="param-desc">
+    <p>回傳null(非字串或合格)，或固定原因字串'string contains lone surrogate'、'string contains NUL'</p>
+</div>
+
+
+
+<dl class="param-type">
+    <dt>
+        Type
+    </dt>
+    <dd>
+        
+<span class="param-type">String</span>
+|
+
+<span class="param-type">null</span>
+
+
+
+    </dd>
+</dl>
+
+    
+
+
+
+        
+            
+
+    
+
+    <h4 class="name" id="chkWf"><span class="type-signature"></span>chkWf<span class="signature">(data, pk, withData)</span><span class="type-signature"> &rarr; {Array}</span></h4>
+
+    
+
+
+
+
+<dl class="details">
+    
+    <dt class="tag-description">Description:</dt>
+    <dd class="tag-description"><ul class="dummy"><li><p>逐筆檢核寫入數據之字串良構(第66項, R13), 回傳與輸入等長之訊息陣列</p>
+<p>註: 輸入須為呼叫端數據之cloneDeep複本(檢查之值即使用之值): 本函數對各筆先檢主鍵再(withData為true時)檢資料, 同筆內主鍵先於資料,
+資料由wsemi之chkOrmData走訪(鍵名先於值, 含巢狀物件、陣列元素、Map/Set等實存內容; 不論欄位是否在model內, 檢核先於欄位過濾)
+註: 訊息為固定詞彙且不回顯值: invalid id: &lt;原因&gt; at [data[&lt;索引&gt;].&lt;主鍵欄&gt;]、invalid data: &lt;原因&gt; at [&lt;路徑&gt;]; 合格者為null
+註: 主鍵值為包裝物件(new String、new Number)且合格者, 將原始值(字串或數值)寫回複本, 令其後之正規化讀到的即本函數所檢查者(包裝物件之valueOf只求值一次)
+註: 資料之NUL不檢查(值之NUL不拒, 僅主鍵拒NUL)</p></li></ul></dd>
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="cvFind.mjs.html">cvFind.mjs</a>, <a href="cvFind.mjs.html#line660">line 660</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+    <h5 class="h5-parameters">Parameters:</h5>
+    
+
+<table class="params">
+    <thead>
+    <tr>
+        
+        <th>Name</th>
+        
+
+        <th>Type</th>
+
+        
+
+        
+
+        <th class="last">Description</th>
+    </tr>
+    </thead>
+
+    <tbody>
+    
+
+        <tr>
+            
+                <td class="name"><code>data</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">Array</span>
+
+
+
+            
+            </td>
+
+            
+
+            
+
+            <td class="description last"><p>輸入數據陣列(已cloneDeep)</p></td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>pk</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">String</span>
+
+
+
+            
+            </td>
+
+            
+
+            
+
+            <td class="description last"><p>輸入主鍵欄位名</p></td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>withData</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">Boolean</span>
+
+
+
+            
+            </td>
+
+            
+
+            
+
+            <td class="description last"><p>輸入是否一併檢核資料(false只檢主鍵, 供del)</p></td>
+        </tr>
+
+    
+    </tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<h5 class="h5-returns">Returns:</h5>
+
+        
+<div class="param-desc">
+    <p>回傳訊息陣列，合格者為null</p>
+</div>
+
+
+
+<dl class="param-type">
+    <dt>
+        Type
+    </dt>
+    <dd>
+        
+<span class="param-type">Array</span>
+
+
+
+    </dd>
+</dl>
+
+    
+
+
+
+        
+            
+
+    
+
     <h4 class="name" id="cvFind"><span class="type-signature"></span>cvFind<span class="signature">(find, ctx)</span><span class="type-signature"> &rarr; {Object}</span></h4>
 
     
@@ -150,7 +524,7 @@ $eq $ne $gt $gte $lt $lte(純量)、$in $nin(純量陣列)、$and $or(條件物�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="cvFind.mjs.html">cvFind.mjs</a>, <a href="cvFind.mjs.html#line851">line 851</a>
+        <a href="cvFind.mjs.html">cvFind.mjs</a>, <a href="cvFind.mjs.html#line924">line 924</a>
     </li></ul></dd>
     
 
@@ -535,7 +909,7 @@ $eq $ne $gt $gte $lt $lte(純量)、$in $nin(純量陣列)、$and $or(條件物�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="cvFind.mjs.html">cvFind.mjs</a>, <a href="cvFind.mjs.html#line415">line 415</a>
+        <a href="cvFind.mjs.html">cvFind.mjs</a>, <a href="cvFind.mjs.html#line419">line 419</a>
     </li></ul></dd>
     
 
@@ -693,7 +1067,7 @@ $eq $ne $gt $gte $lt $lte(純量)、$in $nin(純量陣列)、$and $or(條件物�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="cvFind.mjs.html">cvFind.mjs</a>, <a href="cvFind.mjs.html#line159">line 159</a>
+        <a href="cvFind.mjs.html">cvFind.mjs</a>, <a href="cvFind.mjs.html#line163">line 163</a>
     </li></ul></dd>
     
 
@@ -875,7 +1249,7 @@ $eq $ne $gt $gte $lt $lte(純量)、$in $nin(純量陣列)、$and $or(條件物�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="cvFind.mjs.html">cvFind.mjs</a>, <a href="cvFind.mjs.html#line454">line 454</a>
+        <a href="cvFind.mjs.html">cvFind.mjs</a>, <a href="cvFind.mjs.html#line458">line 458</a>
     </li></ul></dd>
     
 
@@ -1457,7 +1831,7 @@ $eq $ne $gt $gte $lt $lte(純量)、$in $nin(純量陣列)、$and $or(條件物�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="cvFind.mjs.html">cvFind.mjs</a>, <a href="cvFind.mjs.html#line341">line 341</a>
+        <a href="cvFind.mjs.html">cvFind.mjs</a>, <a href="cvFind.mjs.html#line345">line 345</a>
     </li></ul></dd>
     
 
@@ -1618,7 +1992,7 @@ $eq $ne $gt $gte $lt $lte(純量)、$in $nin(純量陣列)、$and $or(條件物�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="cvFind.mjs.html">cvFind.mjs</a>, <a href="cvFind.mjs.html#line476">line 476</a>
+        <a href="cvFind.mjs.html">cvFind.mjs</a>, <a href="cvFind.mjs.html#line480">line 480</a>
     </li></ul></dd>
     
 
@@ -1803,13 +2177,15 @@ $eq $ne $gt $gte $lt $lte(純量)、$in $nin(純量陣列)、$and $or(條件物�
 註: 其他數值類主鍵欄收有限數值與標準數字字串(轉為數值), 其他字串視為型別不符;
 DECIMAL主鍵欄之值小數位多於scale者寫入時會被四捨五入而改變鍵(mssql之DECIMAL(10,2)存1.254為1.25, insert回報已存在而selectByPk(1.254)回null), 視為型別不符
 註: 其他型別之主鍵欄不檢型別, 收非空字串與有限數值
-註: NaN、±Infinity、空字串、布林、物件、陣列、Date、BigInt、null、undefined為無效</p></li></ul></dd>
+註: NaN、±Infinity、空字串、布林、物件、陣列、Date、BigInt、null、undefined為無效
+註: 含孤立代理碼元或NUL之字串為無效(第66項, R13; 與條件側同標準): UTF-8存放之資料庫會把孤立代理碼元改寫為U+FFFD而使不同主鍵寫成同一鍵,
+回傳形狀不變({kind:'invalid'}), 故沿用各呼叫端對無效主鍵之既有處置; 需區辨[未給]與[不合格字串]者(autoGenPk不得以自動產生之主鍵取代呼叫端所給之不合格字串)用chkPkWf</p></li></ul></dd>
     
 
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="cvFind.mjs.html">cvFind.mjs</a>, <a href="cvFind.mjs.html#line569">line 569</a>
+        <a href="cvFind.mjs.html">cvFind.mjs</a>, <a href="cvFind.mjs.html#line575">line 575</a>
     </li></ul></dd>
     
 
@@ -2061,7 +2437,7 @@ DECIMAL主鍵欄之值小數位多於scale者寫入時會被四捨五入而改�
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Tue Oct 20 2026 04:13:54 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Wed Oct 21 2026 00:55:02 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
 </footer>
 
 <script>prettyPrint();</script>

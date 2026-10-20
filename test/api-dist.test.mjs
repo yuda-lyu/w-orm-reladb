@@ -95,6 +95,34 @@ describe('dist (installed layout)', function() {
         assert.deepStrictEqual(errs, [])
     })
 
+    it('字串良構(R13): 經dist使用時, 孤立代理之主鍵與資料整批reject、selectByPk回null、建構時opt含孤立代理throw, 良構字串(含emoji)照常', async function() {
+        //wsemi之chkOrmStr、chkOrmData隨dist打包(純JS), 須在打包與轉譯後仍判定正確
+        let w = wo({ url: 'sqlite://:', db: 'worm', cl: 'users', fdModels, storage: `${fd}/wf.sqlite` })
+        let errs = []
+        w.on('error', (mode, data, err) => {
+            errs.push([mode, err])
+        })
+        assert.strictEqual(await w.createStorage(), 'created')
+
+        let msgOf = (err) => String(err && err.message !== undefined ? err.message : err)
+        let r1 = await w.insert([{ id: 'ok1', name: 'A' }, { id: 'a\uD800', name: 'B' }]).then((v) => ({ v }), (err) => ({ err }))
+        assert.strictEqual(msgOf(r1.err), 'invalid id: string contains lone surrogate at [data[1].id]')
+        let r2 = await w.insertBulk([{ id: 'ok2', name: 'x\uDC00' }]).then((v) => ({ v }), (err) => ({ err }))
+        assert.strictEqual(msgOf(r2.err), 'invalid data: string contains lone surrogate at [data[0].name]')
+        let r3 = await w.insert([{ id: 'ok3', name: 'A', meta: { tags: ['a', 'b\uD800'] } }]).then((v) => ({ v }), (err) => ({ err }))
+        assert.strictEqual(msgOf(r3.err), 'invalid data: string contains lone surrogate at [data[0].meta.tags[1]]')
+        assert.deepStrictEqual(errs.map((v) => v[0]), ['insert', 'insertBulk', 'insert'])
+        assert.deepStrictEqual(await w.select(), [], '整批reject不寫入任何一筆')
+
+        let rs = await w.save([{ id: 'a\u0000b', name: 'x' }, { id: 'e😀', name: 'emoji' }])
+        assert.deepStrictEqual(rs.map((v) => v.ok), [0, 1])
+        assert.strictEqual(rs[0].err, 'invalid id: string contains NUL at [data[0].id]')
+        assert.strictEqual(await w.selectByPk('e\uD83D'), null)
+        assert.deepStrictEqual(await w.selectByPk('e😀'), { id: 'e😀', name: 'emoji', value: null })
+
+        assert.throws(() => wo({ url: 'sqlite://:', db: 'worm', cl: 'users\uD800', fdModels }), (err) => msgOf(err) === 'invalid opt.cl: string contains lone surrogate')
+    })
+
     it('json型model(對照): createStorage、insert、select皆成功且不發error事件', async function() {
         //rulebook R10: 兩種modelType經main皆須可用; json型不經requireModel, 修正前即可用
         let w = wo({ url: 'sqlite://:', db: 'worm', cl: 'users', fdModels, modelType: 'json', storage: `${fd}/json.sqlite` })

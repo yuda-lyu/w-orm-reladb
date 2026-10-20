@@ -1214,4 +1214,16 @@ describe('normPk', function() {
         }
     })
 
+    it('R13 字串良構: 孤立代理碼元與NUL之字串於各型別主鍵欄皆為無效(含包裝物件), 良構之U+FFFD與成對代理照常(第66項, 與條件側同標準)', function() {
+        for (let kind of ['str', 'int', 'num', 'date', 'any']) {
+            for (let v of ['a\uD800', '\uDC00', 'x\uD800y', 'a\uDC00\uD800', 'a\u0000b', '\u0000', Object('a\uD800'), Object('a\u0000')]) {
+                no(v, kind, 'invalid')
+            }
+        }
+        ok('a\uFFFDb', 'str', 'a\uFFFDb')
+        ok('a😀b', 'str', 'a😀b')
+        ok('a😀b', 'date', 'a😀b')
+        ok(Object('a\uFFFDb'), 'str', 'a\uFFFDb')
+    })
+
 })

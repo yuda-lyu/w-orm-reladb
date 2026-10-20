@@ -1,5 +1,8 @@
 import Sequelize from 'sequelize'
+import get from 'lodash-es/get.js'
 import cvOrmFind from 'wsemi/src/cvOrmFind.mjs'
+import chkOrmStr from 'wsemi/src/chkOrmStr.mjs'
+import chkOrmData from 'wsemi/src/chkOrmData.mjs'
 
 
 //查詢條件(find)之轉譯, 供select與delAll共用, 令同一find於兩函數由同一SQL謂詞決定命中
@@ -13,6 +16,7 @@ import cvOrmFind from 'wsemi/src/cvOrmFind.mjs'
 //不得供破壞性之delAll使用, 1.1.7起改自寫白名單; 第33項批1起形狀層改由cvOrmFind單一擁有, 本模組刪除Symbol/Op全集、$not $nor $regex $options $exists、
 //RegExp值、陣列值即$in、非物件視為{}等形狀層(破壞性變更見CLAUDE_rulebook.md與README)
 //主鍵值之正規化(normPk)亦屬本模組, 供主鍵函數與主鍵欄條件共用, 規則見R8
+//寫入側之字串良構檢核(chkPkWf、chkWf, 規則見R13)亦屬本模組: 字串之判定單一出處為wsemi之chkOrmStr、chkOrmData, 本模組只負責接線與訊息組裝
 
 
 //Op
@@ -560,6 +564,8 @@ function unwrap(v) {
  * DECIMAL主鍵欄之值小數位多於scale者寫入時會被四捨五入而改變鍵(mssql之DECIMAL(10,2)存1.254為1.25, insert回報已存在而selectByPk(1.254)回null), 視為型別不符
  * 註: 其他型別之主鍵欄不檢型別, 收非空字串與有限數值
  * 註: NaN、±Infinity、空字串、布林、物件、陣列、Date、BigInt、null、undefined為無效
+ * 註: 含孤立代理碼元或NUL之字串為無效(第66項, R13; 與條件側同標準): UTF-8存放之資料庫會把孤立代理碼元改寫為U+FFFD而使不同主鍵寫成同一鍵,
+ * 回傳形狀不變({kind:'invalid'}), 故沿用各呼叫端對無效主鍵之既有處置; 需區辨[未給]與[不合格字串]者(autoGenPk不得以自動產生之主鍵取代呼叫端所給之不合格字串)用chkPkWf
  *
  * @param {*} v 輸入主鍵值
  * @param {String} kind 輸入主鍵欄之型別分類, 取自getColKind
@@ -574,6 +580,9 @@ function normPk(v, kind, scale = null) {
     //string
     if (typeof v === 'string') {
         if (v === '') {
+            return { kind: 'invalid' }
+        }
+        if (chkOrmStr(v) !== null) {
             return { kind: 'invalid' }
         }
         if (kind === 'int') {
@@ -614,6 +623,70 @@ function normPk(v, kind, scale = null) {
 
     return { kind: 'invalid' }
 }
+
+
+/**
+ * 檢核主鍵值之字串良構: 字串(含new String之原始值)不得含孤立代理碼元或NUL(第66項, R13)
+ *
+ * 註: 判定單一出處為wsemi之chkOrmStr(預設連NUL一併檢查, 主鍵與條件側同標準); 非字串回傳null(其有效性由normPk判定)
+ * 註: 先依normPk同一規則拆包裝物件(new String), 令其與原始字串同處置
+ *
+ * @param {*} v 輸入主鍵值
+ * @returns {String|null} 回傳null(非字串或合格)，或固定原因字串'string contains lone surrogate'、'string contains NUL'
+ */
+function chkPkWf(v) {
+    v = unwrap(v)
+    if (typeof v !== 'string') {
+        return null
+    }
+    return chkOrmStr(v)
+}
+
+
+/**
+ * 逐筆檢核寫入數據之字串良構(第66項, R13), 回傳與輸入等長之訊息陣列
+ *
+ * 註: 輸入須為呼叫端數據之cloneDeep複本(檢查之值即使用之值): 本函數對各筆先檢主鍵再(withData為true時)檢資料, 同筆內主鍵先於資料,
+ * 資料由wsemi之chkOrmData走訪(鍵名先於值, 含巢狀物件、陣列元素、Map/Set等實存內容; 不論欄位是否在model內, 檢核先於欄位過濾)
+ * 註: 訊息為固定詞彙且不回顯值: invalid id: <原因> at [data[<索引>].<主鍵欄>]、invalid data: <原因> at [<路徑>]; 合格者為null
+ * 註: 主鍵值為包裝物件(new String、new Number)且合格者, 將原始值(字串或數值)寫回複本, 令其後之正規化讀到的即本函數所檢查者(包裝物件之valueOf只求值一次)
+ * 註: 資料之NUL不檢查(值之NUL不拒, 僅主鍵拒NUL)
+ *
+ * @param {Array} data 輸入數據陣列(已cloneDeep)
+ * @param {String} pk 輸入主鍵欄位名
+ * @param {Boolean} withData 輸入是否一併檢核資料(false只檢主鍵, 供del)
+ * @returns {Array} 回傳訊息陣列，合格者為null
+ */
+function chkWf(data, pk, withData) {
+    let msgs = []
+    for (let k = 0; k < data.length; k++) {
+        let v = data[k]
+        let msg = null
+
+        //pk, 主鍵先於資料; 包裝物件之valueOf只讀取一次(u為原始值), 合格者寫回複本
+        let pv = get(v, pk)
+        let u = unwrap(pv)
+        let why = chkPkWf(u)
+        if (why !== null) {
+            msg = `invalid id: ${why} at [data[${k}].${pk}]`
+        }
+        else if (u !== pv && (typeof u === 'string' || typeof u === 'number') && v !== null && typeof v === 'object') {
+            v[pk] = u
+        }
+
+        //data
+        if (msg === null && withData) {
+            let r = chkOrmData(v, { root: `data[${k}]` })
+            if (r !== null) {
+                msg = `invalid data: ${r.reason} at [${r.path}]`
+            }
+        }
+
+        msgs.push(msg)
+    }
+    return msgs
+}
+
 
 /**
  * 檢核純量值: 字串、有限數值、布林、有效Date, 以及null(是否允許null已由cvOrmFind依運算子判定); 並須符合欄位型別分類
@@ -873,5 +946,5 @@ function cvFind(find, ctx) {
 }
 
 
-export { getColKind, getColScale, normPk, chkFindShape, inDateRange, genDateChecker }
+export { getColKind, getColScale, normPk, chkPkWf, chkWf, chkFindShape, inDateRange, genDateChecker }
 export default cvFind
