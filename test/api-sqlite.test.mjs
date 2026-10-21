@@ -3,6 +3,9 @@ import { defineSuites } from './api-suite.mjs'
 import { defineWhitelistSuites } from './api-find-whitelist.mjs'
 import { defineDateWriteSuites } from './api-date-write.mjs'
 import { defineWellformedSuites } from './api-wellformed.mjs'
+import { defineLowerCaseSuites } from './api-lower-cases.mjs'
+import { defineScopeSuites } from './api-scope.mjs'
+import { defineFloatSuites } from './api-float.mjs'
 
 
 //sqlite使用獨立暫存storage檔測試, 不使用專案根目錄之worm.sqlite
@@ -46,3 +49,6 @@ defineSuites('sqlite', getOpt)
 defineWhitelistSuites('sqlite', getOpt)
 defineDateWriteSuites('sqlite', getOpt)
 defineWellformedSuites('sqlite', getOpt)
+defineLowerCaseSuites('sqlite', getOpt)
+defineScopeSuites('sqlite', getOpt)
+defineFloatSuites('sqlite', getOpt)

@@ -5,6 +5,9 @@ import { defineSuites } from './api-suite.mjs'
 import { defineWhitelistSuites } from './api-find-whitelist.mjs'
 import { defineDateWriteSuites } from './api-date-write.mjs'
 import { defineWellformedSuites } from './api-wellformed.mjs'
+import { defineLowerCaseSuites } from './api-lower-cases.mjs'
+import { defineScopeSuites } from './api-scope.mjs'
+import { defineFloatSuites } from './api-float.mjs'
 
 
 //測試自行創建docker容器供MSSQL服務, 測試結束即銷毀, 故僅需環境已安裝docker
@@ -151,3 +154,6 @@ defineSuites('mssql', getOpt)
 defineWhitelistSuites('mssql', getOpt)
 defineDateWriteSuites('mssql', getOpt)
 defineWellformedSuites('mssql', getOpt)
+defineLowerCaseSuites('mssql', getOpt)
+defineScopeSuites('mssql', getOpt)
+defineFloatSuites('mssql', getOpt)

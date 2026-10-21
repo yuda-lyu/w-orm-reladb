@@ -29,7 +29,7 @@
 <nav >
     
     
-    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="WOrmReladb.html">WOrmReladb</a><ul class='methods'><li data-type='method'><a href="WOrmReladb.html#.closeSequelize">closeSequelize</a></li><li data-type='method'><a href="WOrmReladb.html#.createStorage">createStorage</a></li><li data-type='method'><a href="WOrmReladb.html#.del">del</a></li><li data-type='method'><a href="WOrmReladb.html#.delAll">delAll</a></li><li data-type='method'><a href="WOrmReladb.html#.genModelsByDB">genModelsByDB</a></li><li data-type='method'><a href="WOrmReladb.html#.genModelsByTabs">genModelsByTabs</a></li><li data-type='method'><a href="WOrmReladb.html#.genTransaction">genTransaction</a></li><li data-type='method'><a href="WOrmReladb.html#.initSequelize">initSequelize</a></li><li data-type='method'><a href="WOrmReladb.html#.insert">insert</a></li><li data-type='method'><a href="WOrmReladb.html#.insertBulk">insertBulk</a></li><li data-type='method'><a href="WOrmReladb.html#.save">save</a></li><li data-type='method'><a href="WOrmReladb.html#.select">select</a></li><li data-type='method'><a href="WOrmReladb.html#.selectByPk">selectByPk</a></li></ul></li></ul><h3>Global</h3><ul><li><a href="global.html#chkPkWf">chkPkWf</a></li><li><a href="global.html#chkWf">chkWf</a></li><li><a href="global.html#cvFind">cvFind</a></li><li><a href="global.html#genDateChecker">genDateChecker</a></li><li><a href="global.html#getColKind">getColKind</a></li><li><a href="global.html#getColScale">getColScale</a></li><li><a href="global.html#importModels">importModels</a></li><li><a href="global.html#inDateRange">inDateRange</a></li><li><a href="global.html#isKindOk">isKindOk</a></li><li><a href="global.html#normPk">normPk</a></li></ul>
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="WOrmReladb.html">WOrmReladb</a><ul class='methods'><li data-type='method'><a href="WOrmReladb.html#.closeSequelize">closeSequelize</a></li><li data-type='method'><a href="WOrmReladb.html#.createStorage">createStorage</a></li><li data-type='method'><a href="WOrmReladb.html#.del">del</a></li><li data-type='method'><a href="WOrmReladb.html#.delAll">delAll</a></li><li data-type='method'><a href="WOrmReladb.html#.genModelsByDB">genModelsByDB</a></li><li data-type='method'><a href="WOrmReladb.html#.genModelsByTabs">genModelsByTabs</a></li><li data-type='method'><a href="WOrmReladb.html#.genTransaction">genTransaction</a></li><li data-type='method'><a href="WOrmReladb.html#.initSequelize">initSequelize</a></li><li data-type='method'><a href="WOrmReladb.html#.insert">insert</a></li><li data-type='method'><a href="WOrmReladb.html#.insertBulk">insertBulk</a></li><li data-type='method'><a href="WOrmReladb.html#.save">save</a></li><li data-type='method'><a href="WOrmReladb.html#.select">select</a></li><li data-type='method'><a href="WOrmReladb.html#.selectByPk">selectByPk</a></li></ul></li></ul><h3>Global</h3><ul><li><a href="global.html#chkPkWf">chkPkWf</a></li><li><a href="global.html#chkWf">chkWf</a></li><li><a href="global.html#cvFind">cvFind</a></li><li><a href="global.html#genDateChecker">genDateChecker</a></li><li><a href="global.html#getColKind">getColKind</a></li><li><a href="global.html#getColScale">getColScale</a></li><li><a href="global.html#importModels">importModels</a></li><li><a href="global.html#inDateRange">inDateRange</a></li><li><a href="global.html#isKindOk">isKindOk</a></li><li><a href="global.html#normPk">normPk</a></li><li><a href="global.html#toFloating">toFloating</a></li></ul>
     
 </nav>
 
@@ -159,6 +159,90 @@ function parseNoTzLocal(s) {
         return null //本地時間通過回驗, 但換算UTC後年份超出1–9999(如負偏移時區之9999-12-31晚間)
     }
     return t
+}
+
+
+/**
+ * 以UTC分量建構Date(牆上時間分量作為UTC瞬間, 即浮動時間), 曆法上不存在或年不在1–9999者回傳null
+ * 註: 以setUTCFullYear設定完整年份(Date.UTC把0–99年映射為1900–1999); 逐欄回驗, 如2026-02-30、24:00:00、60秒皆為null; 與主機時區無關(夏令跳過之時刻在浮動空間亦合法)
+ *
+ * @ignore
+ */
+function utcOfParts(y, mo, d, h, mi, sec, ms) {
+    let t = new Date(0)
+    t.setUTCFullYear(y, mo - 1, d)
+    t.setUTCHours(h, mi, sec, ms)
+    if (t.getUTCFullYear() !== y || t.getUTCMonth() !== mo - 1 || t.getUTCDate() !== d || t.getUTCHours() !== h || t.getUTCMinutes() !== mi || t.getUTCSeconds() !== sec || t.getUTCMilliseconds() !== ms) {
+        return null
+    }
+    return inYearRange(y) ? t : null
+}
+
+
+//內建Date.prototype之getTime與本地分量getter, 供toFloating讀Date之內部時間與本地分量(載入時取得, 以call呼叫, 不受後續對原型或物件之覆寫影響)
+let dateGetTime = Date.prototype.getTime
+let dateGetYear = Date.prototype.getFullYear
+let dateGetMonth = Date.prototype.getMonth
+let dateGetDate = Date.prototype.getDate
+let dateGetHours = Date.prototype.getHours
+let dateGetMinutes = Date.prototype.getMinutes
+let dateGetSeconds = Date.prototype.getSeconds
+let dateGetMs = Date.prototype.getMilliseconds
+
+
+/**
+ * toFloating之本體, 可能因敵意輸入(如getPrototypeOf陷阱拋錯之Proxy)而拋錯, 由toFloating統一轉為null
+ *
+ * @ignore
+ */
+function floatOf(v) {
+    let inst = null
+    if (typeof v === 'string') {
+        let m = v.match(reIsoNoTz)
+        if (m !== null) {
+            let ms = m[7] === undefined ? 0 : Number(`${m[7]}00`.slice(0, 3))
+            return utcOfParts(Number(m[1]), Number(m[2]), Number(m[3]), Number(m[4]), Number(m[5]), m[6] === undefined ? 0 : Number(m[6]), ms)
+        }
+        let mt = v.match(reIsoTz)
+        if (mt === null || !isCalendarDate(mt[1], mt[2], mt[3])) {
+            return null
+        }
+        inst = new Date(Date.parse(v.replace(' ', 'T')))
+    }
+    else if (typeof v === 'number') {
+        inst = new Date(v)
+    }
+    else if (typeof v === 'object' &amp;&amp; v !== null) {
+        //Date以內建getTime讀其內部時間(跨realm之Date亦可; 非Date拋TypeError, 由toFloating轉為null), 並建普通Date複本取本地分量,
+        //不使用物件自有或原型上可被覆寫之getTime與本地getter(與條件側經cvOrmFind複製Date同, 兩側認定一致)
+        inst = new Date(dateGetTime.call(v))
+    }
+    if (inst === null || isNaN(dateGetTime.call(inst))) {
+        return null
+    }
+    return utcOfParts(dateGetYear.call(inst), dateGetMonth.call(inst) + 1, dateGetDate.call(inst), dateGetHours.call(inst), dateGetMinutes.call(inst), dateGetSeconds.call(inst), dateGetMs.call(inst))
+}
+
+
+/**
+ * 將DATE欄條件值換算為浮動時間(牆上時間分量作為UTC瞬間), 不合法者回傳null; 供ctx.dateNoTz為'floating'時條件側使用, 亦供呼叫端將後端回傳之牆上時間建為記憶體表之DATE值
+ * 註: 無時區字串(文法同'local': YYYY-MM-DD[T或單一空白]HH:mm[:ss[.小數]], 純日期不收)直接取其分量, 不經主機時區;
+ * Date、epoch與帶時區之ISO字串先得瞬間, 再取其於主機時區之本地分量(Jet等後端將本地分量視為牆上時間), 故new Date(2026,0,1)(本地午夜)恆為2026-01-01T00:00:00Z之浮動值而與主機時區無關
+ * 註: 契約(CLAUDE_rulebook.md之R14): ①編碼後之浮動Date/epoch不可再當'floating'條件輸入(Date一律被當作瞬間取本地分量, 再次輸入即二次位移);
+ * ②回傳null者呼叫端須整批拒收, 不得以原值或NULL代入(NULL使該列於範圍條件不命中、IS NULL命中, 與要修之誤刪同型);
+ * ③條件側走'floating'與數據側經本函數須同進同退, 混用之後果為靜默誤命中(資料遺失類)
+ * 註: 不拋錯(不合法者一律回傳null); 小數秒取前三位(截斷至毫秒); 牆上年須在1–9999
+ *
+ * @param {Date|Number|String} v 輸入Date、epoch數值或字串
+ * @returns {Date|null} 回傳浮動時間之Date, 不合法者回傳null
+ */
+function toFloating(v) {
+    try {
+        return floatOf(v)
+    }
+    catch (e) {
+        return null
+    }
 }
 
 
@@ -742,6 +826,7 @@ function chkWf(data, pk, withData) {
  * 註: 主鍵欄(pk為true)之字串類、整數類與其他數值類以normPk正規化後回傳(如字串類主鍵欄之123即'123'), 無效或型別不符者拒收,
  * 令select與delAll對主鍵之認定與selectByPk、del等主鍵函數一致; 非主鍵欄不轉型
  * 註: kind為date且呼叫端以ctx.dateNoTz明示'local'(dateNoTz為'local')時, 無時區日期時間字串依主機時區轉為Date回傳(見parseNoTzLocal), 其餘值照舊判定
+ * 註: kind為date且dateNoTz為'floating'時, 字串、Date、epoch一律經toFloating換算為浮動時間之Date回傳(見toFloating), 不符者拒收(R14)
  *
  * @ignore
  */
@@ -768,6 +853,14 @@ function chkScalar(v, path, kind = 'any', scale = null, pk = false, dateNoTz = u
             return r.v
         }
         err(`value [${String(v)}] does not match column type [${kind}]${scale !== null ? ` with scale [${scale}]` : ''}`, path)
+    }
+    if (kind === 'date' &amp;&amp; dateNoTz === 'floating') {
+        //浮動時間(R14): 所有形式皆換算為牆上時間分量再以UTC分量建構(見toFloating), 與主機時區之UTC偏移無關; 不符者拒收
+        let t = toFloating(v)
+        if (t === null) {
+            err(`value [${String(v)}] does not match column type [${kind}]`, path)
+        }
+        return t
     }
     if (kind === 'date' &amp;&amp; dateNoTz === 'local' &amp;&amp; typeof v === 'string') {
         //呼叫端明示之無時區日期時間字串: 依主機時區解析並以Date送出, 與直接給Date同義; 不符者續由isKindOk判定(帶時區者照舊)
@@ -965,14 +1058,14 @@ function chkFindShape(find) {
  * @param {Object} [ctx.attrs] 輸入執行where之model之rawAttributes, 供欄名解析(嚴格鍵: 鍵須與屬性名或資料庫欄名完全相符, 其餘拒收)、依欄位型別檢核純量與取得實際欄名; 未給時不解析鍵、不檢型別而交資料庫(見CLAUDE_rulebook.md之R4)
  * @param {String} [ctx.dialect] 已不使用(原供判定sqlite之LOWER僅折疊ASCII), 保留接受以相容既有呼叫端
  * @param {String} [ctx.pk] 輸入主鍵欄位名, 該欄之純量條件值依normPk正規化(如字串類主鍵欄之123即'123'), 未給時不正規化
- * @param {String} [ctx.dateNoTz] 輸入無時區日期時間字串之處置, 僅接受undefined(預設, 無時區者拒收)或'local'(依主機時區解析, 與以本地時間分量建構之Date同義), 其餘值拋錯; 僅作用於DATE欄, 供Jet等無時區後端之呼叫端明示啟用
+ * @param {String} [ctx.dateNoTz] 輸入無時區日期時間字串之處置, 僅接受undefined(預設, 無時區者拒收)、'local'(依主機時區解析, 與以本地時間分量建構之Date同義)或'floating'(浮動時間: 牆上時間分量作為UTC瞬間, 見toFloating), 其餘值拋錯; 僅作用於DATE欄, 供Jet等無時區後端之呼叫端明示啟用; 'local'於負偏移時區與夏令時區有已知缺陷(見README), 此類後端請用'floating', 且數據側須同樣經toFloating
  * @returns {Object} 回傳sequelize之where物件, 條件不合法時拋出錯誤
  */
 function cvFind(find, ctx) {
 
-    //check, ctx.dateNoTz須為undefined或'local', 其餘值(含拼錯、大小寫不同)拋錯, 不靜默忽略
-    if (ctx &amp;&amp; ctx.dateNoTz !== undefined &amp;&amp; ctx.dateNoTz !== 'local') {
-        throw new Error(`invalid ctx: dateNoTz must be 'local' or undefined, got [${String(ctx.dateNoTz)}]`)
+    //check, ctx.dateNoTz須為undefined、'local'或'floating', 其餘值(含拼錯、大小寫不同)拋錯, 不靜默忽略
+    if (ctx &amp;&amp; ctx.dateNoTz !== undefined &amp;&amp; ctx.dateNoTz !== 'local' &amp;&amp; ctx.dateNoTz !== 'floating') {
+        throw new Error(`invalid ctx: dateNoTz must be 'local', 'floating' or undefined, got [${String(ctx.dateNoTz)}]`)
     }
 
     //step1, 形狀檢核(R11), 其後一律只使用複本
@@ -993,7 +1086,7 @@ function cvFind(find, ctx) {
 }
 
 
-export { getColKind, getColScale, normPk, chkPkWf, chkWf, chkFindShape, inDateRange, genDateChecker }
+export { getColKind, getColScale, normPk, chkPkWf, chkWf, chkFindShape, inDateRange, genDateChecker, toFloating }
 export default cvFind
 </code></pre>
         </article>
@@ -1009,7 +1102,7 @@ export default cvFind
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Wed Oct 21 2026 00:55:02 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Wed Oct 21 2026 11:57:34 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
 </footer>
 
 <script>prettyPrint();</script>

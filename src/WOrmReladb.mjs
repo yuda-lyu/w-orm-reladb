@@ -350,8 +350,8 @@ function WOrmReladb(opt = {}) {
      * 兩者命中之數據不同而會刪錯列, 故delAll遇此類model即拒絕
      * 註: defaultScope帶group或having時, findAll套用而destroy不套用(having過濾後只回部分列, 卻刪除全部符合where者);
      * 帶非空之include時, findAll以INNER JOIN篩列(required)而destroy不JOIN; 兩者亦拒絕
-     * 註: defaultScope.where含Op.and時, sequelize以Object.assign合併scope與cvFind輸出之where, 後者頂層恆為Op.and而覆寫scope之條件(select與delAll皆然),
-     * delAll會刪到scope範圍外之列, 故拒絕; 其他鍵(含Op.or)與cvFind輸出之Op.and並存而以AND結合, 不受影響
+     * 註: defaultScope.where含Op.and者, delAll一律拒絕(維持既有處置): 原因為sequelize預設以Object.assign合併scope與cvFind輸出之where而被頂層Op.and覆寫,
+     * delAll會刪到scope範圍外之列; 自R16起建構時設定whereMergeStrategy:'and', 兩者一律以AND結合(select亦正確套用該scope), 此拒絕為保守維持, 不再是越界之防線
      *
      * @ignore
      * @param {Object} md 輸入資料表model物件
@@ -526,7 +526,10 @@ function WOrmReladb(opt = {}) {
                 //dialectOptions: {
                 //  collate: 'utf8_general_ci'
                 //},
-                timestamps: false
+                timestamps: false,
+                //model之defaultScope.where與select、delAll等傳入之where一律以AND結合(R16): sequelize預設為overwrite, 同名頂層鍵後者覆寫,
+                //scope.where為Sequelize.literal或Sequelize.where(非一般物件)時scope直接被丟棄, 致select與delAll越出scope
+                whereMergeStrategy: 'and'
             },
             // pool: {
             //     max: 20,
@@ -558,6 +561,13 @@ function WOrmReladb(opt = {}) {
 
         //mds
         let mds = r.msg
+
+        //model自身指定whereMergeStrategy時以model選項為準而蓋過上列define預設(scope又被覆寫或丟棄), 故匯入後一律設為'and'(R16)
+        if (err === null) {
+            for (let md of Object.values(mds)) {
+                md.options.whereMergeStrategy = 'and'
+            }
+        }
 
         return {
             mds,

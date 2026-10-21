@@ -717,11 +717,12 @@ describe('cvFind 審計02', function() {
         }
     })
 
-    it('[R4 dateNoTz] 值域: undefined或\'local\', 其餘拋錯(含find為空或非物件時)', function() {
+    it('[R4 dateNoTz] 值域: undefined、\'local\'或\'floating\'(R14), 其餘拋錯(含find為空或非物件時)', function() {
         assert.doesNotThrow(() => cvFind({ d: '2026-01-01T00:00:00Z' }, { ...LT.ctx, dateNoTz: undefined }))
         assert.doesNotThrow(() => cvFind({ d: '2026-01-01T00:00:00Z' }, { ...LT.ctx, dateNoTz: 'local' }))
+        assert.doesNotThrow(() => cvFind({ d: '2026-01-01T00:00:00Z' }, { ...LT.ctx, dateNoTz: 'floating' }))
         for (let v of ['Local', 'utc', 'UTC', null, false, true, '', 0, {}]) {
-            throwsMsg(() => cvFind({ d: '2026-01-01T00:00:00Z' }, { ...LT.ctx, dateNoTz: v }), 'invalid ctx: dateNoTz must be \'local\' or undefined')
+            throwsMsg(() => cvFind({ d: '2026-01-01T00:00:00Z' }, { ...LT.ctx, dateNoTz: v }), 'invalid ctx: dateNoTz must be \'local\', \'floating\' or undefined')
         }
         //驗證早於提前返回, 拼錯不會被靜默忽略
         throwsMsg(() => cvFind({}, { ...LT.ctx, dateNoTz: 'Local' }), 'invalid ctx')
@@ -1057,6 +1058,14 @@ describe('cvFind 第33項批1(R11 系列條件白名單接線)', function() {
         assert.deepStrictEqual(cvFind({}, {}), {})
         assert.deepStrictEqual(cvFind(undefined, {}), {})
         assert.deepStrictEqual(cvFind(Object.create(null), {}), {})
+    })
+
+    it('[R16] where頂層恆為單一Op.and(縱深防線: 純鍵與Op.or之defaultScope不被Object.assign覆寫; 主防線為whereMergeStrategy:\'and\')', function() {
+        for (let find of [{ s: 'a' }, { i: { $gt: 1 } }, { s: 'a', i: 1 }, { $or: [{ s: 'a' }, { i: 1 }] }, { $and: [{ s: 'a' }] }, { $or: [{ s: 'a' }] }, { s: { $in: [] } }, { s: { $in: ['a', 'b'] } }, { d: null }, { s: 'a', $or: [{ i: 1 }, { i: 2 }] }]) {
+            let w = cvFind(find, LT.ctx)
+            assert.deepStrictEqual(Reflect.ownKeys(w), [Op.and], `頂層鍵: ${JSON.stringify(find)}`)
+            assert.ok(Array.isArray(w[Op.and]) && w[Op.and].length >= 1)
+        }
     })
 
     it('$and/$or清單與並列欄位之隱含AND分組: 項數超過4者遞迴二分為平衡樹, 項數與順序不變, 邏輯節點層數僅隨項數對數成長(4項以內維持平鋪)', function() {
