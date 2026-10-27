@@ -73,6 +73,7 @@ import chkOrmStr from 'wsemi/src/chkOrmStr.mjs'
 import WAutoSequelize from 'w-auto-sequelize/src/WAutoSequelize.mjs'
 import importModels from './importModels.mjs'
 import _genModelsByTabs from './genModelsByTabs.mjs'
+import { getOptLog, getSecrets, getDiag, getBriefErr, getSqlStmt, maskUrl } from './getDiag.mjs'
 import cvFind, { getColKind, getColScale, normPk, chkWf, chkFindShape, genDateChecker } from './cvFind.mjs'
 
 
@@ -95,14 +96,16 @@ let pmq = pmQueue(1)
  *
  * @class
  * @param {Object} [opt={}] 輸入設定物件，預設{}
- * @param {String} [opt.url='mssql://username:password@localhost:1433'] 輸入連接資料庫字串，資料庫可選'mssql'、'sqlite'、'mysql'、'mariadb'、'postgres'，預設'mssql://username:password@localhost:1433'
+ * @param {String} [opt.url='mssql://username:password@localhost:1433'] 輸入連接資料庫字串，資料庫可選'mssql'、'sqlite'、'mysql'、'mariadb'、'postgres'，預設'mssql://username:password@localhost:1433'。格式不合者建構時拋出Error(訊息前綴如invalid host in opt.url)，訊息內回顯之url不含帳號與密碼：為'&lt;scheme>://***@&lt;host[:port]>'(最後一個@之前換成***)，無@者只回'&lt;scheme>://***'，無://者整段為***
  * @param {String} [opt.storage='./worm.db'] 輸入為sqlite時，資料庫檔案所在位置字串，預設'./worm.db'
  * @param {Boolean} [opt.useEncryption=false] 輸入為sqlite時是否使用加密套件[@journeyapps/sqlcipher]，型別為布林值，預設false，若是的話因依賴預設不安裝，得自行人工安裝
  * @param {String} [opt.db='worm'] 輸入使用資料庫名稱字串，預設'worm'
  * @param {String} [opt.cl='test'] 輸入使用資料表名稱字串，預設'test'
  * @param {String} [opt.fdModels='./models'] 輸入資料表設定檔所在資料夾字串，預設'./models'
  * @param {String} [opt.modelType='js'] 輸入資料表設定檔類型字串，可有'js'、'json'，預設'js'
- * @param {Boolean} [opt.logging=false] 輸入是否輸出實際執行的sql指令布林值，預設false
+ * @param {Boolean} [opt.logging=false] 輸入是否紀錄實際執行的sql指令布林值，預設false。為true時預設只輸出敘述種類(如SELECT)，不輸出sql全文：select、selectByPk、del、delAll之where條件值為內嵌於sql內(含主鍵與欄位值)，需搭配opt.logDetail或opt.funLog才取得sql全文，有洩漏個資之風險，僅供除錯使用
+ * @param {Boolean} [opt.logDetail=false] 輸入是否還原診斷輸出之完整細節布林值，預設false，型別錯誤者視同false。診斷輸出(console)預設只含固定標籤與不含個資之摘要(不含資料值、id、後端錯誤原文、路徑)；為true時還原為含細節的輸出(訂閱函數之錯誤、model載入失敗之原文、opt.logging之sql全文等)，有洩漏個資之風險，僅供除錯使用。連線字串與帳密於任何情形皆以***遮罩
+ * @param {Function} [opt.funLog=null] 輸入診斷輸出函數(label, safe, detail)，預設無，型別錯誤者視同未給。給予時診斷輸出只交給它而不寫console：label為固定標籤字串，safe為不含個資之摘要物件(可能為undefined)，detail為完整細節之遮罩拷貝(可能無此引數；連線字串與帳密已以***遮罩；深度與大小有上限，函數、二進位資料、Map/Set、存取器以標記字串代替，不沿用原型，不執行使用端程式)，供使用端遮罩後轉送。函數拋錯或回傳reject之promise皆被吞下，不影響各操作之結果
  * @param {String} [opt.pk='id'] 輸入數據主鍵字串，預設'id'
  * @param {Boolean} [opt.autoGenPk=true] 輸入若數據pk(id)欄位沒給時則自動給予隨機uuid，型別為布林值，預設true
  * @param {Boolean} [opt.useStable=true] 輸入是否使用穩定模式，使用佇列管理同時只能進行一種操作故會犧牲效能，sqlite需開啟穩定模式才不會有非預期錯誤，型別為布林值，預設true
@@ -169,9 +172,10 @@ function WOrmReladb(opt = {}) {
     //opt.url解析失敗一律拋出, 因其屬呼叫端未履行契約, 且解析失敗後各函數皆無從運作,
     //建構為同步而無從以Promise.reject回報, 拋出即為reject之同步對應;
     //若僅console.log而回傳未綁定各函數之ee, 錯誤不經任何管道抵達呼叫端, 呼叫端僅得到
-    //[w.select is not a function]之無關訊息, 與本規格[錯誤不得靜默]之通則相違
+    //[w.select is not a function]之無關訊息, 與本規格[錯誤不得靜默]之通則相違;
+    //訊息前綴與Error型態不變, 回顯之opt.url經maskUrl(R17-6): 帳號與密碼不出現(未捕獲時Node會把訊息印到stderr); maskUrl為純函數, 不依賴尚未建立之diag
     let throwUrlErr = (msg) => {
-        throw new Error(`${msg}, opt.url[${opt.url}]`)
+        throw new Error(`${msg}, opt.url[${maskUrl(opt.url)}]`)
     }
 
 
@@ -226,6 +230,19 @@ function WOrmReladb(opt = {}) {
     }
 
 
+    //diag, 診斷輸出之單一出口(R17): src內所有console輸出與傳給sequelize之SQL紀錄函數皆經此, 除getDiag.mjs外不得直接呼叫console;
+    //預設只輸出固定標籤與不含個資之摘要, opt.logDetail還原細節, opt.funLog取代console; 連線字串與帳密(opt.url、username、password)於任何輸出皆遮罩;
+    //其後各路徑共用此快照, 不再讀取使用端的opt
+    let diag = getDiag(getOptLog(opt), getSecrets(opt.url, username, password))
+
+
+    //logSql, 傳給sequelize之logging函數: sequelize以(sql全文, 查詢選項)呼叫, 查詢選項含綁定參數值故不取用, 只取第一個引數;
+    //預設只輸出敘述種類, 完整sql(select等之where條件值為內嵌)為細節; logQueryParameters維持關閉, 故insert、update之綁定參數值($1…)不進sql紀錄
+    let logSql = (sql) => {
+        diag('sql', { stmt: getSqlStmt(sql) }, () => sql, true)
+    }
+
+
     /**
      * 取錯誤訊息字串，供逐筆結果之err欄位與error事件使用
      *
@@ -259,7 +276,7 @@ function WOrmReladb(opt = {}) {
             ee.emit('change', mode, data, res)
         }
         catch (err) {
-            console.log(err)
+            diag('change handler threw', { mode, ...getBriefErr(err) }, () => err, true)
         }
     }
 
@@ -281,7 +298,7 @@ function WOrmReladb(opt = {}) {
             ee.emit('error', mode, data, getErrMsg(err))
         }
         catch (errEmit) {
-            console.log(errEmit)
+            diag('error handler threw', { mode, ...getBriefErr(errEmit) }, () => errEmit, true)
         }
     }
 
@@ -564,7 +581,8 @@ function WOrmReladb(opt = {}) {
             host,
             port,
             storage: opt.storage,
-            logging: opt.logging,
+            logging: opt.logging ? logSql : false, //為函數時sequelize不再以console.log輸出(並免去logging:true之deprecation警告)
+            logQueryParameters: false, //維持關閉(sequelize預設): 開啟時sql紀錄會附上綁定參數值
             define: {
                 //underscored: false,
                 //freezeTableName: false,
@@ -602,7 +620,7 @@ function WOrmReladb(opt = {}) {
 
         //check
         if (r.state === 'error') {
-            console.log(r)
+            diag('can not import model', { cl: opt.cl, ...getBriefErr(r.msg) }, () => r, true)
             err = `can not import model: ${opt.cl}, need to use genModelsByDB, genModelsByTabs or create ${opt.cl}.${opt.modelType}`
         }
 
@@ -701,7 +719,7 @@ function WOrmReladb(opt = {}) {
         //check
         if (opt.useEncryption &amp;&amp; dialect === 'sqlite') {
             if (transaction !== null) {
-                console.log('@journeyapps/sqlcipher can not support transaction.')
+                diag('@journeyapps/sqlcipher can not support transaction.')
             }
         }
 
@@ -824,7 +842,7 @@ function WOrmReladb(opt = {}) {
         //check
         if (opt.useEncryption &amp;&amp; dialect === 'sqlite') {
             if (transaction !== null) {
-                console.log('@journeyapps/sqlcipher can not support transaction.')
+                diag('@journeyapps/sqlcipher can not support transaction.')
             }
         }
 
@@ -963,7 +981,7 @@ function WOrmReladb(opt = {}) {
         //check
         if (opt.useEncryption &amp;&amp; dialect === 'sqlite') {
             if (transaction !== null) {
-                console.log('@journeyapps/sqlcipher can not support transaction.')
+                diag('@journeyapps/sqlcipher can not support transaction.')
             }
         }
 
@@ -1148,7 +1166,7 @@ function WOrmReladb(opt = {}) {
         //check
         if (opt.useEncryption &amp;&amp; dialect === 'sqlite') {
             if (transaction !== null) {
-                console.log('@journeyapps/sqlcipher can not support transaction.')
+                diag('@journeyapps/sqlcipher can not support transaction.')
             }
         }
 
@@ -1494,7 +1512,7 @@ function WOrmReladb(opt = {}) {
         //check
         if (opt.useEncryption &amp;&amp; dialect === 'sqlite') {
             if (transaction !== null) {
-                console.log('@journeyapps/sqlcipher can not support transaction.')
+                diag('@journeyapps/sqlcipher can not support transaction.')
             }
         }
 
@@ -1634,7 +1652,7 @@ function WOrmReladb(opt = {}) {
         //check
         if (opt.useEncryption &amp;&amp; dialect === 'sqlite') {
             if (transaction !== null) {
-                console.log('@journeyapps/sqlcipher can not support transaction.')
+                diag('@journeyapps/sqlcipher can not support transaction.')
             }
         }
 
@@ -1849,7 +1867,7 @@ function WOrmReladb(opt = {}) {
         //check
         if (opt.useEncryption &amp;&amp; dialect === 'sqlite') {
             if (transaction !== null) {
-                console.log('@journeyapps/sqlcipher can not support transaction.')
+                diag('@journeyapps/sqlcipher can not support transaction.')
             }
         }
 
@@ -2034,7 +2052,7 @@ function WOrmReladb(opt = {}) {
      * @param {String} [opt.type='js'] 輸入資料表類型字串，預設'js'
      */
     function genModelsByTabs(...input) {
-        _genModelsByTabs(...input)
+        _genModelsByTabs(input[0], input[1], input[2], diag)
     }
 
 
@@ -2121,7 +2139,7 @@ export default WOrmReladb
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Wed Oct 28 2026 01:47:27 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Wed Oct 28 2026 07:12:24 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
 </footer>
 
 <script>prettyPrint();</script>
