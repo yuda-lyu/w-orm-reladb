@@ -1,0 +1,430 @@
+{
+    "plain": {
+        "out": [
+            {
+                "ok": {
+                    "n": 0,
+                    "nDeleted": 0,
+                    "ok": 1
+                }
+            },
+            {
+                "ok": {
+                    "n": 2,
+                    "nInserted": 2,
+                    "ok": 1
+                }
+            },
+            {
+                "ok": {
+                    "n": 1,
+                    "nInserted": 0,
+                    "ok": 1
+                }
+            },
+            {
+                "err": "Validation error"
+            },
+            {
+                "ok": [
+                    {
+                        "n": 1,
+                        "nInserted": 0,
+                        "nModified": 1,
+                        "ok": 1
+                    },
+                    {
+                        "n": 1,
+                        "nInserted": 1,
+                        "nModified": 0,
+                        "ok": 1
+                    }
+                ]
+            },
+            {
+                "ok": [
+                    {
+                        "id": "a1",
+                        "name": "n1x",
+                        "value": 1
+                    }
+                ]
+            },
+            {
+                "ok": {
+                    "id": "a2",
+                    "name": "n2",
+                    "value": 2
+                }
+            },
+            {
+                "err": "invalid find: unsupported operator [$foo] at [find.$foo]"
+            },
+            {
+                "ok": [
+                    {
+                        "n": 1,
+                        "nDeleted": 1,
+                        "ok": 1
+                    }
+                ]
+            },
+            {
+                "ok": {
+                    "n": 2,
+                    "nDeleted": 2,
+                    "ok": 1
+                }
+            }
+        ],
+        "evs": [
+            [
+                "change",
+                "delAll",
+                null,
+                {
+                    "n": 0,
+                    "nDeleted": 0,
+                    "ok": 1
+                }
+            ],
+            [
+                "change",
+                "insert",
+                [
+                    {
+                        "id": "a1",
+                        "name": "n1",
+                        "value": 1
+                    },
+                    {
+                        "id": "a2",
+                        "name": "n2",
+                        "value": 2
+                    }
+                ],
+                {
+                    "n": 2,
+                    "nInserted": 2,
+                    "ok": 1
+                }
+            ],
+            [
+                "change",
+                "insert",
+                [
+                    {
+                        "id": "a1",
+                        "name": "dup"
+                    }
+                ],
+                {
+                    "n": 1,
+                    "nInserted": 0,
+                    "ok": 1
+                }
+            ],
+            [
+                "error",
+                "insertBulk",
+                [
+                    {
+                        "id": "a1",
+                        "name": "dup"
+                    }
+                ],
+                "Validation error"
+            ],
+            [
+                "change",
+                "insert",
+                [
+                    {
+                        "id": "a3",
+                        "name": "n3"
+                    }
+                ],
+                {
+                    "n": 1,
+                    "nInserted": 1,
+                    "nModified": 0,
+                    "ok": 1
+                }
+            ],
+            [
+                "change",
+                "save",
+                [
+                    {
+                        "id": "a1",
+                        "name": "n1x"
+                    },
+                    {
+                        "id": "a3",
+                        "name": "n3"
+                    }
+                ],
+                [
+                    {
+                        "n": 1,
+                        "nInserted": 0,
+                        "nModified": 1,
+                        "ok": 1
+                    },
+                    {
+                        "n": 1,
+                        "nInserted": 1,
+                        "nModified": 0,
+                        "ok": 1
+                    }
+                ]
+            ],
+            [
+                "error",
+                "select",
+                null,
+                "invalid find: unsupported operator [$foo] at [find.$foo]"
+            ],
+            [
+                "change",
+                "del",
+                [
+                    {
+                        "id": "a2"
+                    }
+                ],
+                [
+                    {
+                        "n": 1,
+                        "nDeleted": 1,
+                        "ok": 1
+                    }
+                ]
+            ],
+            [
+                "change",
+                "delAll",
+                null,
+                {
+                    "n": 2,
+                    "nDeleted": 2,
+                    "ok": 1
+                }
+            ]
+        ]
+    },
+    "bad": {
+        "out": [
+            {
+                "ok": {
+                    "n": 0,
+                    "nDeleted": 0,
+                    "ok": 1
+                }
+            },
+            {
+                "ok": {
+                    "n": 2,
+                    "nInserted": 2,
+                    "ok": 1
+                }
+            },
+            {
+                "ok": {
+                    "n": 1,
+                    "nInserted": 0,
+                    "ok": 1
+                }
+            },
+            {
+                "err": "Validation error"
+            },
+            {
+                "ok": [
+                    {
+                        "n": 1,
+                        "nInserted": 0,
+                        "nModified": 1,
+                        "ok": 1
+                    },
+                    {
+                        "n": 1,
+                        "nInserted": 1,
+                        "nModified": 0,
+                        "ok": 1
+                    }
+                ]
+            },
+            {
+                "ok": [
+                    {
+                        "id": "a1",
+                        "name": "n1x",
+                        "value": 1
+                    }
+                ]
+            },
+            {
+                "ok": {
+                    "id": "a2",
+                    "name": "n2",
+                    "value": 2
+                }
+            },
+            {
+                "err": "invalid find: unsupported operator [$foo] at [find.$foo]"
+            },
+            {
+                "ok": [
+                    {
+                        "n": 1,
+                        "nDeleted": 1,
+                        "ok": 1
+                    }
+                ]
+            },
+            {
+                "ok": {
+                    "n": 2,
+                    "nDeleted": 2,
+                    "ok": 1
+                }
+            }
+        ],
+        "evs": [
+            [
+                "change",
+                "delAll",
+                null,
+                {
+                    "n": 0,
+                    "nDeleted": 0,
+                    "ok": 1
+                }
+            ],
+            [
+                "change",
+                "insert",
+                [
+                    {
+                        "id": "a1",
+                        "name": "n1",
+                        "value": 1
+                    },
+                    {
+                        "id": "a2",
+                        "name": "n2",
+                        "value": 2
+                    }
+                ],
+                {
+                    "n": 2,
+                    "nInserted": 2,
+                    "ok": 1
+                }
+            ],
+            [
+                "change",
+                "insert",
+                [
+                    {
+                        "id": "a1",
+                        "name": "dup"
+                    }
+                ],
+                {
+                    "n": 1,
+                    "nInserted": 0,
+                    "ok": 1
+                }
+            ],
+            [
+                "error",
+                "insertBulk",
+                [
+                    {
+                        "id": "a1",
+                        "name": "dup"
+                    }
+                ],
+                "Validation error"
+            ],
+            [
+                "change",
+                "insert",
+                [
+                    {
+                        "id": "a3",
+                        "name": "n3"
+                    }
+                ],
+                {
+                    "n": 1,
+                    "nInserted": 1,
+                    "nModified": 0,
+                    "ok": 1
+                }
+            ],
+            [
+                "change",
+                "save",
+                [
+                    {
+                        "id": "a1",
+                        "name": "n1x"
+                    },
+                    {
+                        "id": "a3",
+                        "name": "n3"
+                    }
+                ],
+                [
+                    {
+                        "n": 1,
+                        "nInserted": 0,
+                        "nModified": 1,
+                        "ok": 1
+                    },
+                    {
+                        "n": 1,
+                        "nInserted": 1,
+                        "nModified": 0,
+                        "ok": 1
+                    }
+                ]
+            ],
+            [
+                "error",
+                "select",
+                null,
+                "invalid find: unsupported operator [$foo] at [find.$foo]"
+            ],
+            [
+                "change",
+                "del",
+                [
+                    {
+                        "id": "a2"
+                    }
+                ],
+                [
+                    {
+                        "n": 1,
+                        "nDeleted": 1,
+                        "ok": 1
+                    }
+                ]
+            ],
+            [
+                "change",
+                "delAll",
+                null,
+                {
+                    "n": 2,
+                    "nDeleted": 2,
+                    "ok": 1
+                }
+            ]
+        ]
+    }
+}

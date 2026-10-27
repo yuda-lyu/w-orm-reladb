@@ -1,0 +1,380 @@
+# 規則帳本
+
+本檔為套件設計與開發階段之規則帳本,為要求程式碼須長成什麼樣,或由規格產出之測試(項目/說明/流程)有哪些,包含軸、單一擁有者、已知限制、破壞性變更紀錄,以及對應是哪些測試檔案或指令等,由agent自行編列、擴充與維護.
+
+- 規格來源:w-orm-lmdb 之 `w-orm系列套件統一規格.md`(下稱「規格:N」為其第 N 行)、主控裁示 `C:\opensrcOper\dnow\20261014065047\review\run01-複審.md`(Q1–Q11)、審計回應 `agent-out/run01-審計回應.md`、外審 `tmp/review03/<opus|sol|deepseek>/findings.md`、`tmp/review05`、`tmp/review06`、`tmp/review07/<opus|sol|muse>/report.md`(採納者已併入下列規則,來源以〔外審代號 F#〕或〔run04 opus/sol/muse 編號〕標示)。
+- 全部測試:`npm test`(`mocha --parallel "test/*.test.mjs" --timeout 180000`;mssql 由 `test/api-mssql.test.mjs` 自建容器,需 docker daemon)。單檔:`npx mocha test/<檔> --timeout 180000`。
+- 第 33 項批 1(2026-10-19,wsemi ^1.9.20 之 `cvOrmFind` 接線):條件改為系列白名單,**R2、R3、R5、R6 之下列舊敘述已被 R11 取代**(以各節開頭之「第 33 項批 1」標註與 R11、〈破壞性變更紀錄(第 33 項批 1)〉為準,舊敘述僅留作 R4 欄名/型別檢核之背景):Symbol/`Op` 全集、`$not $nor $regex $options $exists`、RegExp 值、陣列值即 `$in`、`$in/$nin` 含 null、空 `$nin`、非物件 find 視為 `{}`。
+- 測試檔與規則之對應:`test/api-find-whitelist.mjs`(R11;sqlite 與 mssql 共用,由 `api-sqlite.test.mjs`、`api-mssql.test.mjs` 引入,逐案執行 wsemi 之契約案例表 `_cvOrmFindCases.mjs` 對公開 `select`/`delAll`,另含 reladb 專屬斷言)、`test/unit-cvfind.test.mjs`(R1–R6 與 R8 `normPk` 之純函數,不連線;「審計02」組為欄位引用不變式、欄名解析〔嚴格鍵、不安全欄名、撞名、VIRTUAL〕、DATE 年份與轉 `Date`、`ctx.dateNoTz`;「最終審(run05)」組為空/`$..$`/非字串之 field、共用一欄、attrs 形狀、原生 Symbol 全集與 between、`$regex`+`i` 之 `*`)、`test/api-suite.mjs` 之 `find` 段、`dateNoTz` 段、`欄名別名與撞名` 段、`欄名邊界` 段與 `pk type` 段(sqlite 與 mssql 共用,R1–R8)、`test/api-models.test.mjs`(sqlite,R1 之 scope、R8 之 BIGINT、R9)、`test/api-dist.test.mjs`(sqlite,R10 之發布產物)、`test/api-init.test.mjs`(R7 之 initSequelize 例外,不連線)、`test/api-date-write.mjs`(R12;sqlite 與 mssql 共用,由 `api-sqlite.test.mjs`、`api-mssql.test.mjs` 引入,model `models/tdate.js`)、`test/unit-date-write.test.mjs`(R12 之 `inDateRange`/`genDateChecker` 純函數,不連線;輔助 `test/tools/withTz.mjs`)、`test/api-wellformed.mjs`(R13;sqlite 與 mssql 共用,由 `api-sqlite.test.mjs`、`api-mssql.test.mjs` 引入,model `models/twf.js`,逐案執行 wsemi 之 `_cvOrmStrCases`)、`test/unit-wellformed.test.mjs`(R13 之 `normPk`/`chkPkWf`/`chkWf` 純函數、建構 `opt` 與接線掃描,不連線)、`test/unit-float.test.mjs`(R14;`toFloating` 1460 格輸入空間表、`dateNoTz:'floating'` 之值域/語意/契約①,不連線;輔助 `test/tools/floatTools.mjs`、`test/tools/withTz.mjs`)、`test/api-float.mjs`(R14;sqlite 與 mssql 共用,model `models/tfloat.js`:12 時區矩陣、哨兵、契約①②④)、`test/api-lower-cases.mjs`(R15;sqlite 與 mssql 共用,model `models/tlower.js`,逐案執行 wsemi 之 `_lowerFindCases` 85 案)、`test/api-scope.mjs`(R16;sqlite 與 mssql 共用,於 `test/_tmp/api-scope-<label>/` 動態產生 5 種 defaultScope 之 model)、`test/unit-diaglog.test.mjs`(R17;`src/getDiag.mjs` 純函數,不連線)、`test/api-diaglog.test.mjs`(R17;sqlite,於 `test/_tmp/api-diaglog/` 自建 storage 與壞 model,測後自刪)。
+
+## R1 條件(find)之單一擁有者與共用
+
+- 規則:select 與 delAll 之 find 一律經 `src/cvFind.mjs` 之 `cvFind(find, { attrs, pk, dateNoTz })` 轉譯(`pk` 供主鍵欄條件依 R8 正規化;`escape`、`dialect` 於第 33 項批 1 起不再使用〔其唯一用途 `$regex` 已移除〕,深引用者仍可傳入,被忽略);delAll 以 `destroy({ where })` 套用同一 where。同一 find 於兩函數由同一 SQL 謂詞決定命中(系列最小規則①)。
+- 頂層(第 33 項批 1 起,〈delAll 與 find 之頂層語意〉;R11):未給、`undefined`、`{}`、`Object.create(null)` 之空物件為全部(規格:250、:407);**其餘非條件物件一律整批 reject**——null、陣列(含 `[]`)、字串、數字、布林、函數、BigInt、Symbol、Date、RegExp、Map、Set、類別實例、`Object.create(proto)`、Proxy 包空物件等。原「非物件 find(undefined 以外)與陣列回 `{}`,select 全部、delAll 全刪(現況保留;Q10)」已移除。
+- model 之 `defaultScope` 帶 `limit`/`offset` 者,select 依 scope 之 order 取前幾筆而 sequelize 之限量刪除不採 order,兩者對象分歧,delAll 一律 reject〔sol F15〕。帶 `group`/`having` 者,findAll 套用而 destroy 不套用(having 過濾後只回部分列,卻刪除全部符合 where 者;sqlite 實測 select=[2]、destroy=3);帶非空 `include` 者(required),findAll 以 INNER JOIN 篩列而 destroy 不 JOIN(select=[2]、destroy=3);`where` 含 `Op.and` 者,sequelize 預設以 `Object.assign` 合併 scope 與 cvFind 輸出之 where(`_mergeFunction`,`model.js:626-`),後者頂層恆為 `Op.and` 而覆寫 scope 之條件(delAll 刪到 scope 範圍外之列)——以上亦一律 reject(`has defaultScope with group, having…`;run05 sol F03、opus 疑慮(i)(ii),實測於 `tmp/final/probe4.mjs`;**第 94 項批 B5 起 `where[Op.and]` 之 delAll 拒收為保守維持,不再是越界防線**,見 R16)。scope 之 where 與 cvFind 輸出一律以 AND 結合(R16:Sequelize 實例 `define` 層級 `whereMergeStrategy:'and'`,涵蓋純鍵、`Op.or`、`Op.and`、`Sequelize.literal`、`Sequelize.where`)。select 不拒絕這些 scope,見〈已知限制〉。
+- 盤點:`rg -n "where:" src/WOrmReladb.mjs` → 站點全集:select、delAll(`cvFind`);selectByPk、saveOne、del(`{[opt.pk]: 主鍵值}`,其值皆已經 R8 正規化,主鍵函數)。判準:接受呼叫端條件之站點必經 cvFind;已套 2/2。
+- 測試:api-suite `find` 段「一致性:…」(select 命中 = delAll 刪除 = 本帳本推得之常數,`n`=`nDeleted`=刪除數);api-models「defaultScope 帶 limit」。
+
+## R2 鍵之迭代、辨識與建構(第 33 項批 1 起由 R11 之共用函數負責)
+
+- 鍵之走訪與辨識(`Reflect.ownKeys`、Symbol 鍵/不可列舉/存取器 reject、欄名文法、`length` 之物件當一般欄名)全在 `cvOrmFind`(R11),其輸出為 null 原型複本、僅字串鍵;`cvFind` 之後只走訪複本。不得用 lodash `each`/`forEach`(對具數值 `length` 之物件當陣列樣迭代)、不得 `cloneDeep`(R11 以屬性描述子逐一讀取並建新複本)。
+- 欄名文法(R11,系列〈一之三〉6.):`^[\p{L}_][\p{L}\p{M}\p{N}_]*$`、1–128 字元、禁 `__proto__`;`$` 開頭之鍵為運算子(白名單外 reject);空字串、含點/引號/方括號/連字號/空白、前後 `$`(`$x$`)、`p$x` 等皆於 R11 reject。**符合文法而為 `Object.prototype` 成員名者**(`constructor`、`toString`、`valueOf`…)仍由 R4 之 `chkColName` reject(sequelize 以一般物件查表)。
+- (已移除,第 33 項批 1)sequelize `Op` Symbol 運算子全集(`Op.and/or/not/eq/ne/gt/gte/lt/lte/in/notIn/between/notBetween/like/startsWith/endsWith/substring`…):Symbol 鍵一律 reject(`symbol key is not allowed`)。原為 sol F5/F6、run05 sol F04 之各項守門(欄位層 `Op.and/or/values/join`、`Op.between` 取值、DATE 欄之 `Op.startsWith`…)因入口已全拒而無對象,隨之刪除。
+- 每一約束各自成一子式後以 AND 結合(同欄之 `$gt`、`$lt`… 併入同一欄位物件)。同義之鍵問題(`$gt` 與 `Op.gt`)隨 Symbol 移除而不存在。
+- 測試:`test/api-find-whitelist.mjs` 之案例表(T/F/X/H 組);unit「R2 …」;api-suite find 段(`{s,length:0}`、同欄多運算子、bads:Symbol 鍵、空字串欄名、`__proto__`)。
+
+## R3 運算子白名單與恆真恆假(Q6、Q7;第 33 項批 1 起縮為系列白名單,見 R11)
+
+- 文件層:**`$and`、`$or`**(值為非空陣列,元素為非空條件物件)。`$nor`、`$not` 及其他 `$` 鍵 reject。
+- 欄位層:**`$eq $ne $gt $gte $lt $lte`(值為純量;`$eq`/`$ne` 另可為 null)、`$in $nin`(值為純量陣列,不含 null、不含 `undefined`;`$in:[]` 允許為恆假,`$nin:[]` reject)**。
+- 其他一律 reject `invalid find: unsupported operator [$x] at [路徑]`(訊息由 `cvOrmFind` 產生),含 `$not $nor $regex $options $exists $where $expr $function $like $ilike $type $mod $size $all $elemMatch $custom` 與欄位層 `$and/$or`。
+- 因 `{}` 作子式、空 `$and/$or`、空運算子物件、空 `$nin` 皆於 R11 reject,**不再需要恆真常數 `1 = 1`**(原 sol F3、opus F6 之空子式防護隨之無對象,`sqlTrue` 及 `cvAnd`/`cvOr` 之空陣列分支已刪)。**欄位引用不變式**(審計02)維持:欄位層運算子產生之每個子式,其 SQL 必含該欄名,唯一之常數子式為 `$in:[]` 之 `f IS NULL AND 1 = 0`(R5,仍引用欄);`attrs` 已給時不存在之欄於轉譯階段即 reject(嚴格鍵,R4),本不變式保護未給 `attrs` 之路徑(單元測試以不給 attrs 之 ctx 斷言)。
+- 測試:unit「R3 …」;`test/api-find-whitelist.mjs` 之 X 組(白名單外運算子)、L 組(`$and/$or` 空陣列、空元素)。
+
+## R4 值檢核:絕不把非純量或型別不符之值交 sequelize 之型別 stringify
+
+- 形狀層(第 33 項批 1 起,由 R11 之 `cvOrmFind` 負責,先於本節):純量為字串(不含 NUL 與孤立代理字元)、有限數字(含 `-0`)、布林、有效 Date;null 僅可作欄位直給、`$eq`、`$ne` 之值;`$in`/`$nin` 為純量陣列(元素不含 null);BigInt、Buffer、NaN、±Infinity、無效 Date、`String`/`Number` 包裝物件、陣列(欄位直給)、物件、函數、Symbol、RegExp、`undefined` 一律 reject;空物件、巢狀欄位物件 reject。陣列之洞、額外屬性、存取器 reject。
+- 本節以下為翻譯層之檢核(`cvOrmFind` 之後、只走訪其複本):依欄型/主鍵/DATE/欄名檢核純量。原「陣列值即 `$in`」「RegExp 依 R6」「Buffer 只用於未分類型別之欄」已隨 R11 移除。
+- 依 model 欄型檢核純量〔自查 C5b;sol F18;opus F3、F4、F10〕。分類以 sequelize 型別類別(`instanceof DataTypes.INTEGER/NUMBER/DATE/DATEONLY/BOOLEAN/STRING/TEXT/UUID/CITEXT`)判定,另以 `type.key` 補判(`DataTypes.DOUBLE` 之 key 為 `DOUBLE PRECISION`,只比 key 會漏):字串類收字串;整數類收安全整數範圍內之數值或整數寫法之數值字串(`^[+-]?\d+$`;mssql 轉 `'2.5'`、`'1e3'`、`'5.'` 為 int 失敗而 sqlite 以 `'1e3'` 命中 1000,2026-10-16 實測);其他數值類收有限數值或不含指數與尾端小數點之十進位字串(`^[+-]?(\d+(\.\d+)?|\.\d+)$`;mssql 轉 `'1e3'` 為 DECIMAL 失敗);皆不收前後空白與 0x/0b/0o;DECIMAL 欄之字串小數位不得多於欄位 scale(未指定為 0),否則 mssql 轉型時四捨五入而 `'1.254'` 命中 1.25(2026-10-16 實測;數值 1.254 則兩方言皆不命中)〔deepseek F5〕;整數寫法之字串不設上界,超出 mssql int32 之 INTEGER 欄者由資料庫回報(sqlite 之 INTEGER 為 int64 而可命中),屬方言差異、兩者皆不誤刪,文件化〔deepseek F2〕;DATE 收有效 Date、Date 可表示範圍內(±8.64e15 毫秒)之 epoch 數值(超出者被 stringify 為 `'Invalid date'` 而以文字比較,sqlite 會命中全部日期列〔deepseek F1〕)或「帶 Z 或偏移且曆法上存在」之 ISO 8601 字串(無時區者依主機時區解析而結果隨主機而變,預設拒收;呼叫端明示 `ctx.dateNoTz:'local'` 者例外,見下條;曆法驗證以 `setUTCFullYear` 設定完整年份,故年 0001–0099 之字串與同一瞬間之 Date/epoch 同處置,年 0000 不收〔聚焦再審 run03,muse [1]、opus [5]〕);非整數之 epoch 依 `new Date(v)` 截斷至整數毫秒,`-0` 即 `0`;**所有形式換算為 UTC 後年份須在 1–9999**(以 UTC 年判定之前提為 sequelize 之 `timezone` 為預設 `+00:00`,`WOrmReladb` 不設定;呼叫端另設時區者,`YYYY` 格式化之年份可能不同於 UTC 年份,cvFind 不處理)(sequelize 以 `YYYY` 格式化,年 10000 起為 5 位數,sqlite 以文字比較致 `{d:{$gt:年10000}}` 命中全部日期列;mssql datetimeoffset 之範圍亦為 0001–9999;外審 opus [2]),超出者拒收;通過檢核之字串與 epoch 一律**轉為 `Date` 送出**(令 DATE 值之 SQL 與 sequelize 之欄位查找無關:sequelize 以 `rawAttributes[欄名]`(含原型鏈)取型別序列化值,查不到或查到他屬性時字串與 epoch 原樣或依他型別送出,sqlite 以文字或型別序比較而誤判,如 `{D:{$gt:epoch}}` 刪光全部日期列;外審 opus [1],run04 opus [2]、sol H2;嚴格鍵下對一般欄名不改 SQL 文字);DATEONLY 只收曆法上存在之 `YYYY-MM-DD` 字串(Date 物件依主機時區取日期,拒收);BOOLEAN 收布林或 0/1;其他型別之欄(`TIME`、`JSON`、`BLOB`、`ENUM` 等,見〈已知限制〉)不檢(交資料庫回報);欄名先依下條解析再判型別,`attrs` 已給而解析不到者 reject(嚴格鍵),`attrs` 未給者鍵不解析、一律視為未分類型別而不檢。主鍵欄(`opt.pk`)之字串類、整數類、其他數值類以 R8 之正規化取代本段之字串/數值分類檢核(2026-10-16,run04)。理由:sqlite 比較不同型別時不報錯,`INTEGER < 'abc'`、`DATE < 'garbage'` 恆真,delAll 會刪除全部非 NULL 之列(2026-10-16 實測);mssql 則轉型失敗而 reject。
+- 成因(修正前):sequelize 以欄型 stringify 運算子物件,FLOAT→`'NaN'`(`data-types.js:248-263`)、INTEGER/DECIMAL→`'[object Object]'`(`:166-174`)、DATE→本地今日 00:00(`:331-342`),致 delAll 靜默 n:0 或刪錯列。
+- 巢狀深度上限 32、`$and/$or` 長度上限 999(SQLite 平鋪 1000 項即 DB 錯誤,R11)、`$in/$nin` 長度 10000、節點 100000:由 `cvOrmFind` 於形狀階段 reject(循環參照以深度拒收);讀值拋錯(getter、Proxy 陷阱)轉為固定格式 `invalid find: … at […]`,不轉述原錯誤訊息〔sol F11〕。
+- 欄名解析(嚴格鍵;審計02 D2 起,run04 重構,2026-10-16):`attrs` 已給時,條件之鍵(欄位層之鍵;`$not` 內遞迴亦然)須先通過內部函數 `resolveAttr(attrs, idx, field)`,才判定欄位型別(`getColKind`)、DECIMAL scale 與主鍵(`ctx.pk`):①鍵與某屬性名完全相符(屬性優先);②否則與某屬性之資料庫欄名(`attr.field`;未設 `field` 者即屬性名)完全相符且唯一(多於一個 → reject `invalid find: ambiguous column name [x]`);**其餘一律 reject `invalid find: unknown column name [x]`**(訊息可附 `did you mean [y]?` 提示,僅診斷、不影響解析)。**不模擬資料庫之識別字解析**:大小寫變體、全形半形、尾端空白、定序之可忽略字元皆不收。另 reject:(a)VIRTUAL 屬性(非資料庫欄)→ `unknown column name`;(b)**不安全欄名** `invalid find: unsupported column name [x]`:鍵或其映射後之資料庫欄名為空字串(sequelize 之 sync 以 `field || name` 建欄、寫入亦視為未設,但 `mapWhereFieldNames` 把鍵映射為 `''`,`_joinKeyValue` 遇空鍵只回值,條件成常數 `WHERE (5)`,sqlite 下 `delAll({a:5})` 刪全表而 select 報錯;mssql 之 `sync()` 會把 `rawAttributes.a.field` 由 `''` 正規化為屬性名而無此形態〔2026-10-16 實測,sync 前仍是 `''`〕,故 api-suite 僅 sqlite 實跑、兩方言之轉譯階段拒收由單元測試涵蓋;run05 sol F01、opus [1])、含 `` ` ``、`"`、`'`、`[`、`]`(sequelize 之 `quoteIdentifier` 依方言刪除這些字元:sqlite 之 ``val`ue`` 成 `value`、mssql 之 `i[d]` 成 `id`)、含 `.`(JSON 路徑、表.欄)、前後皆 `$`(`$x$` 被當成欄引用;**以首尾字元判定,與 sequelize 之 `isColString` 一致**,故中間含換行者〔如 `$a\nb$`,實測 `{v:'a'}` 比對 `a\nb` 欄而 `$regex`+`i` 之 `LOWER(col)` 卻引用完整欄名,同一 find 因旗標而命中不同列〕與單一 `$` 亦是;原以正規式 `/^\$.*\$$/` 判定,`.` 不匹配換行;run05 sol F02、opus [3])、為 `Object.prototype` 之成員名(`constructor`、`valueOf`…)或 `__proto__`(sequelize 以一般物件查表與賦值:查到函數而不依欄型序列化,賦值 `__proto__` 使條件遺失而刪全表);**屬性之 `field` 已設而非字串者**(`null`、數值等:sequelize 保留原值並以 `String(field)` 映射,cvFind 若退回屬性名則二者指向不同欄;`undefined` 即未設,以屬性名為欄名,手造 attrs 仍可;run05 opus [4])亦 `unsupported column name [屬性名]`;(c)**sequelize 之反查須即本屬性**:sequelize 把屬性名之鍵映射為其欄名 f 後,以 `rawAttributes[f]`(名稱為 f 之屬性)、其次 `fieldRawAttributesMap[f]`(欄名為 f 之屬性,多個取最後定義者)之型別序列化值,故屬性之欄名恰為他屬性之名稱者 reject `ambiguous column name [x], its column [f] resolves to attribute [y]`;**與他屬性共用一欄者,只收最後定義者**(`fieldRawAttributesMap` 取最後定義者,sync 以欄名為鍵而後者覆寫,實體欄之型別由最後定義者決定),先定義者 reject:欄名非屬性名時反查為最後定義者而 reject,欄名恰為先定義者之名稱時〔如 `{a:DATE, b:{INTEGER, field:'a'}}`〕sequelize 反查為自己卻與實體欄之型別(INTEGER)不符,亦 reject `ambiguous column name [x], its column [f] is shared with attribute [y]…`(sqlite 實測 `delAll({a:{$lt:'2030-01-01T00:00:00Z'}})` 以日期文字比較 INTEGER 欄而刪光全部非 NULL 列;run05 opus [2])(實測:屬性 `ra`〔DATE,欄 `rb`〕+ 屬性 `rb`〔INTEGER,欄 `rc`〕,sqlite 下 `delAll({ra:{$lt:'2026-01-01T00:00:00Z'}})` 以 `Date.toString` 文字比較而刪除全部非 NULL 之 rb 列)。SQL 鍵即完全相符之屬性名或欄名(無改寫)。(d)**attrs 形狀**:`attrs` 已給者須為 sequelize `rawAttributes` 之形狀——一般物件(原型為 `Object.prototype` 或 `null`)、無 Symbol 鍵、自有字串鍵皆可列舉,否則 `cvFind` 拋 `invalid ctx: attrs must be a plain object…`(於 find 非空且非提前返回後檢查):sequelize 以 `rawAttributes[鍵]` 讀取(含原型鏈、Symbol 鍵、不可列舉者),cvFind 以 `Object.keys` 建索引、以自有屬性核對,所見集合不同時反查核對與 sequelize 實際取用之定義分歧(實測:與 `Op.and` 相撞之 Symbol 屬性使 `mapWhereFieldNames` 把邏輯鍵映射為欄,`{i:1}` 之條件消失而刪除他列;原型上另有 `dt` 之定義使 DATE 欄依 INTEGER 序列化;run05 sol F05–F07)。真正之 `rawAttributes` 與 mdb 之記憶體 model 恆符合。**`attrs` 未給者不解析**(型別 any,交資料庫處置;現況,見〈已知限制〉)。共同根因與理由:同一個鍵由 cvFind、sequelize(映射、反查、引用層改寫、`where` 之語法重解讀)與資料庫(依定序折疊)三方各自解析,後兩者之規則不可窮盡;三輪外審各查出高嚴重度(`{VALUE:{$lt:'abc'}}`、`{age_num:{$lt:'abc'}}`、整數主鍵 `{ID:'012'}`、DATE 變體鍵、mssql 全形與尾端空白、撞名,以及 run04 之 ``{'val`ue':{$lt:'abc'}}``、`{rowid:{$lt:'abc'}}` 刪光全部列、`field:'__proto__'` 之欄刪全表),每輪皆為再模擬一條規則。完全相符且安全之名稱無論資料庫如何折疊皆解析為自己,故只收之(run04 外審 opus [1][2]、sol H1–H4,實測腳本 `tmp/review07/p1-sol-holes.mjs`、`p2-opus-holes.mjs`)。`getColKind`、`getColScale`、`normPk` 之匯出簽章不變。**解析以 model 之 attrs 為準**(前提:attrs 與資料表一致,且為執行 where 之 model 之 `rawAttributes`),限制見〈已知限制〉。
+- 欄位運算子物件須至少產生一個子式(fail-closed 防線,第 33 項批 1 起 `cvOrmFind` 先拒空運算子物件與 `$options` 等白名單外之鍵〔`empty operator object`、`unsupported operator`〕,原 run04 sol H1〔`{f:{$options:undefined}}` 條件消失而成恆真〕因 `$options` 不再受理而無對象);`cvField` 於運算子物件未產生任何子式時仍 reject `operator object has no operator`,並於運算子鍵不在 `$eq…$nin` 時 reject `unsupported operator`、`$nin:[]`/`$in` 內 null 時 reject,使日後上游放寬白名單時本套件不致靜默改變語意(日後上游放寬時之 fail-closed 防線,不屬形狀層重寫;由單元測試以行為斷言,無法離開 `cvOrmFind` 單獨觸發,故不另設變異)。
+- `ctx.dateNoTz`(審計02,主控裁示 Q-C):`cvFind` 之可選 ctx 欄位,供 Jet 等無時區日期後端之呼叫端(w-orm-mdb)明示啟用;`WOrmReladb` 之 `getFindCtx` **不設定**(關聯式資料庫之 DATE 經 sequelize `timezone` 轉換,無時區字串在此語境不明確),故本套件之 select/delAll 對無時區字串仍 reject。①值域:`undefined`(預設,無時區字串照舊拒收)、`'local'` 或 `'floating'`(第 87 項批 B1 增,見 R14);其餘任何值(含 `null`、`false`、`''`、`'Local'`、`'utc'`)於 `cvFind` 入口(早於「非物件 find 回 `{}`」之提前返回)拋 `invalid ctx: dateNoTz must be 'local', 'floating' or undefined, got [x]`(B1 前訊息為 `…must be 'local' or undefined…`,合法值隨值域擴充而增)。②`'local'` 僅作用於欄位型別分類為 `date` 且值為字串者:文法 `YYYY-MM-DD[T 或單一空白]HH:mm[:ss[.小數]]`,不得有時區後綴、前後空白、小寫 `t`;以本地時間分量建構 `Date` 再逐欄回驗(不用 `Date.parse`),故曆法上不存在(2026-02-30、非閏年 2-29、月 13)、`24:00:00`、分或秒為 60、時 25、年 0000–0099 或 5 位年,主機時區下不存在之時刻(夏令跳過),以及換算 UTC 後年份不在 1–9999 者(如負偏移時區之 9999-12-31 晚間)皆拒收,訊息同現行(`does not match column type [date]`);小數秒取前三位截斷至毫秒(Q-C C3);回傳 `Date`(與呼叫端直接給本地分量建構之 `Date` 產生相同 SQL)。③純日期 `'2026-01-01'` 仍拒收(Q-C C2:JS 對純日期按 UTC、對日期時間按本地解析,易埋陷阱;需要者由呼叫端補時間)。④不影響:帶 Z 或偏移之字串(與未給 `dateNoTz` 同:通過檢核者轉 `Date` 送出)、`Date`、epoch、`null`、DATEONLY 欄、字串欄、整數欄與無法解析之欄;本地時間之年 0001–0099 不收(`new Date(y,…)` 把 0–99 年映射為 1900–1999,且涉及歷史時區之 LMT 偏移),此點不同於帶時區之字串。⑤`$in`/`$nin` 內之元素皆套用,任一元素不合法則整體拒收。⑥夏令重疊時刻取較早者(JS `Date` 之行為),文件化於〈已知限制〉。
+- 測試:unit「R4 …」「審計02 …」;api-suite find 段(七欄型 × 運算子之常數、DATE 清除回歸、bads:物件值、非日期字串、非數值字串、字串欄收數值、超出安全整數、稀疏陣列、getter)。
+
+## R5 `$in`/`$nin` 與 NULL(Q1:SQL 三值語意,文件化;第 33 項批 1 起縮為系列白名單)
+
+- 欄位層 `$not` 已移除(R11 reject `unsupported operator [$not]`)。需要否定時改寫為 `$ne`/`$nin`,或以 `$and`/`$or` 組合;需排除或含 NULL 見下「可攜寫法」。
+- `$in`/`$nin` 之元素為純量,**不含 null**(R11 reject `null is not allowed here`);`{f:null}`、`$eq:null` → `f IS NULL`,`$ne:null` → `f IS NOT NULL`。`$in:[]` → 恆假;`$nin:[]` reject(`$nin with empty array is always true`)。**空集合須引用其欄位**(審計02 §1,Q-A=A2):`$in:[]` 以 `f IS NULL AND 1 = 0` 表示——`f IS NULL` 恆為二值(永不為 UNKNOWN),整式二值;欄名會出現在 SQL 中,不存在之欄由資料庫回報而 reject(原常數形式使 `delAll({錯欄:{$in:[]}})` 清空全表);`attrs` 已給時改由轉譯階段之嚴格鍵 reject(R4)。mssql 驅動(tedious 19 + sequelize 6.37)遇同一語句 ≥2 個錯誤時 `err.message` 為空字串(訊息在 `err.original.errors[]`),故每個空集合只引用其欄位一次,不用 `f IS NULL AND f IS NOT NULL` 之雙引用形式。入口含 `$in` 與邏輯結合,皆走 `cvIn`。
+- SQL 三值語意:`$ne`、`$nin` 不含該欄為 NULL 之列(系列 SQL 族;lmdb/level/lowdb/mongodb 為 MongoDB 式,含 NULL/缺欄列,屬設計);`$gt` 等比較不含 NULL。
+- **可攜寫法**(7 後端實測一致,案例表 N11–N14):排除 NULL `{$and:[{f:{$ne:null}},{f:{$ne:x}}]}`,含 NULL `{$or:[{f:null},{f:{$ne:x}}]}`;`$nin:[x, null]` 改寫為 `$nin:[x]`(SQL 三值本即不含 NULL 列),僅 `$nin:[null]` 者改 `{f:{$ne:null}}`;`$in:[x, null]` 改 `{$or:[{f:null},{f:{$in:[x]}}]}`(外審 sol F5:`$nin` 不可套用 `$in` 之 OR 改寫)。
+- 測試:`test/api-find-whitelist.mjs` 之 N 組、I 組;api-suite「NULL 一致性」各列(`{t:null}`≡`$eq:null`;`$ne:null`≡`$exists` 已移除改以 `$ne:null`)。
+
+## R6 `$regex`(已移除,第 33 項批 1)
+
+- `$regex`、`$options`、RegExp 值、欄位層 `$not`、`$exists` 皆於 R11 reject `unsupported operator`/`unsupported value type [RegExp]`。原 R6(字面子字串、LIKE 以 `!` 跳脫並帶 `ESCAPE`、`i` 旗標兩側 `LOWER()`、sqlite 之 `LOWER` 只折疊 ASCII、`'$i'` 過渡寫法)隨 `cvRegex`、`regexToLiteral`、`normFlags` 一併刪除。
+- 需要子字串/不分大小寫查詢者:`select` 取回後於記憶體過濾,或以 view/計算欄位在資料庫端處理。大小寫之等值比對依資料庫定序(sqlite 二進位區分大小寫、mssql 預設定序不分),屬設計並文件化(R11 已知限制)。
+- 測試:`test/api-find-whitelist.mjs` 之 X03–X07、X34、E14;unit 與 api-suite 之 bads(`$regex`/`$options`/RegExp 值 reject)。
+
+## R7 錯誤管道與關閉守門(規格 T4、T10.3)
+
+- select、delAll:`procClosed(instance)` → **形狀檢核 `chkFindShape(find)`(R11,不連線)** → 初始化 → `cvFind` → 查詢,皆在同一 try 內(實例已關閉者先回 closed 訊息,其後才檢核 find);任何錯誤於 reject 前發一次 `error` 事件;條件不合法時不刪除任何數據。七函數皆有 `procClosed`。
+- 七函數之內部初始化(`instance` 為 null 時之 `initSequelize()`)皆在該函數之主 try 內(2026-10-16 修正;原在 try 之外,其建構期例外如驅動缺失會 reject 而不發 `error` 事件〔opus F17 附記〕):`initSequelize()` 本身拋出者與 `si.err`(匯入 model 失敗)同為整批性錯誤,於 reject 前發一次 `error` 事件,`mode` 為該函數名、`err` 與 reject 之訊息一致;已建構之 sequelize 由該函數之 finally 關閉。`createStorage`、`init` 不在七函數之列(規格 T10.3 只要求七函數),維持原狀。
+- 盤點:`rg -n "procClosed\(instance\)" src/WOrmReladb.mjs` → 9 處 = 函數定義 1 + 七函數之呼叫 8(selectByPk 於入口與 try 內各一處);七函數皆須命中。`rg -n "si = await initSequelize\(\)" src/WOrmReladb.mjs` → 7 處,皆須位於 `procClosed(instance)` 之後、同一 try 內(判準:該行之前最近之 `try {` 與 `procClosed(instance)` 同屬一區塊)。
+- 測試:api-suite `closed instance`(select 訊息含 `instance is closed`);find 段 bads(兩函數 reject 同訊息、各發一次 error 事件、資料表不變);api-init(以本套件不相依之 mysql2 缺失觸發建構期例外:`mysql://` 之七函數皆 reject 且於 reject 前各發一次 `error`,`mode`、`data`、`err` 依 T10.3;環境另裝 mysql2 時前提不成立,斷言訊息會指出)。
+
+## R8 主鍵值之正規化與型別(Q9;主控複審 `review/run03-複審.md` 第二節,2026-10-16)
+
+- 原載(run03)「字串主鍵欄收到有限數字為型別不符(insert 整批 reject、selectByPk 回 null)」→ 改為(2026-10-16,run04)**轉型**,與 w-orm-mdb 之 `normPk`(`w-orm-mdb/src/pk.mjs:114`)同一規則,與上游 w-serv-orm 1.1.11(數字主鍵轉字串)一致,呼叫端不須為個別套件寫特例。
+- 單一擁有者:`src/cvFind.mjs` 之 `normPk(v, kind, scale)`,主鍵欄型別分類與 DECIMAL 之 scale 取自 model(`getColKind`、`getColScale`,同 R4);主鍵函數(`src/WOrmReladb.mjs` 之 `normPkOf`)與 select/delAll 之主鍵欄條件(`cvFind` 之 `chkScalar`)皆經之,不另寫判定。
+- 正規化表(`new String`/`new Number` 先取原始值,同 w-orm-mdb):
+
+| 主鍵欄型別 | 輸入 | 處置 |
+|---|---|---|
+| 字串類(STRING/TEXT/CHAR/UUID/CITEXT) | 非空字串 | 原樣 |
+| 字串類 | 有限數字 | `String(v)`(視為有效;`123`→`'123'`、`1.5`→`'1.5'`) |
+| 整數類(INTEGER/BIGINT/SMALLINT/MEDIUMINT/TINYINT) | 安全整數 | 原樣 |
+| 整數類 | 標準整數寫法之字串(`String(Number(s)) === s`,即 `/^(0\|-?[1-9]\d*)$/`) | 安全整數範圍內 → `Number(s)`;超出者 → 原字串(表外細化,見下) |
+| 整數類 | 非整數之有限數字(`12.4`)、超出安全整數之數字(表外細化,見下)、其他字串(`'012'`、`'+12'`、`'12.0'`、`'1e1'`、`' 12'`、`'0x1'`、`'abc'`) | 型別不符 |
+| 其他數值類(FLOAT/REAL/DOUBLE/DECIMAL) | 有限數字;標準數字字串(`String(Number(s)) === s`) | 數值(字串 → `Number(s)`) |
+| 其他數值類 | 其他字串(`'1.50'`、`'.5'`、`'1e3'`、`'abc'`) | 型別不符 |
+| DECIMAL | 小數位多於 scale 之值(`Number(n.toFixed(scale)) !== n`;scale 未指定為 0,同 R4) | 型別不符(表外細化,見下) |
+| 其他型別(DATE、BOOLEAN、未知等) | 非空字串、有限數字 | 原樣(不檢型別,同 run03) |
+| 任何 | NaN、±Infinity、空字串、布林、物件、陣列、Date、BigInt、null、undefined | 無效 |
+
+- 表外細化(待主控確認):整數類之標準整數寫法字串超出安全整數範圍(如 `'9007199254740993'`)保留為原字串(精確值),供 BIGINT 主鍵使用(tedious 讀回 BIGINT 為字串,2026-10-16 驗收實測;逐字依表則超出 2^53 之 BIGINT 列無法以任何主鍵函數存取,run03 之 api-models「BIGINT 主鍵」案即此用法)。超出安全整數之**數字**已失精度而會命中相鄰主鍵,為型別不符(依表「安全整數」列與 R4)。與 w-orm-mdb 之 normPk 不同之輸入類別共三(2026-10-16 對照 `w-orm-mdb/src/pk.mjs`):①本條之字串(mdb `pk.mjs:129` 為型別不符);②整數類主鍵欄收超出安全整數之數字(mdb `pk.mjs:151` 只判是否整數而視為有效,本套件為型別不符);③DECIMAL 超出 scale(下條)。mdb 另有之「不可能存在」(超過 255 字元、含 NUL 等,Jet 專屬)本套件不適用。若主控要求逐字依表,刪除 `normPk` 內保留原字串之分支即可。
+- 表外細化二(待主控確認):DECIMAL 主鍵欄之值小數位多於 scale 者為型別不符,與表之整數列「非整數為型別不符」同一原理(寫入時會被捨入而改變鍵;w-orm-mdb `pk.mjs:106` 之註解即此理由)。依據:2026-10-16 以 `tmp/run04/accept.mjs` 實測(scale 檢核加入前),mssql 之 DECIMAL(10,2) 主鍵收 `1.254` 或 `'1.254'` 時 insert 回 `nInserted:0`(捨入為 1.25 撞既有鍵)、insertBulk reject、save 該筆 ok:0,而 selectByPk 回 null、select 回空——違反規格:265;sqlite 則另存 1.254 一列,兩方言分歧。run03 對字串形式本即以 R4 之 scale 拒收,逐字依表反而退化。若主控不採,刪除 `normPk` 內 scale 之判定即可。
+- 各函數之處置:
+  - selectByPk:無效或型別不符 → 回 null,不送查詢;有效 → 以正規化值查詢(`selectByPk(123)` 於字串主鍵欄即查 `'123'`)。
+  - del:無效 → 該筆 `{n:0,nDeleted:0,ok:0,err:'invalid <pk>[v]'}`;型別不符 → 該筆 `{n:0,nDeleted:0,ok:0,err:'invalid <pk>[v], type does not match pk column'}`;皆不送查詢、不中斷他筆;有效 → 以正規化值刪除並寫回該筆數據(事件之數據即實際送出者)。
+  - save/insert/insertBulk:無效 → 依規格 T6(autoGenPk 為 true 自動產生、為 false 整批 reject),同 w-orm-mdb 之 procPk;型別不符 → 寫入前整批 reject、不寫入任何一筆,訊息含 `type does not match pk column`,不以自動產生之主鍵取代;有效 → 正規化值就地寫回數據後寫入(`insert({id:123})` 於字串主鍵欄存為 `'123'`,其後 `selectByPk(123)`、`insert({id:'123'})` 皆視為同一主鍵)。insert/insertBulk 之納入,主控於複審第二節接受〔sol F17〕。
+  - select/delAll:**主鍵欄**(`opt.pk`)之非 null 純量條件值(欄位直給、`$eq/$ne/$gt/$gte/$lt/$lte`、`$in/$nin` 之元素)依上表正規化後送出(`{id:123}` 於字串主鍵欄即 `{id:'123'}`;範圍運算子以正規化值依欄型比較,字串主鍵欄之 `$gt:2` 即字串比較 `> '2'`);無效或型別不符 → reject(同 R4 之訊息 `does not match column type [<kind>]`),不刪除任何數據;null 依 R5(`IS NULL`)。主鍵欄型別為「其他型別」者不適用本表,依 R4。非主鍵欄維持 R4 之嚴格檢核(不轉型)。
+- 已知差異(記錄備查):w-orm-mdb 之 select/delAll 於肯定語境遇無效或型別不符之主鍵值為「不命中」、否定語境為拋錯(`pk.mjs` 之 castPkFind);本套件兩種語境皆 reject(R4 之一致處置,不誤刪)。
+- 盤點(2026-10-16;行號會隨改動漂移,以函數名為準):`rg -n "normPk\(" src/` → 4 處 = 定義(`cvFind.mjs` 之 `normPk`)+ `chkScalar` + `isEffPk`(`WOrmReladb.mjs`)+ `normPkOf`(`WOrmReladb.mjs`);`rg -n "normPkOf\(" src/WOrmReladb.mjs` → 定義 + `normPks`、selectByPk、del 之呼叫 3;`rg -n "normPks\(" src/WOrmReladb.mjs` → 定義 + insert、insertBulk、save 之呼叫 3。判準:凡把呼叫端主鍵值送出之站點(R1 盤點之 selectByPk、saveOne、del,與 insert/insertBulk 之 create)皆先經 `normPkOf`。
+- 測試:unit `normPk` 段(全表各列與 DECIMAL scale)與 `cvFind`「R8 主鍵欄之條件值…」;api-suite `pk type` 段(兩方言;字串主鍵 `users`、整數主鍵 `tpkint`、DECIMAL(10,2) 主鍵 `tpkdec`);api-models「BIGINT 主鍵」「INTEGER 主鍵」(sqlite)。使用者視角驗收腳本 `tmp/run04/accept.mjs`(4 種主鍵欄共 38 個輸入 × 7 函數,兩方言)。
+
+## R9 model 檔(E1;規格 T9)
+
+- 任何函數皆不寫 model 檔。model 完全沒有主鍵設定而有 `id` 欄者,於記憶體內把 `id` 補為主鍵(已有其他主鍵者不改動,否則成為複合主鍵而使主鍵去重失效〔opus F14〕):js 格式於呼叫定義函數期間暫以實例自有屬性包裝 `sequelize.define`,結束即刪除該屬性;json 格式於 `define` 前補上(`src/importModels.mjs`)。原 `src/modifyModel.mjs` 已刪除〔sol F16:照搬 w-orm-mdb 之「需要時寫檔」於第一次讀取仍會寫檔〕。
+- 盤點:`rg -n "writeFileSync|renameSync|unlinkSync" src/` → 只可命中 `src/genModelsByTabs.mjs`(專屬函數,產生 model 檔為其用途,刻意保留);七函數、createStorage、init 之路徑不得命中。
+- 測試:api-models(含縮排、空行、CRLF 之 model 經八個函數後位元組與 mtime 不變;缺主鍵設定之 model 亦不寫檔且 id 為主鍵;4 行程併發各 51 次操作後 model 檔不變且全部成功)。
+
+## R10 發布產物(dist)之可用性:model 檔之動態載入
+
+- `package.json` 之 `main` 為 `dist/w-orm-reladb.umd.js`(`toolg/gDistRollup.mjs` 經 w-package-tools 之 rollup 建置,含 `@rollup/plugin-commonjs`);經 main 使用者,預設 `modelType:'js'` 之 `importModels` 與七函數、`createStorage` 須與經 `src` 使用時同樣可用。
+- 成因(修正前;`git log -S"Could not dynamically require" -- dist/w-orm-reladb.umd.js` 顯示此樁自 2021-05-12 之 `ec401c5` 進入 dist 後未曾移除):`src/requireModel.js` 之 `require(fn)` 引數非字面值,commonjs 外掛將之換成必拋 `Could not dynamically require "<fn>"` 之樁;`importModels` 再被 `initSequelize` 轉成誤導訊息 `can not import model: …`(見 CLAUDE.md 除錯要點),測試只跑 `src` 而未發現。
+- 規則:打包進 dist 之原始碼(`src/` 與其引用之相依)不得有引數非字面值之 `require`;要依執行期路徑載入 CommonJS 檔,一律以 Node 內建 `module` 之 `createRequire(絕對路徑)` 產生 require 函數(其解析與模組快取同 `require`)。`module` 列入 `toolg/gDistRollup.mjs` 之 `external` 與 `globals`(同 `fs`、`path`)。不得改用 `import.meta` 之 `url` 以外屬性,不得於頂層宣告 `__filename`/`__dirname`(UMD 輸出之 `import.meta` 墊片只有 `url`,頂層 `__filename` 與墊片同名而 TDZ;w-package-tools 新版將拒絕)。
+- 單一擁有者:`src/requireModel.js`(簽章 `requireModel(fn, sequelize, DataTypes)` 與路徑不變,被 w-orm-mdb、w-data-collector 深層引用;呼叫端皆以 `path.resolve` 給絕對路徑)。
+- 盤點:`rg -n "require\(" src/` → 只可命中 `src/requireModel.js` 之 `require('module')`(字面值)與 `module.exports` 外之 `req(fn)`(createRequire 所產生者,commonjs 外掛不改寫);`rg -n "import\.meta|__dirname|__filename|import\(" src/` → 0。建置產物不得含 `Could not dynamically require`(含被打包之相依)。
+- 下游:w-orm-mdb 之 dist 打包本套件之 `src/requireModel.js`,升級相依後重建即修正;其 `gDistRollup.mjs` 宜同樣把 `module` 列入 external/globals(未列時 rollup 以 browser 模式解析不到而當成 external 並發警告,產物仍 `require('module')`)。
+- 測試:`test/api-dist.test.mjs`(由目前 `src` 以 `toolg/gDistRollup.mjs` 原檔設定只換輸出夾建至 `test/_tmp/api-dist/…/node_modules/w-orm-reladb/dist` → 以套件名 `require` → js 型 model 跑 createStorage、insert、select、selectByPk、del → 斷言結果與 error 事件為空,且產物不含 `Could not dynamically require`)。
+
+## R11 條件(find)之入口檢核:系列白名單(第 33 項批 1,2026-10-19;單一擁有者 wsemi `cvOrmFind`)
+
+- 規格:`C:\opensrcOper\dspec\w-orm系列條件語法支援盤點.md`〈一之一〉〈一之三〉(含 6. 定案細節:純量、null、空集合、欄名、上限、異常結構、錯誤格式、單一擁有者);審計與方案 `C:\opensrcOper\dnow\20261017093849\agent-out\run01-審計與方案.md`(§2.5、§4.5、§4.6、§5.1、§6、§7);共用函數 `wsemi/src/cvOrmFind.mjs`(wsemi ^1.9.20)與契約案例表 `wsemi/src/_cvOrmFindCases.mjs`(`{ columns, seed, cases }`)。
+- **白名單**(其餘一律整批 reject,訊息 `invalid find: <原因> at [<路徑>]`,不回顯值):①頂層未給/`undefined`/`{}` 為全部,其餘須為條件物件(R1);②欄位直給 `{欄: 純量|null}`,多欄隱含 AND;③欄位運算子 `$eq $ne $gt $gte $lt $lte`(純量;`$eq/$ne` 另可 null)、`$in $nin`(純量陣列,不含 null;`$in:[]` 恆假、`$nin:[]` reject);④文件層 `$and`、`$or`(非空陣列,元素為非空條件物件);⑤純量 = 字串(無 NUL、無孤立代理)、有限數字、布林、有效 Date;⑥欄名 `^[\p{L}_][\p{L}\p{M}\p{N}_]*$`、≤128、禁 `__proto__`;⑦異常結構(存取器、不可列舉、Symbol 鍵、洞、額外屬性、Proxy 空物件…)reject,每值只讀一次並以全新 null 原型深複本供後續使用;⑧上限:深度 32、`$and/$or` 長度 **999**、`$in/$nin` 長度 10000、節點 100000、欄名 128。
+- **`maxList: 999`**:SQLite 平鋪 `$or/$and` 恰 1000 項即 `Expression tree is too large (maximum depth 1000)`(DB 錯誤,批 0 實測;本套件以 `api-find-whitelist` 之邊界案於 reladb 實際 SQL 上重測),故本套件呼叫 `cvOrmFind` 時傳 `{ maxList: 999 }`;mssql 同受此上限(單一常數,不分方言)。
+- 單一擁有者與接線:形狀判定只在 `cvOrmFind`,本套件不另寫形狀層。`src/cvFind.mjs` 之 `chkFindShape(find)`(= `cvOrmFind(find, { maxList: 999 })`)為本套件唯一呼叫點;`cvFind(find, ctx)` 第一步 `find = chkFindShape(find)`,其後 `cvDoc`/`cvField` 只走訪複本;`select`、`delAll` 於 `procClosed(instance)` 之後、`initSequelize()` 之前亦呼叫 `chkFindShape`,故形狀不合法者在**載入 model 檔與建立 sequelize 實例之前**即 reject(不連線、不送出任何 SQL;HEAD 亦不送 SQL,因 `initSequelize()` 不 `sync`,差別在於 HEAD 先載入 model 與建實例才檢核,model 載入失敗〔如 model 檔缺失〕與壞 find 並存時 HEAD 先回報 `can not import model`,現先回報 `invalid find`);其後 `cvFind(複本, ctx)` 對複本再檢核一次(冪等;w-orm-mdb 亦如此)。
+- 翻譯層(`cvFind` 之後段,**仍由本套件負責**,不屬共用函數):欄名嚴格鍵與 `attrs` 形狀(R4)、依欄型檢核純量(R4)、主鍵正規化(R8)、DATE 範圍與 `ctx.dateNoTz`(R4)、`$in:[]` 之欄位引用(R5)、`defaultScope` 守門(R1)。
+- 盤點:`rg -n "cvOrmFind\(|import cvOrmFind" src/` → 僅 `cvFind.mjs` 之 import 與 `chkFindShape` 內 1 處呼叫(共 2 行,其他檔 0);`rg -n "chkFindShape\(find\)" src/` → 定義 1 + `cvFind` 內 1 + `WOrmReladb.mjs` 之 select、delAll 各 1(共 4 行);站點全集:select、delAll(2/2)。判準:`findAll`/`destroy` 所用之 where 只來自 `cvFind` 之輸出;`src/` 內不得再有 `Symbol`/`Op` 全集、`$regex`、`$not`、`$nor`、`$exists`、RegExp、陣列值即 `$in` 之處理(`rg -n "^\s*(let|const|function)\s+(setOp|mSymCmp|regexToLiteral|cvRegex|normFlags|sqlTrue|getItems|isPlainObj|chkRawSym)\b" src/` → 0;註解與 JSDoc 提及「已移除」者不計)。
+- 連線所有權:`select`/`delAll` 之 `finally` 只在本次呼叫已進入 `initSequelize` 時才 `closeSequelize`(`inited` 旗標);預檢失敗於初始化之前者不得關閉呼叫端先前以 `init()` 持有之 instance(外審 sol F2;HEAD 此情形因 `initSequelize` 覆寫閉包內 `sequelize` 變數而不關閉原 instance,但後續以該 instance 呼叫會因 `sequelize` 已被關閉之新實例取代而誤報 closed;混用兩種風格仍屬 README 所載不支援)。
+- 測試:`test/api-find-whitelist.mjs`(sqlite 與 mssql 共用;案例表逐案對公開 `select`/`delAll`,每案以 `seed()` 重建:OK/ALL 比對 `ids.sql`〔mssql 之 E25 依預設定序不分大小寫,為 `['a1','a2']`〕、`schema` 案可 reject、`delAll` 刪除集合 = `select` 命中集合且 `n = nDeleted = 命中數`;REJ 案兩函數皆 reject 且訊息以 `invalid find: ` 開頭、資料不變、`error` 事件於 reject 前恰一次、`change` 不發;另含專屬斷言:壞 find 不送出任何 SQL、形狀檢核先於 model 載入與 sequelize 實例建立〔`cl` 指向不存在之 model 時壞 find 回 `invalid find`、合法 find 回 `can not import model`〕、`$or`/`$and` 999 項可而 1000 項 reject、巢狀 × 清單長度〔32 層 × 每層 33/99 項、4 層 × 999 項、32 層 × 每層並列 5 欄之隱含 AND;內層在清單首或末;select 與 delAll 皆須可執行且命中一致〕、預檢失敗不關閉先前持有之 instance、`closed` 先於檢核、複本冪等與「檢查之值即使用之值」〔select 與 delAll 各測〕、匯出簽名不變)。`test/unit-cvfind.test.mjs` 與 `api-suite.mjs` 之舊案:屬形狀層之 reject 案改以新訊息斷言,被移除功能之接受型案翻為 reject 案。
+- 變異(須轉紅,結果見實作報告):拿掉 `cvOrmFind` 呼叫;改用原物件而非複本(cvFind 內、select 入口、delAll 入口各一);形狀檢核放到 `initSequelize` 之後;`maxList` 改回 1000;關閉分組(`nFlat` 極大);分組改回每 32 項一組之舊法;拿掉 `inited` 旗標;嚴格鍵失效;`dateNoTz` 失效。
+- 已知限制:`cvOrmFind` 之限制(含私有欄位之類別實例改原型為 null、宿主物件無法辨識;Proxy 之 ownKeys 成本)見 wsemi 帳本 R-FIND-01;本套件不另處理。
+
+## R12 寫入側 DATE 範圍檢核(第 78 項,2026-10-19;與 R4 條件側共用同一範圍判定)
+
+- 規格:`C:\opensrcOper\dspec\w-orm系列條件語法支援盤點.md`〈一之三〉8.「範圍外 Date」(使用者 10-19 裁示):以文字儲存日期之後端,條件與寫入皆拒收範圍外 Date;reladb 年份 1–9999,條件側既有(R4),本節補寫入側。
+- 成因(修前實跑 `tmp/wprobe/p1-write.mjs`,sqlite):`insert({id, d: new Date(8.64e15)})` 存為文字 `275760-09-13 00:00:00.000 +00:00`,`new Date(-8.64e15)` 存為 `-271821-04-20 …`,`'+010000-01-01T00:00:00Z'` 存為 `10000-01-01 …`,`0000-12-31T23:59:59.999Z` 存為 `0000-12-31 …`;文字比較下 `'275760-…' < '3000-…'`,故「永不過期」哨兵被 `delAll({ d: { $lt: 某日期 } })` 命中而刪除,`$gt` 反而漏中(證據 `C:\opensrcOper\dnow\20261019191931\series-probe\`)。條件側既有拒收,但資料已在庫內則無從保護;故於寫入時擋。mssql 之 datetimeoffset/date 範圍 0001–9999,資料庫本即報錯(HEAD 實跑 `tmp/head/test/api-mssql-probe.test.mjs`:訊息為驅動之 `Conversion failed when converting date and/or time from character string.`;`insert` 逐筆 create 無回滾,[合法, 範圍外, 合法] 三筆時第 1 筆已寫入而 reject;`insertBulk` 因交易包覆而無一筆寫入;`save` 該筆 `ok:0`+該訊息、其餘筆照寫〔resolve〕),本套件改於送出前拒收(兩方言行為一致、整批 reject、資料庫不變,不依賴資料庫報錯)。
+- **單一擁有者**:`src/cvFind.mjs` 之 `inYearRange(y)`(年份 1–9999 之唯一常數所在)與 `inDateRange(ms)`(= 換算 UTC 後 `inYearRange`);條件側(`isKindOk`、`parseNoTzLocal`)與寫入側(`chkWriteDate`/`genDateChecker`)皆經之,範圍數字不在他處重寫。`inDateRange`、`genDateChecker` 自本版起匯出。
+- 寫入入口與檢核點:`insert`、`insertBulk`、`save`(含自動插入、更新既有、`autoInsert:false` 且主鍵不存在三種路徑)於 `procPk`、`normPks` 之後、任何寫入之前,對全部筆數一次呼叫 `chkDates(md, data)`;任一筆任一 DATE/DATEONLY 欄無效或範圍外 → 拋 `invalid data: date is not a valid time in years 1-9999 at [data[<索引>].<欄名>]`(不回顯值;同筆多欄失敗回報 model 屬性定義順序之第一個),走既有 `catch → emitError → reject`:**整批 reject、資料庫不變**(檢核先於第一次寫入,故 `insert` 之逐筆 `create` 與 `save` 之逐筆處置皆不會有部分筆數已寫入;此為整批性錯誤,不降為 `save` 之逐筆 `ok:0`);error 事件於 reject 前恰一次、不發 change。優先序:已關閉 → 初始化/`si.err` → `procPk`(缺主鍵) → `normPks`(主鍵型別不符) → 本檢核。檢核對象為 `cloneDeep` 後之複本(呼叫端物件不變)。
+- 檢核對象與判定(`chkWriteDate`):model 屬性(`getColKind` 為 `date`、`dateonly`)之值,非 null、非 undefined 者;每個值須為「年份在 1–9999 之有效時間」,否則拒收。
+  - `date`(DATE;sequelize `_sanitize`:`Date` 原樣,其餘 truthy 值 `new Date(值)`,falsy 值不轉):`Date`(含子類別、跨 realm)、epoch 數值、字串〔含 sequelize 現行接受之無時區字串、純日期字串、`new Number`/`new String`、陣列等,凡 `new Date(值)` 得時間者〕換算為時間後以 `inDateRange` 判定(UTC 年 1–9999)。與條件側之差異:條件側只收「帶時區 ISO 字串 / Date / epoch」,寫入側沿用 sequelize 既有接受之全部形式(不縮小既有可寫入的輸入),僅對其所得時間判範圍。falsy 值 sequelize 不轉換:僅 `0`/`-0`(epoch 0)有效,`''`、`false`、`NaN`、`0n` 等拒收。
+  - `dateonly`(DATEONLY;sequelize 以 `moment(值).format('YYYY-MM-DD')` 依主機本地時間轉為文字存入):以該型別之 `_sanitize` 所得之文字(= 實際存入者)判定——須為 `YYYY-MM-DD`(年 4 位數)且年 ≥ 1;5 位以上年、帶負號年、`0000`、`Invalid date` 一律拒收(實測 `new Date(8.64e15)` 得 `275760-09-13`、`new Date(-8.64e15)` 得 `-271821-04-20`;`Invalid date` 文字是 sequelize 在查詢階段對已格式化文字再過一次 moment 才出現)。moment 物件、陣列、物件寫法凡經 `_sanitize` 得範圍外文字者亦拒收(外審 Argon F6.1 更正,初稿誤載為「不檢」)。曆年為主機本地曆年,故邊界年(0001、9999)之 Date 物件隨主機時區而異;字串/純日期不受影響。`_sanitize` 取自欄位型別實例,手造 attrs 之型別建構子或只有 `key` 者用 sequelize 內建 `DATEONLY.prototype._sanitize`(外審 Argon F2:初稿對建構子型別靜默放行)。
+  - **無效時間一律拒收**(外審 Argon F5 採納,**較任務字面「年份不在 1–9999」多一層,待主控確認**):`Invalid Date`、`NaN`、`±Infinity`、超出 Date 範圍之數值(`1e16`)、`new Date(值)` 為 Invalid 之字串(`''`、`'garbage'`、無 `+` 號之 5 位數年 `'10000-01-01T00:00:00Z'`)、falsy 非 0 值、BigInt、Symbol、無原型物件、換算時拋錯者。理由:sqlite 存為文字 `Invalid date`,其字典序大於任何年份(`'I'` 0x49 > `'9'` 0x39),`$gt`/`delAll({ d: { $gt: x } })` 會誤中;mssql 則由資料庫報錯,兩方言不一致;條件側對無效 Date 本即 reject(`inDateRange(NaN)` 為 false)。初稿曾沿 w-orm-level/lowdb 先例〔其無效 Date 序列化為 `null`,無字典序風險〕維持既有處置,reladb 之文字 `Invalid date` 有風險故不沿用。若主控不採:把 `chkWriteDate` 內無效分支改回放行即可(各測試檔以「無效時間」為名之案同步改)。
+  - **SQL 運算式不檢**:`Sequelize.fn`、`literal`、`col` 等(`SequelizeMethod`)由呼叫端明示,sequelize 不轉換,放行且不換值。
+  - **檢查之值即使用之值**(外審 Argon F1 採納):物件值(Date 及其子類別、包裝物件、陣列、含自訂 `valueOf`/`toString`/`getTime` 者)會被 sequelize 再度求值(`DATE._sanitize` 之 `new Date(值)`、`moment(值)`、`Model.update`),具狀態者二次求值可得範圍外值;故通過檢核後,記錄**自有屬性**上之物件值就地換成已檢核之標準值(DATE 為 `new Date(ms)`;DATEONLY 為 `_sanitize` 所得文字),字串、數值等原始值不可變不換。原型鏈上之屬性只讀不換(create/bulkCreate 不讀原型鏈屬性、update 會讀;原型鏈上具狀態之 getter 不在保證範圍,見〈已知限制〉)。換值作用於 `cloneDeep` 後之複本,事件之 `data` 為換值後者。
+- 既有資料:不遷移、不改讀取;庫內既有之範圍外日期文字仍有字典序風險,README 說明自行清理或改寫(`null`、`9999-12-31T23:59:59.999Z`),並附清理範例(實跑驗收見 `tmp/wprobe/accept.mjs`)。
+- 盤點(站點全集;行號會漂移,以函數名為準):`rg -n "\.(create|bulkCreate|update|upsert)\(" src/` → 4 處 = `insert`(`md.create`)、`insertBulk`(`md.bulkCreate`)、`saveOne`(`md.update`、`md.create`);其餘 `.query(` 只在 sqlcipher 之 `PRAGMA`、`.destroy(` 為刪除、`model.sync()` 只建表、`genModelsByTabs` 只寫 model 檔,皆不寫入紀錄(外審 Argon 亦獨立盤點得同一結論)。`rg -n "chkDates\(md, data\)" src/WOrmReladb.mjs` → 3 處(insert、insertBulk、save),各在 `normPks(md, data)` 之後。判準:凡把呼叫端數據寫進資料表之入口,其寫入前必先經 `chkDates`;新增寫入入口須同時補本節與測試。
+- 測試:`test/api-date-write.mjs`(sqlite 與 mssql 共用,由 `api-sqlite.test.mjs`、`api-mssql.test.mjs` 引入;model `tdate`〔兩個 DATE 欄與一個 DATEONLY 欄〕、`tdatei`〔整數主鍵 + DATE 欄,測優先序〕):入口 5 × 範圍外值/無效時間 × 欄位型別 × 位置,每案斷言 reject 訊息、error 恰一次且先於 reject、change 不發、資料庫逐列不變、呼叫端物件不變;接受邊界與讀回;交易、returnList、不給 instance、優先序、檢查之值即使用之值(具狀態 `valueOf`、陣列元素 `toString`)、`literal` 放行、舊資料清理(sqlite)。`test/unit-date-write.test.mjs`(`inDateRange`/`genDateChecker` 純函數,不連線;輔助 `test/tools/withTz.mjs`):值表、時區、換值、手造 attrs/型別漂移 fail-closed、與條件側之同界判定。
+- 變異(結果見修正報告):拿掉寫入檢核;只檢上界;只檢下界;只檢 sqlite(mssql 容器);只檢 insert/insertBulk/save 各一;只檢首筆;只檢首個 DATE 欄;DATEONLY 不檢;檢核移到寫入之後;檢核先於 procPk/normPks;訊息回顯值;寫入側自寫範圍數字;改用本地年;無效時間不拒收;不換值(DATE、DATEONLY 各一);SQL 運算式不放行;falsy 放行;換算拋錯放行;手造型別 fail-open;原型鏈屬性也換值。
+
+## R13 字串良構(第66項批1f,2026-10-20;單一擁有者 wsemi `chkOrmStr`、`chkOrmData`)
+
+- 規格:`C:\opensrcOper\dspec\w-orm系列條件語法支援盤點.md`〈一之三〉9.(使用者裁示 D1、D2、D4,主控裁示 D3、D5–D8);審計 `C:\opensrcOper\dnow\20261020172106\agent-out\run01-系列審計回應.md`(§5.2 處置表、§6.2 批 1f 列、§8 既有資料);共用函數 `wsemi/src/chkOrmStr.mjs`、`chkOrmData.mjs` 與契約案例表 `_cvOrmStrCases.mjs`(wsemi ^1.9.24)。
+- 成因:UTF-8 存放(sqlite)把孤立代理碼元(UTF-16 代理對只剩一半,`isWellFormed()` 為 false)改寫為 U+FFFD,不同主鍵寫成同一鍵:HEAD(1.1.12)實跑(探測腳本 `C:/opensrcOper/dnow/20261020172106/agent-out/批1-reladb-evidencescriptshead-probe.mjs`,輸出 `probe-head-{sqlite,mssql,storage}.txt` 同夾)預存 `'a\uFFFD'` 後:`insert('a\uD800')` 回 `nInserted:0`(視為重複而跳過)、`insertBulk` 回 `Validation error`、`save` 覆寫該列、`del` 刪該列、`selectByPk` 回該列;NUL 主鍵:sqlite `insert` 存入,`insertBulk`/`save`/`del`/`selectByPk` 以 `SQLITE_ERROR: unrecognized token` 失敗(處置不一致);資料值之孤立代理存為 U+FFFD。mssql(NVARCHAR)保真,但全系列一律拒收(D1)。
+- 範圍與規則(D1、D2、D3):①**主鍵值**(含 `new String` 包裝者取原始值):孤立代理或 NUL → 拒(NUL 併入,與條件側同標準);②**寫入資料之字串值與鍵名**(`insert`/`insertBulk`/`save`;含巢狀物件、陣列元素、Map/Set/Error/RegExp 文字、繼承可列舉屬性,**不論欄位是否在 model 內**——檢核先於 sequelize 之欄位過濾):孤立代理 → 拒,值之 NUL 不拒;③**`opt.url`、`opt.db`、`opt.cl`、`opt.storage`**:孤立代理 → 建構時 throw `invalid opt.<名>: string contains lone surrogate`(`opt.storage` 為 sqlite 之路徑承載者,本套件之「儲存位址」;任務書字面只列 db/cl/url,storage 為本套件判斷並於報告標明待主控確認;`opt.fdModels` 為 model 檔夾,非儲存位址,不納入;名稱之 NUL 不屬本規則,以 `{ nul: false }` 呼叫)。U+FFFD 本身與成對代理為良構,照常接受。
+- 處置(與既有[無效主鍵]同形,D5):`insert`/`insertBulk` 寫入前整批 reject、不寫任何一筆(先 `emitError` 一次再 reject,不發 `change`);`save` 該筆 `{n:1,nInserted:0,nModified:0,ok:0,err}`(含 `autoInsert:false`;同批其他筆照常;該筆不讀資料庫、不寫入、發 `error` 事件〔mode `save`,data 為該筆〕;**全部筆數不合格時不連線**);`del` 該筆 `{n:0,nDeleted:0,ok:0,err}`(只檢主鍵;同樣全部不合格不連線);`selectByPk` 回 `null`(經 `isEffPk` → `normPk` 無效,先於連線);`select`/`delAll` 之 find 依既有 `invalid find`(條件側不變)。
+- 順序:`procClosed` → `chkWf`(先於 `initSequelize`、model 載入、讀取、寫入、刪除)→ 初始化 → `si.err` → `procPk`(缺主鍵)→ `normPks`(型別不符)→ `chkDates`(R12)→ 寫入。`save` 之不合格筆略過 `procPk`/`normPks`/`chkDates`(`bads` 陣列,合格筆之批次性檢核照舊整批 reject);**不隨 `autoGenPk` 改變**:不合格主鍵先於 `procPk` 檢出,故 `autoGenPk:true` 時呼叫端所給之不合格字串不被當成[未給主鍵]而以自動產生之主鍵取代(`isEffPk` 對不合格字串亦為 false,故單靠 `normPk` 接線會發生此取代,為本規則之主要陷阱)。
+- 訊息(固定詞彙、不回顯值,D6):`invalid id: <原因> at [data[<k>].<主鍵欄>]`、`invalid data: <原因> at [<路徑>]`、`invalid opt.<名>: <原因>`;原因為 `string contains lone surrogate`/`string contains NUL`;同筆主鍵先於資料、同物件鍵名先於值、`insert`/`insertBulk` 以索引最小之不合格筆為準;路徑中不合格之鍵名以 `<invalid key>` 標示。**既有回顯主鍵值之訊息一併去回顯**(D6):`normPks` 之 `invalid data[k].<pk>[值], type does not match pk column` → `invalid data[k].<pk>, type does not match pk column [<pk>]`;`del` 之 `invalid <pk>[值]` → `invalid data[k].<pk>`、`invalid <pk>[值], type does not match pk column` → `invalid data[k].<pk>, type does not match pk column`;`saveOne` 重試耗盡訊息 `can not save data by <pk>[值] in 3 tries` → `can not save data[k].<pk> in 3 tries`(`saveOne` 增第 6 參數 `k`;此訊息須[預讀見該列且更新連續 3 次未命中]才可觸發,測試以替身 `md.findOne`/`md.update` 構造,變異 W22 由此轉紅)。`save`/`del` 之 pmSeries 回呼取第二參數為批次索引。
+- **檢查之值即使用之值**:檢核作用於 `cloneDeep` 後之複本且其後只用該複本。**重要發現**:`useStable`(預設 true)時 `ee.insert` 等經 `pmQueue`,而 `pmQueue` 於執行前 `await delay(1)`,原本函數內之 `cloneDeep(data)` 在佇列輪到時才執行——呼叫端於呼叫後立即改動原數據(如重用同一陣列)會改變實際檢核與寫入之值(案例表 `toctou:*:mutate-after-call` 在 HEAD 與初版接線皆紅)。故複製移到註冊處之 `snap(fn)`:呼叫當下同步 `cloneDeep`(複製拋錯回 rejected promise,與原行為同為不發 `error` 事件),四個寫入函數(insert、insertBulk、save、del)之函數內**不再複製**(`unit-wellformed` 掃描 `cloneDeep(` 於四函數段內為 0)。`chkWf` 對包裝物件之主鍵(`new String`、`new Number` 或偽裝其標籤之物件)只呼叫一次 `valueOf`,合格者將原始值(字串或數值)寫回複本,不合格者不寫回;`selectByPk` 入口以 `normPk(pk,'any')` 一次取得原始值並以之查詢(原 `isEffPk` 檢查與 `normPkOf` 使用各求值一次,外審 agy-flash F05)。
+- **連線所有權**(同 R11):`insert`/`insertBulk`/`save`/`del` 之 `finally` 只在本次已進入 `initSequelize` 時(`inited`)才 `closeSequelize`;預檢失敗(發生於初始化前)不得關閉呼叫端先前以 `init()` 持有之 instance(否則其後以該 instance 呼叫會誤報 closed)。
+- `normPk` 介面保持(w-orm-mdb 批 2 深引用):簽章 `normPk(v, kind, scale)` 與結果形狀 `{ kind, v }` 不變,字串分支新增:含孤立代理或 NUL 者回 `{ kind: 'invalid' }`(位於空字串判定之後、各型別判定之前,故整數類/其他數值類之不合格字串亦為 invalid 而非 mismatch)。`cvFind.mjs` 新增匯出 `chkPkWf(v)`(主鍵字串良構原因或 null,先拆包裝)、`chkWf(data, pk, withData)`(逐筆訊息陣列)供 mdb 沿用。
+- 既有資料(D8):不遷移、不改讀取。sqlite 先前寫入之孤立代理已被資料庫改寫為 U+FFFD(內容已損,為良構,不受影響、無從還原);mssql(NVARCHAR)保真,可由 `(await w.select()).filter((v) => typeof v.id === 'string' && !v.id.isWellFormed())` 檢出(README 載明,`api-wellformed` 於 mssql 實跑核對),該列不再能以 `selectByPk`/`del` 定址,改以他欄條件 `delAll({ name })` 或全表 `delAll()` 清除。
+- **排序規則弱相等只文件化**(D4,mssql):預設排序規則(`SQL_Latin1_General_CP1_CI_AS`)下 `'a'`、`'a'`+emoji、`'a'`+U+FFFD 互相相等(2026-10-20 在 SQL Server 2022 容器以 sqlcmd 實測:三者兩兩相等;`Latin1_General_100_BIN2` 下皆不等;證據副本 `agent-out/批1-reladb-evidence/collation-probe.txt`),屬值語意差異(與大小寫同族),README 與類別 JSDoc 載明,精確比對須以 BIN2 排序規則建表;`createStorage` 不改(會同時改變大小寫語意,屬破壞性,使用者裁示 D4=A)。審計 mssql 紅格中此類(246 格)不在本批修復範圍。
+- 已知限制:①含成對代理之 `new String` 於資料內不解包、不改存放形式(主控裁示,批 0 複審②;`chkOrmData` 對 String 包裝只檢字元,不拒收);②自訂 `toJSON`/`toString`/`valueOf` 之輸出、model 的自訂 `set` 於檢核後改寫之值不在檢核範圍(同 R12 限制);③`save`/`del` 逐筆迴圈之 `emitError` 與既有逐筆失敗同形;④**原型鏈上具狀態之 getter**(含主鍵欄)不在[檢查之值即使用之值]保證內(`cloneDeep` 保留原型,各處讀取各自觸發 getter;與 R12 同限制,wsemi 帳本規則 15 之[後端於複製後固定為資料屬性]列為建議而非強制,本批不做);⑤`opt.pk` 為欄名設定、`opt.fdModels` 為 model 檔夾,皆非儲存位址,不納入建構檢核(`opt.pk` 若含孤立代理,錯誤訊息路徑將帶出,屬開發者設定錯誤;外審 agy-flash F01 提出,規格範圍外,低);⑥`save`/`del` 全部不合格時仍於結果定案後發出一次 `change` 事件(`change` 事件在本套件一貫攜帶 `(mode, data, res)` 於每次 resolve 後發出,含無任何異動者〔如 `del` 未命中〕,不因本批改變;外審 agy-flash F03 為誤報)。
+- 盤點(站點全集;行號會漂移,以函數名為準):`rg -n "chkWf\(" src/` → 定義 1(`cvFind.mjs`)+ `WOrmReladb.mjs` 之 insert、insertBulk、save、del 各 1(共 5 行);`rg -n "chkOrmStr\(|chkOrmData\(" src/` → `cvFind.mjs` 之 `normPk`、`chkPkWf` 各 1 與 `chkWf` 內 `chkOrmData` 1,加 `WOrmReladb.mjs` 建構迴圈 1(共 4 行);`rg -n "ee\.(insert|insertBulk|save|del) = snap" src/` → 8(穩定/非穩定模式各 4);`rg -n "isWellFormed|uD[89A-F]" src/` → 0(不自寫判定)。判準:凡把呼叫端字串送進資料庫(寫入、主鍵查詢、刪除)或用作儲存位址之入口皆先經上列站點;新增此類入口須同時補本節與測試。
+- 測試:`test/api-wellformed.mjs`(sqlite 與 mssql 共用,由 `api-sqlite.test.mjs`、`api-mssql.test.mjs` 引入;model `models/twf.js`;**逐案執行 wsemi 之 `_cvOrmStrCases`**〔給 instance + `autoGenPk:true` 全表;給 instance + `autoGenPk:false` 之 id/single/val/order;不給 instance 之 order/toctou 與 id/single/val 代表形態 HI_END、LO_MID、NUL_MID、EMOJI〕,本套件無 GridFS(`need` 含 `gfs` 略過)且 model 固定欄位(`need` 含 `doc` 之接受案略過;拒收案不需 doc,照跑),另含專屬斷言:檢核先於連線與 model 載入〔cl 指向不存在之 model〕、全部不合格不連線、`selectByPk` 不連線、已關閉 instance 先於檢核、不關閉先前持有之 instance、`autoGenPk:true` 不取代、String 包裝與偽裝物件只讀一次、returnList 與交易、呼叫當下即複製〔useStable true/false〕與複製拋錯為 rejected promise、`save` 不合格筆不觸發批次性日期檢核、不合格筆結果形狀與 `error` 事件、`select`/`delAll` 條件側不變、`del` 只檢主鍵、去回顯、既有資料〔mssql 實存孤立代理、sqlite 已改寫〕)。`test/unit-wellformed.test.mjs`(不連線:`normPk` 全形態、`chkPkWf`、`chkWf` 逐形態 x 位置 x 順序 x 實存型別、建構 `opt` 逐名稱 x 形態、單一出處與接線站點掃描)。`test/unit-cvfind.test.mjs` 之 `normPk` 段加 R13 案。`test/api-dist.test.mjs` 加 dist 實跑案(打包後之 `chkOrmStr`/`chkOrmData` 仍正確)。`test/api-mssql.test.mjs`:第 88 項,容器移除改 `docker rm -f -v` 並回驗容器與 volume 皆已移除;`docker run` 綁定埠失敗(取得空閒埠到綁定之間被他程序佔用)時換埠重試。
+- 變異(結果見修正報告 §5):拿掉各接線點(`normPk` 字串分支、`chkPkWf`、`chkWf` 之主鍵/資料/withData/順序/寫回/拆包裝/路徑索引、四寫入函數之 `chkWf`、檢核移到初始化之後、`inited` 旗標、save/del 全部不合格不連線、save 不合格筆之 procPk/normPks/chkDates 略過與逐筆處置/error 事件/結果形狀、del 之逐筆處置、去回顯三處、建構四名稱各一與順序/NUL/回顯、`snap` 八處與同步拋錯)須轉紅。
+
+## R14 無時區浮動時間 `ctx.dateNoTz:'floating'` 與 `toFloating`(第 87 項批 B1,2026-10-21;審計 `C:\opensrcOper\dnow\20261021080241\agent-out\run01-審計與方案.md` §4、複審 `review/run01-複審.md`)
+
+- 問題(修前實跑,PoC `tmp/poc94/tz87.mjs`):w-orm-mdb 的記憶體過濾表以 UTC 文字存 DATE,Jet 回傳之是無時區牆上時間。`dateNoTz:'local'` 把牆上時間當**主機本地時間**換算 UTC:負偏移時區(LA、紐約、聖保羅、GMT-12)下牆上 `9999-12-31 23:59:59` 換算為 UTC 年 10000(文字 `10000-01-01…`,字典序小於 `2026-…`)——哨兵被 `$lt 今日` 命中而 `delAll` 刪除、哨兵本身作條件值被拒(108 組條件中現行 48–52 組結果錯、18–24 組誤拒);有夏令之 UTC+ 時區(柏林、Lord Howe)於夏令跳過之牆上時刻亦錯(4/108)。`'local'` 行為**不變**(相容,不廢止),僅於文件標註已知缺陷。
+- 值域:`undefined`(預設)、`'local'`、`'floating'`;其餘任何值於 `cvFind` 入口(早於空 find 提前返回)拋 `invalid ctx: dateNoTz must be 'local', 'floating' or undefined, got [x]`(訊息列出之合法值隨值域擴充而增,前綴 `invalid ctx: dateNoTz must be` 不變)。`getFindCtx` 仍**不設定**(公開 API 不變:本套件的 select/delAll 對無時區字串仍 reject;`'floating'` 只供深引用者〔mdb〕明示)。
+- 語意(僅作用於分類為 `date` 之欄的條件值,含 `$in/$nin` 每個元素;皆**轉 `Date` 送出**):統一換算為**牆上時間分量**,再把該分量當作 **UTC 瞬間**(浮動時間)。①無時區字串(文法同 `'local'`:`YYYY-MM-DD[T 或單一空白]HH:mm[:ss[.小數]]`,純日期仍拒)直接取其分量,不經主機時區;②`Date`、epoch、帶時區 ISO 字串先得瞬間,再取其**主機本地分量**(Jet 等後端將本地分量視為牆上時間),故 `new Date(2026,0,1)` 恆為 `2026-01-01T00:00:00Z` 之浮動值而與主機時區無關;③範圍檢核改判浮動 `Date` 之 UTC 年(= 牆上年)1–9999,曆法回驗以 `setUTCFullYear`(`Date.UTC` 把 0–99 年映射為 1900–1999);主機時區下不存在之時刻(夏令跳過)在浮動空間合法,重疊時刻依牆上時間比較(不取較早者)。**與 `'local'` 之接受範圍差異**(外審 minimax F6):`'local'` 以 `new Date(y,…)` 建構而把 0–99 年映射為 1900–1999,逐欄回驗後**拒收年 1–99**;`'floating'` 以 `setUTCFullYear` 建構,**接受年 1–9999**(Jet 不可能存在之牆上年 <100 於條件側無害)。不合法者拒收,訊息同現行(`does not match column type [date]`)。
+- 匯出 `toFloating(v)`(`Date|number|string → Date|null`):與條件側**同一規則**,供呼叫端把後端回傳之牆上時間字串建為記憶體表之 DATE 值,令條件側與數據側處於同一浮動空間;不合法回 `null`(不拋錯、不回無效 Date、不回原值;`try/catch` 兜底,敵意輸入〔如 `getPrototypeOf` 陷阱拋錯之 Proxy〕亦回 `null`)。`Date` 一律以載入時取得之內建 `Date.prototype.getTime` 讀內部時間、再建普通 `Date`,以內建 `getFullYear`/`getMonth`/`getDate`/`getHours`/`getMinutes`/`getSeconds`/`getMilliseconds` 的 `.call` 取本地分量(跨 realm 之 `Date` 亦可;不受物件自有或 `Date.prototype` 上對這些方法之覆寫影響〔外審 minimax F5 後補強〕;非 `Date` 之物件〔含偽裝 `Symbol.toStringTag`〕為 `null`;`utcOfParts` 內自建 `Date` 之 `setUTC*`/`getUTC*` 不在此保證內),與條件側經 `cvOrmFind` 複製 `Date` 之認定一致(外審 sol F1)。
+- **契約(皆有測試守住,見下)**:①**編碼後之浮動 `Date`/epoch 不可再當 `'floating'` 條件輸入**(`Date` 一律被當作瞬間取本地分量,再次輸入即二次位移;非 UTC 時區下 `toFloating(toFloating(x)) !== toFloating(x)`;實測 LA:以 `toFloating` 入表之列經 sequelize 讀回之 `Date` 再作 `$ne` 條件會命中該列並可刪除之);②**`toFloating` 回 `null` 者,呼叫端須整批拒收,不得以原值或 NULL 代入**(NULL 使該列於範圍條件不命中、`IS NULL` 命中,與要修之誤刪同型);③`toFloating` 之接受文法即上列語意;④**條件走 `'floating'` 與資料側經 `toFloating` 必須同進同退**:混用之後果為靜默誤命中(資料遺失類)。reladb 自身無數據側(數據由呼叫端建),故①②④由「介面行為 + 混用實測」守住,呼叫端義務載明於 README 與本節。
+- 對既有資料:無。預設行為不變;`'floating'` 僅改變條件值之解讀,不改寫入、不改讀取、不改欄型,不需遷移。回退順序(mdb 發布後):先退 mdb 再退本套件(mdb 靜態 `import` 了 `toFloating`)。
+- 測試:`test/unit-float.test.mjs`(不連線:`toFloating` 輸入空間表 1460 格〔10 個時區各 146 格:四類無時區字串各 11 個邊界牆上時間 = 44、`Date` 22、epoch 22、帶 `Z` 字串 21、帶偏移字串 11、非法字串 16、非法值 10;另有帶時區偏移字串 × 7 種偏移寫法 × 分隔 × 秒毫秒有無 × 10 時區之補充矩陣 2100 格、曆法不存在之帶時區字串、跨 realm/被覆寫之 `Date`;預言機為 `Intl.DateTimeFormat` ICU,每時區先以 `getTimezoneOffset` 與 Intl 偏移自證〕、`cvFind` 之值域/語意/`$in` 全體/僅 DATE 欄/與 `'local'` 之差異/契約①);`test/api-float.mjs`(sqlite 與 mssql 共用:時區矩陣 12 時區 × 18 個條件值〔11 字串、5 `Date`、2 epoch〕 × 6 運算子 = 每方言 1296 組、`delAll($lt 今日)` 哨兵、9999 哨兵為條件值、契約①②④之混用實測)。
+
+## R15 `_lowerFindCases` 契約表(第 94 項批 B2,2026-10-21;wsemi ^1.9.25)
+
+- 來源:wsemi `src/_lowerFindCases.mjs`(IR 契約案例表,85 案,每案手寫 `find`/`ir`/`hits`)。本套件**不採 IR**(複審裁示 B3 不做),但 85 案之 `hits` 是 SQL 三值族對公開 `select`/`delAll` 之共同期望,作為日後任何翻譯層變更之守門。
+- 規則:依 `columns` 建 model `models/tlower.js`(`id` 整數主鍵、`s` 字串、`n` 整數、`b` 布林、`d` 日期),`seed()` 6 列,逐案對**公開** `select` 與 `delAll` 驗:非 `schema` 案兩函數須**皆接受**,`select` 命中 id 集合 = `hits`、`delAll` 實際刪除之 id 集合 = `hits`(`hits:[]` 為恆假);`hits:null`(字串順序比較依 collation)只驗兩函數一致;`schema:true` 案可 reject(型別化後端因欄位型別拒收亦合格),但兩函數須一致 reject、訊息以 `invalid find: ` 起頭、資料不變,未 reject 時須 = `hits`。
+- 防空轉:案數 ≥ 85;非 `schema` 案不得 reject(任一正常案全部 reject 即紅);被接受且 `hits` 非空之案數有下限。
+- 依賴風險(外審 minimax F4,接受不處置):`wsemi ^1.9.25` 允許 1.x 次版本,測試 import 其內部模組 `_lowerFindCases.mjs`;若 wsemi 次版本新增或調整案例使本測試轉紅,即系列契約表變動之訊號(自有套件,契約表為系列共同期望),**不以案例表指紋鎖定**(鎖定會使新案被靜默忽略),遇紅先比對案例表差異,再決定修本套件或回報 wsemi。實測 `_lowerFindCases.mjs` 之 85 案中 `id` 皆為字串(含 `find()` 回 `undefined` 之案,其 `id` 為字串 `'undefined'`;外審 minimax F8 誤讀為 `undefined`,屬誤報)。
+- 測試:`test/api-lower-cases.mjs`(sqlite 與 mssql 共用)。
+
+## R16 defaultScope 與傳入 where 之合併:`whereMergeStrategy:'and'`(第 94 項批 B5,2026-10-21)
+
+- 成因(修前實測):sequelize `_mergeFunction`(`model.js:626-648`)預設策略 `overwrite`:scope 與傳入 where 皆為 plain object 時 `Object.assign`(同名頂層鍵後者覆寫);任一方為 `Sequelize.literal`/`Sequelize.where`(非 plain object)時**直接丟棄 scope**,只留傳入 where。故 scope 為 `Sequelize.literal`、`Sequelize.where(...)` 之 model,select 與 delAll 皆越出 scope(delAll 實測刪到 scope 外之列);R1 原只擋 scope.where 含 `Op.and`,不擋此二種。cvFind 輸出之頂層恆為 `Op.and`(隱含性質,使純鍵與 `Op.or` 之 scope 不被覆寫)。
+- 規則:`WOrmReladb` 建構 Sequelize 實例時 `define` 層級加 `whereMergeStrategy: 'and'`,令 scope 與傳入 where 一律以 AND 結合(`combineWheresWithAnd`),不依賴頂層 `Op.and`,亦涵蓋 literal 與 `Sequelize.where`。cvFind 輸出頂層恆為 `Op.and` 保留為縱深防線(單元測試鎖住結構)。
+- **model 自身指定 `whereMergeStrategy`**(如 `'overwrite'`)時 model 選項會蓋過 `define` 預設,故 `initSequelize` 於匯入 model 後對 `mds` 內每個 model 一律設 `options.whereMergeStrategy = 'and'`(外審 sol F2;sequelize 於查詢時才讀 `this.options.whereMergeStrategy`,匯入後設定即生效)。`chkScopeForDelAll` **維持**(拒收 limit/offset、group/having、非空 include、`where` 含 `Op.and`):`whereMergeStrategy` 只解決 where 合併,不改變 limit 對象分歧、group/having/include 只套用於 findAll 之不對稱;`where[Op.and]` 之 delAll 拒收維持原行為(select 則由越界改為正確 AND)。
+- 影響:`selectByPk`、`saveOne`、`del` 之 `{[pk]: 值}` where 與 scope 亦以 AND 結合(原為 `Object.assign`:scope 含同名主鍵鍵時被覆寫);scope 之 `where` 含主鍵鍵者,結果由「scope 被覆寫」改為「兩條件皆須成立」(更嚴,屬修正)。
+- **`save` 對 scope 外既有主鍵之行為變更**(外審 minimax F1,修前沙箱 HEAD 實跑 `nModified:1` 確認):`saveOne` 預讀(`findOne({where:{[pk]:值}})`)與 scope AND 結合,看不到 scope 外之列 → `autoInsert`(預設 true)改走插入 → 撞既有主鍵 → 重試 3 次耗盡 → 該筆 `{ok:0, err:'can not save data[i].<pk> in 3 tries'}`,資料不動(`autoInsert:false` 則 `nModified:0`)。修前 `Sequelize.literal`/`Sequelize.where` scope 因 scope 被丟棄而**更新了 scope 外之列**,純鍵/`Op.or`/`Op.and` scope 則同現行(失敗)。訊息詞彙依任務限制不變,未加 scope 提示。
+- **`chkScopeForDelAll` 之訊息陳舊**(外審 minimax F2):對 `where[Op.and]` 之 `delAll can not delete the same rows as select` 在 R16 後已不成立(select 與刪除對象相同,minimax 實測 select=[1,3]、destroy 刪 2 列),拒收為依任務書保守維持;訊息與 README 以舊理由敘述者已於 README 拆開說明,程式訊息因詞彙限制未改(測試只斷言含 `defaultScope`)。
+- 測試:`test/api-scope.mjs`(sqlite 與 mssql 共用):6 種 scope(純鍵、`Op.or`、`Op.and`、`Sequelize.literal`、`Sequelize.where`、`Sequelize.literal` + model 自身指定 `whereMergeStrategy:'overwrite'`)× 5 種 find(同欄單葉、他欄單葉、`$or` 根、`and` 根、`{}`)× select 與 delAll,以不套 scope 之讀取驗 delAll **實際刪除之主鍵集合**不越出 scope 且 = 手推期望;`Op.and` scope 之 delAll 維持 reject。`test/unit-cvfind.test.mjs`:cvFind 輸出頂層恆含 `Op.and`。`api-models` 既有 scope 案維持。
+
+## R17 診斷輸出之單一出口與預設安全(reladb-run01,2026-10-28;Gitea issue #12 同型;參考 w-serv-orm 1.1.20 `src/getDiag.mjs`;任務書 `C:\opensrcOper\dnow\20261028054319`)
+
+- 成因(修前實測):下游 w-serv-orm 把寫入失敗列之主鍵與 ORM 錯誤原文印到標準輸出(issue #12)。本套件有同型輸出:`emitChange`/`emitError` 之 `console.log(err)` 把**訂閱函數拋出之錯誤原物件**整個印出(其訊息常含資料);`initSequelize` 之 `console.log(r)` 印出 `{state:'error', msg:<原錯誤>}`(含 model 檔路徑、驅動程式訊息、主機與登入名);`opt.logging === true` 時 sequelize 以 `console.log` 輸出**完整 SQL**——實測(sqlite,`tmp/reladb-run01/probe-sql.mjs`):`SELECT…WHERE users.id = 'u-secret-001@example.com'`、`DELETE FROM users WHERE id = '…'`、`WHERE (users.name = 'BobSecret2')` 含 id 與欄位值,`INSERT…VALUES ($1,$2,$3)`、`UPDATE…WHERE id = $3` 為綁定參數佔位不含值(`logQueryParameters` 預設 false)。預設 `logging` 為 false,故預設不輸出 SQL;但 `logging:true` 者(含忘記關掉的除錯設定)會把 id 與值送進日誌系統。
+- 規則:
+  - **R17-1 單一出口,預設安全**:`src/` 內除 `getDiag.mjs` 外不得直接呼叫 `console`/`process.stdout|stderr`;所有診斷輸出經 `WOrmReladb` 內之 `diag(label, safe, getDetail, bare)`。預設只輸出固定標籤與 `safe` 摘要:不含資料值、主鍵 id、使用者識別、後端錯誤原文、路徑、憑證。摘要之錯誤部分僅 `getBriefErr` 之 `{errType, errCode}`:`errType` 取建構子名稱且須合 `^[A-Za-z][A-Za-z0-9_]{0,39}$`(否則 `Error`),字串 reject 值列 `string`;`errCode` 只收自有資料屬性 `code`(其次 `original.code`、`parent.code`)且限 `E…`/`ERR_…`/`SQLITE_…` 樣式或絕對值至 99999 之整數;不執行 getter 與使用端程式。預設路徑不呼叫 `getDetail`(細節不被取得)。
+  - **R17-2 `opt.logDetail`**:須為 `true` 才生效;還原舊版 console 細節(`bare` 站只輸出細節、與舊版 `console.log(細節)` 相同)。**連線字串與帳密一律遮罩**:`getSecrets(opt.url, username, password)`(連線字串〔無帳密者亦列〕、密碼、`帳號:密碼`、帳號〔單獨出現至少 3 字元才列,過短者會吞掉無關文字〕,各取原樣、URL 編碼、單引號加倍;本套件不對 `opt.url` 百分比解碼,故無解碼形式;長者在前)+ 正則取代為 `***`。`maskText` 順序:**先** `PRAGMA [schema.][hex][re]key = 值|(值)`(使帳密恰為 `key` 時仍辨識語法)→ 已知秘密 → `scheme://帳密@`(帳密含 `@` 取至最後一個 `@`);另純數字秘密(≥4 位)之同值**數值**亦遮罩。遮罩對象為細節之**遮罩拷貝**(`cpMask`:深度 6、節點 2000 為界;值、屬性鍵、Symbol 描述皆遮罩;循環參照、Error 之 message/stack/cause/自有屬性與原型鏈上之 `name`、陣列、Date 複製;函數/二進位/Map/Set 等以標記字串代替;**副本一律普通物件/內建 `Error`,不沿用使用端原型**〔繼承屬性不外帶、繼承之 `util.inspect.custom` 不被執行〕;**不執行使用端程式**:不用 `Object.prototype.toString`〔會執行 `Symbol.toStringTag` getter〕、`stack` 僅在其 getter 嚴格等於同 realm 內建 getter 時讀取、其餘存取器以 `[Getter/Setter]` 代替;不改動呼叫端原物件)。`safe` 摘要另經 `maskSafe` 防禦性遮罩(值等於已知憑證者以 `***` 取代)。三處 `bare` 站(change/error 訂閱函數拋錯、model 載入失敗)於 `logDetail` 還原為舊版之 `console.log(細節)`(不加標籤),`funLog` 仍收標籤。
+  - **R17-3 `opt.funLog(label, safe, detail)`**:須為函數才生效;給予時診斷輸出只交給它(不寫 console),`detail`(憑證已遮罩)僅在有細節時才有此引數;拋錯與回傳 reject 之 promise/thenable 皆吞下。選項放置於建構函式 `opt`,**型別錯誤者忽略並用預設**(與 `autoGenPk`、`useStable`、`useEncryption` 型別錯誤即用預設一致,不拋錯);各選項分別讀取,單一 getter 拋錯只丟該選項;建構時取固定快照。
+  - **R17-4 回傳契約不變**:只動診斷輸出;各操作之 resolve/reject 內容與時機、`change`/`error` 事件 payload 不變(`api-diaglog` 以 8 種設定〔預設、logDetail、funLog、logging、logging+logDetail 與三種訂閱函數拋錯〕執行 `test/tools/diagScenario.mjs` 之 10 步情境,結果與事件 payload 逐一對照 `test/tools/diagGolden.json`——該固定預期值是以**修改前之 git HEAD 程式**執行同一情境所得,非本程式自比;另有 `createStorage`/`init`/`close` 之結果案)。
+  - **R17-5 SQL 紀錄**:`opt.logging` 預設 false(不變);為 true 時傳給 sequelize 的是函數 `logSql`(只取第一個引數——第二個引數為查詢選項,含綁定參數值,不取用),預設只輸出 `sql { stmt }`(`stmt` 為敘述種類白名單 `getSqlStmt`,其餘 `OTHER`),完整 SQL 為細節(`logDetail`/`funLog`)。`logQueryParameters: false` 明設。**可明確開啟之途徑**:`logging:true` + `logDetail:true`(console)或 `funLog`。完整 SQL 之 `select`/`selectByPk`/`del`/`delAll`(及 `save` 內預讀)where 值為內嵌,含主鍵與欄位值;`insert`/`insertBulk`/`save` 更新用 `$n` 綁定(sqlite 實測;mssql 之綁定形式未測),文件(README、JSDoc)已寫明風險。
+- **站點全集**(修前行號 → 修後行號;`src/WOrmReladb.mjs` 除另註):
+  - 實際執行之 console:`:215`→`:231` emitChange catch(`console.log(err)`);`:237`→`:253` emitError catch(`console.log(errEmit)`);`:558`→`:575` initSequelize import 失敗(`console.log(r)`);sqlcipher 不支援交易提示七處 `:657 :780 :919 :1104 :1450 :1590 :1805`→`:674 :797 :936 :1121 :1467 :1607 :1822`(select、selectByPk、insert、insertBulk、save、del、delAll;固定文字不含資料,經出口仍輸出);`src/genModelsByTabs.mjs`:`:36`(TEXT 主鍵提示,**現況不可達**:`getField` 內 `o.type === 'TEXT'` 恆假,`o.type` 恆為 `DataTypes.xxx` 前綴字串,既有死碼只提出不修)、`:150` `generate file: <路徑>`→`:151`(預設只列 `{name,type}`,路徑為細節)、`:153` `save file catch <err>`→`:154`(預設 `{name,type,errType,errCode}`)。共 13 處。
+  - SQL 紀錄:`:86` `opt.logging = (opt.logging === true)`(不變)、`:520` `logging: opt.logging`→`:536` `logging: opt.logging ? logSql : false`。
+  - 已註解不計:`WOrmReladb.mjs` 3 處(`:591 :594 :609` 修後 `:608 :611 :626`)、`genModelsByTabs.mjs` 8 處(`:106-109 :121 :128 :138 :145`)。`src/cvFind.mjs`、`importModels.mjs`、`requireModel.js` 無 console。
+  - 底層/外部:`node_modules/w-auto-sequelize/src/auto-sequelize.js:83`、`:156` `console.error(err)`(`genModelsByDB` 經 `WAutoSequelize` 呼叫;自有套件,不在本套件修改範圍,**已列入待通報**);sequelize `logging:true` 之 deprecation 警告 SEQUELIZE0002 經 `process.emitWarning`(改傳函數後消失)。
+- **R17-6 建構函式 `throwUrlErr` 不回顯帳密**(reladb-run02,2026-10-28,主控裁示 1;第 153 項「診斷輸出不得含憑證」):修前 `throw new Error(`${msg}, opt.url[${opt.url}]`)` 把完整 `opt.url`(含密碼)放進例外訊息,未捕獲時 Node 印到 stderr(實際外洩管道;修前實測:`invalid port in opt.url, opt.url[mssql://Zuser9:Zpw7@db.local]`)。現為 `src/WOrmReladb.mjs:131` `opt.url[${maskUrl(opt.url)}]`;`maskUrl`(`src/getDiag.mjs`)為**純函數**(不依賴 `diag`——建構階段 `diag` 尚未建立、亦不依賴 `getSecrets`——帳密此時未必已解析)。**不變**:訊息前綴(7 個,下表)與拋出之 `Error`(原型即 `Error.prototype`)。**判準**(`maskUrl`):
+  - 有 `://` 且有 `@`:`<scheme>://***@<host[:port]>`——`://` 與**最後一個** `@` 之間(含帳密內未編碼之 `@`)換成 `***`;`@` 之後取至第一個 `/`、`?`、`#` 為止,且須合主機位址樣式 `^(?:[A-Za-z0-9._-]+|\[[0-9A-Fa-f:.]+\])?(?::[0-9]{0,5})?$`(可空,故 `@` 結尾、`@:1433` 照回),否則該段為 `***`(如含空白、`user:pass`、`1433x`、6 位以上 port)。
+  - 有 `://` 無 `@`:`<scheme>://***`——`host:1433` 會被本套件解析成帳號 `host`/密碼 `1433`(`:151-159`),其後一律不回顯。
+  - 無 `://` 或非字串:整段 `***`(整串可能就是帳密;`opt.url` 預設值保證為非空字串,故非字串僅防禦)。
+  - `scheme` 須為識別字 `^[A-Za-z][A-Za-z0-9+.-]{0,19}$`(空字串〔`://…` 開頭〕照回),否則為 `***`;第一個 `://` 之前夾帶帳密(`u:p@host://x`)因此不外帶。
+  - 7 個呼叫點(`WOrmReladb.mjs`;輸入形態 → 回顯,測試 `test/unit-urlerr.test.mjs` 每點 ≥ 1 案、共 29 案,另 4 案:呼叫點涵蓋、合格 url 照常建構、孤立代理碼元、未捕獲之 stderr):`:140 no dialect`(`://u:p@h:1433` → `://***@h:1433`;`://onlypw` → `://***`)、`:143 invalid dialect`(`oracle://u:p@h:1433` → `oracle://***@h:1433`;`u:p@h:1433` 與 `onlypw`〔無 `://`〕→ `***`;多個 `@`、大小寫 `MSSQL://`、反向 `oracle://h:1433@u:p` → `oracle://***@***`、`bad scheme://…` → `***://***@h:1433`)、`:156 invalid username or password`(`mssql://userpw@h:1433`、`a:b:c@h` → `mssql://***@h:1433`;`mssql://onlypw` → `mssql://***`;`sqlite://onlypw@` → `sqlite://***@`)、`:162 invalid username`(`mssql://:pw@h:1433`;sqlite + `useEncryption`)、`:165 invalid password`(`mssql://u:@h:1433`;sqlite + `useEncryption`)、`:178 invalid host`(`mssql://u:p@:1433` → `mssql://***@:1433`;`u:p@` → `mssql://***@`;`mssql://host:1433` → `mssql://***`;`u:p@@h:1433`)、`:181 invalid port`(`u:p@h` → `mssql://***@h`;多個 `@` `u:p@ss@h:1433` → `mssql://***@h:1433`;`?pw=…`、`/db?pw=…` 截斷 → `mssql://***@h`;`@db local` → `mssql://***@***`;`@[::1]` → `mssql://***@[::1]`;`@h:` → `mssql://***@h:`)。另 `孤立代理碼元之 opt.url` 仍為固定詞彙(`invalid opt.url: string contains lone surrogate`,R13,不回顯);以子行程建構且不捕獲,stderr 亦不含帳密(`urlerrWorker.mjs`)。
+  - **已知限制**(文件化,README 已寫):反向筆誤 `host:port@帳號:純數字(≤5 位)密碼`(如 `oracle://h:1433@user:12345`)時,`@` 後之 `帳號:密碼` 合於 `主機:port` 樣式而被回顯(`unit-diaglog`「已知限制」案鎖住現況);非數字密碼、≥6 位數字不受影響。若要連此亦杜絕,作法是 `@` 後一律 `***`(失去 host 診斷價值),待主控裁示。
+  - 變異驗證:`tmp/reladb-run02/mutate.mjs` 21 個(回顯原 url、最後 `@` 改第一個、無 `@`/無 `://` 時回顯、不檢主機/scheme 樣式、不截斷 `/?#`、放寬 port/scheme 長度、前綴改動、型態改 `TypeError`、7 個呼叫點各自回顯原 url)全殺、存活 0、未套用 0。
+- 影響:`opt.logging:true` 單獨使用不再印 SQL 全文(需加 `logDetail:true` 或 `funLog`);除錯 `can not import model` 時原錯誤需 `logDetail:true`(`CLAUDE.md`〈除錯要點〉原寫「看到此訊息應優先懷疑資料庫連線」,原文現需開 `logDetail` 才見)。
+- 已知限制:①`cp`/`getBriefErr` 不偵測 Proxy(需 `util.types.isProxy`;不引用內建模組之約束見上),Proxy 之陷阱函數在 try 內仍可能被觸發;②`errType`(建構子名稱)與 `errCode`(機器代碼樣式)、`cl`/資料表名進入預設摘要——為 schema/程式識別字且已在 reject 訊息內,樣式白名單不能證明其不含個資,故不得以個資命名資料表或錯誤類別;③sequelize 自身之固定警告(如 sqlite `UNSIGNED` 之 `console.warn`)與 `genModelsByDB`(w-auto-sequelize)之輸出不經本出口;④`funLog` 之 detail 為有界遮罩拷貝而非原物件。
+- 測試:`test/unit-diaglog.test.mjs`(getDiag/getOptLog/getBriefErr/getSecrets/maskText/cpMask/getSqlStmt 純函數)、`test/api-diaglog.test.mjs`(sqlite:單一出口靜態掃描、預設/funLog/logDetail 三管道 × 各站點、sqlcipher 七函數、PRAGMA key、genModelsByTabs、8 種設定之回傳契約對照 `test/tools/diagGolden.json`)、`test/unit-urlerr.test.mjs`(R17-6;建構函式 `throwUrlErr` 7 個呼叫點,不連線;輔助 `test/tools/urlerrWorker.mjs`)、輔助 `test/tools/diagScenario.mjs`、`test/tools/diagGolden.json`(固定預期值,由修改前之 git HEAD 產生,不得以現行程式重產);既有 `test/api-find-whitelist.mjs:155` 之 `logging:true` 加 `logDetail:true`。變異驗證 55 個全殺(見 `sgud/state/state.md`)。mssql 不另測(診斷邏輯與資料庫種類無關;全套之 mssql 部分照跑)。
+
+## 已知限制(文件化)
+
+- 寫入側 DATE 範圍檢核(R12)只檢屬性本身收到之值:自訂 `set` 轉換(如 VIRTUAL 屬性之 setter 寫入 DATE 屬性、DATE 屬性之 setter 把秒換成毫秒)轉換後之結果不在檢核範圍(sqlite 實測 `VIRTUAL` setter 可把 `new Date(8.64e15)` 寫入 DATE 欄,外審 Argon 亦確認);`Sequelize.fn`/`literal` 等 SQL 運算式由呼叫端明示、放行;**記錄原型鏈上具狀態之 getter**(二次讀取回不同值)不在「檢查之值即使用之值」保證內(自有屬性之物件值已換成標準值,原型鏈屬性只讀不換,因 create/bulkCreate 不讀原型鏈屬性、換成自有屬性會改變其寫入語意;外審 Argon F1 第 4 例);DATEONLY 欄收一般物件(如 `{}`、`{a:1}`)時 moment 視為「現在」而存入今日日期(sequelize/moment 既有行為,非範圍問題,檢核以其所得文字為準而放行);空白分隔之年 0000–0049 字串(`'0000-06-15 12:00:00Z'`)寫入側依 `new Date(值)` 之 V8 舊式解析視為 2000 年(與 sequelize 實際存入一致),條件側 `isKindOk` 先把空白換成 `T` 故視為年 0 而拒收(兩側解析基準不同,各自與其後續使用一致);庫內既有之範圍外日期文字不遷移,仍有字典序風險。
+- NULL 依 SQL 三值語意,與 MongoDB/mingo 系兄弟套件不同(Q1)。
+- (已移除,第 33 項批 1)陣列值即 `$in`:欄位直給陣列現為 reject(`array value is not supported, use $in`),改寫為 `{f:{$in:[…]}}`。
+- (已移除,第 33 項批 1)`$regex` 不再受理;等值/比較之大小寫依資料庫定序(sqlite 二進位區分大小寫;mssql 預設定序不分,故案例表 E25 於 mssql 命中 a1、a2)。
+- select/delAll 之一般欄位值不做型別轉換(Q9),型別不符者 reject;主鍵欄依 R8 正規化。
+- mysql/mariadb/postgres 未實測(本機無驅動);審計02 之 A2 表示(`f IS NULL AND 1 = 0`、`f IS NULL OR 1 = 1`,標準 SQL)、`resolveAttr` 欄名解析、`ctx.dateNoTz` 在這些方言之行為為**推測,未實測**。
+- 欄名解析以 model 之 attrs 為準(R4):attrs 缺少資料庫實有之欄(含 sqlite 隱含欄 `rowid`/`oid`/`_rowid_`)、VIRTUAL 屬性、非完全相符之拼寫,皆 reject(`unknown column name`);model 應完整列出要查詢之欄(`genModelsByTabs` 產生者即如此);attrs 與資料表不一致(欄名、型別漂移)時嚴格鍵之保證不成立。**未給 `attrs`**(`cvFind` 之可選 ctx,深引用者可不給)時鍵不解析、值不檢型別而交資料庫:sqlite 之 `rowid`(實測 `delAll({rowid:{$lt:'abc'}})` 刪除全部列)、各定序之識別字等價皆可能命中,此為呼叫端選擇,**建議一律給 attrs**。
+- 未分類型別欄(`TIME`、`JSON`、`BLOB`、`ENUM`、`GEOMETRY` 等,`getColKind` 為 `'any'`)不檢值型別(R4,Q-E=文件化):sqlite 比較不同型別不報錯,型別不符之值(如 `TIME` 欄給數值)可能命中全部非 NULL 列(2026-10-16 實測 `TIME`、`JSON`、`BLOB` 如此;`ENUM` 為 TEXT 親和而轉字串比較),mssql 則視型別轉型失敗 reject 或照比;呼叫端須自給正確型別。
+- 未給 `attrs` 時,mssql 下同一語句**多次**引用不存在之欄,reject 之 `err.message` 為空字串,訊息在 `err.original.errors[].message`(tedious 19 + sequelize 6.37;HEAD 既有,`{nocol:{$gt:1,$lt:5}}` 即如此;reject 與資料不變皆成立,僅可診斷性受影響,`error` 事件之 `err` 亦同)。`attrs` 已給時,不存在之欄於轉譯階段即 reject(嚴格鍵,R4),此項不可達。審計02 Q-D=另案(低優先,涉七函數之錯誤管道 R7)。
+- `ctx.dateNoTz:'local'` 遇夏令重疊時刻(如 America/New_York 2026-11-01T01:30:00 出現兩次)取較早者(JS `Date` 之行為);無時區字串固有此歧義。主機時區下不存在之時刻(夏令跳過)拒收。
+- 空字串、含 `.`、引號(反引號、雙引號、單引號)、方括號、前後皆 `$`(含單一 `$` 與中間有換行者)、為 `Object.prototype` 成員名或 `__proto__` 之欄名(資料表實有此類欄名者),不支援(R4 `unsupported column name`;第 33 項批 1 起不符欄名文法〔`^[\p{L}_][\p{L}\p{M}\p{N}_]*$`〕者另於形狀階段先 reject,此條僅留 `Object.prototype` 成員名與資料庫欄名〔`attr.field`〕之情形):sequelize 於轉成 SQL 前改寫或重新解讀之(JSON 路徑、表.欄、欄引用、刪除引號字元、查表取到函數、賦值 `__proto__` 使條件遺失),無法保證比對之欄即該欄;需查詢者請改以 view 或欄別名重新命名(run04 外審 opus [1][2]、sol H3、H4)。
+- 資料庫識別字之等價(依定序而異,如 mssql 預設定序之 `ɪ`=`i`、尾端空白、可忽略字元,`tmp/review06/collation-probe.sql`)**不再模擬**(R4 嚴格鍵,run04 重構取代 run03 之 `foldName`):attrs 已給時非完全相符之鍵一律 reject。
+- (已移除,第 33 項批 1)原生 sequelize `Op` Symbol 與 literal/fn/col 值一律 reject(`symbol key is not allowed`/`unsupported value type`),不再有「呼叫端自負之原生寫法」。
+- (已修,第 94 項批 B5,2026-10-21;原為已知限制)model 之 `defaultScope.where` 含 `Op.and` 時,原 select 不套用該條件(cvFind 輸出之頂層 `Op.and` 覆寫之),scope.where 為 `Sequelize.literal`/`Sequelize.where` 時 scope 整個被丟棄(select 與 delAll 皆越界);現 Sequelize 實例以 `whereMergeStrategy:'and'` 建構,scope 與傳入 where 一律以 AND 結合(R16),select 套用 `Op.and` scope;delAll 對 `where[Op.and]` 之拒收維持(R1、R16)。
+- 未分類型別欄之值不檢型別(上述)與 attrs 與資料表一致之前提,仍為嚴格鍵之邊界:`attrs` 之 `field` 與實體欄名一致、型別與實體欄一致時,保證才成立(run05 sol、opus 之 F01/[2] 皆為 attrs 與實體表自相矛盾或未涵蓋之形態,現以拒收處理)。
+- sequelize 實例之前提:`timezone` 為預設 `+00:00`(DATE 之 UTC 年份判定)、未設 `operatorsAliases`、`quoteIdentifiers` 為預設;呼叫端另設者 cvFind 不處理〔run04 opus K 軸〕。
+- mssql 之 `=`/IN 依 ANSI 補空白規則忽略尾端空白,LIKE 與 sqlite 不忽略〔opus F15,依官方文件,未實測〕。
+- sqlite 之運算式樹深度上限 1000(第 33 項批 1 實測,HEAD 與現行):平鋪 `a OR b OR …` 為左深樹,葉為 `col = v` 時 delAll(欄位不帶表別名)最多 999 項、**select(欄位帶表別名 `` `t`.`c` ``,葉高 3)最多 998 項**(HEAD 之 `$or` 999 項:select 報 `Expression tree is too large`、delAll 刪除 1 列,違反 select 命中即 delAll 刪除);葉越深可容項數越少。`cvOrmFind` 之 `maxList: 999` 只擋項數,**不足以保證 DB 不報錯**;巢狀層數亦會累加(32 層 × 每層 33 項平鋪即超限,select 報錯而 delAll 成功;外審 sol F1 實證),另有右深巢狀遞迴上限(實測約 830 層,`SQLITE_ERROR: Recursion limit`)。故 `cvFind` 對超過 4 項之 `$and`/`$or` 清單與同一條件物件內並列欄位之隱含 AND,一律遞迴二分為平衡樹(`cvGroup`,`nFlat = 4`;AND/OR 滿足結合律,含 NULL 之三值邏輯亦然;子式順序不變),每個清單之樹深僅約 log2(項數)+3,邏輯巢狀上限 32 層下全樹深度恆約 ≤ 700(32 層 × 每層清單 999 項 + 並列 1000 欄之極端上界)而低於兩種上限,select 與 delAll 皆可執行(`api-find-whitelist` 之「巢狀 × 清單長度」案、`$or`/`$and` 999 可、1000 於形狀階段 reject)。同欄多值仍建議用 `$in`(sqlite 下 1 萬與 5 萬個值可行)。
+- (已修,2026-10-16)七函數之 `initSequelize()` 原在 try 之外,其建構期例外 reject 時不發 error 事件〔opus F17 附記〕;已移入 try,見 R7。`createStorage` 之 `initSequelize(true)` 仍在 try 之外(非七函數,規格未要求事件;其拋出時不關閉已建構之 sequelize),記錄備查。
+
+## 破壞性變更紀錄(2026-10-16,run03)
+
+- select 之 `$` 運算子:不支援者(含 `$like` 等 sequelize 名稱、頂層 `$not`)由「部分可用/靜默」改為 reject;`$regex` 由 LIKE 萬用字元改為字面子字串,含未跳脫元字元者 reject;`$in`/`$nin` 含 null 與 `{f:null}` 一致;型別不符之純量 reject。
+- delAll 帶 `$` 運算子:由 reject/靜默 n:0/刪錯列改為與 select 一致之刪除。
+- 主鍵值型別(run04 定稿,R8):字串主鍵欄收有限數字由「sqlite 命中、mssql reject;insert 存成 '123'」改為兩方言一致視為 `String(v)`(selectByPk/del/save 命中、insert 存成字串、select/delAll 之條件即字串);整數主鍵欄收 `'012'`、`12.4`、`'abc'` 等由「依方言轉型命中(`'012'` 命中 12)或寫入時捨入撞鍵/報錯(`12.4`)」改為型別不符(HEAD 實測見 run04 報告 §5)(selectByPk 回 null、del 該筆 ok:0、save/insert/insertBulk 整批 reject、select/delAll reject);DECIMAL 主鍵欄之標準數字字串由「以字串常值交資料庫轉型」改為數值、非標準者(`'1.250'`)由命中改為型別不符,小數位多於 scale 之數字由「mssql 捨入後撞鍵、sqlite 另存」改為型別不符;±Infinity 由型別不符改為無效(insert/save 於 autoGenPk 為 true 時自動產生主鍵)。
+- model 檔不再被改寫。
+- README 與範例之 `$options: '$i'` 改為 `'i'`(`'$i'` 過渡期仍視同 `i`)。
+- 空 `$and`/`$or`/`$nor` 由「全部/無/全部」改為 reject;非一般物件之 find 由「全部(select)/全刪或 reject(delAll)」改為 reject;DATE 欄之無時區日期字串、DATEONLY 欄之 Date 物件改為 reject。
+- model 已有其他主鍵而另有非主鍵之 id 欄者,不再被補成 (主鍵, id) 之複合主鍵(既有之資料表結構不受影響,新建表之 DDL 改變)。
+
+## 破壞性變更紀錄(2026-10-16,審計02 實作與 run04 重構;相對於已發布之 HEAD)
+
+建議版本:minor(含「由放行改為 reject」之行為變動);版本號由主控/使用者決定。
+
+- **欄名非完全相符、attrs 缺之欄、不安全欄名**(嚴格鍵,R4):`attrs` 已給時,鍵須與屬性名或資料庫欄名完全相符,否則 reject `unknown column name [x]`;原由資料庫解析者皆受影響——欄名大小寫變體(`{VALUE:…}`、`{ID:…}`)、全形半形、尾端空白、attrs 未列之欄、sqlite 隱含欄 `rowid`、JSON 路徑鍵(`{'meta.a':1}`)、含引號/方括號/點/前後 `$` 之鍵與 `Object.prototype` 成員名、VIRTUAL 屬性。HEAD 下這些鍵於不分大小寫之資料庫(sqlite、mssql 預設定序)可命中,其中型別不符之值曾使 sqlite 刪除全部非 NULL 列(`{VALUE:{$lt:'abc'}}`、``{'val`ue':{$lt:'abc'}}``、`{rowid:{$lt:'abc'}}`)、整數主鍵 `{ID:'012'}` 兩方言繞過 R8 而刪除 id=12。合法值之完全相符鍵(`{value:{$lt:5}}`、`{age_num:5}`、`{id:'12'}` 轉 12)照常。**依賴「大小寫不拘」之呼叫端須改為完全相符之屬性名或欄名**;錯誤訊息含 `did you mean` 提示。
+- **不存在之欄 + 空集合**(`{錯欄:{$in:[]}}`、`{錯欄:{$nin:[]}}`、`{錯欄:[]}`、`Op.in`/`Op.notIn` 空陣列、`$not`/`$nor`/邏輯結合包覆之):由「靜默命中無/全部,`delAll` 可清空全表」改為 reject(attrs 已給者於轉譯階段 `unknown column name`,select 與 delAll 訊息相同;未給 attrs 者由資料庫回報不存在之欄)。依賴「錯欄 + 空集合 = 全表」者屬誤用。
+- **屬性之欄名恰為他屬性之名稱(或與他屬性共欄)**(如屬性 `ra`〔DATE,欄 `rb`〕+ 屬性 `rb`〔INTEGER,欄 `rc`〕):以屬性名為鍵之條件由「放行(sequelize 依他屬性之型別序列化值;sqlite 下 `delAll({ra:{$lt:'2026-01-01T00:00:00Z'}})` 刪除全部非 NULL 之 rb 列,直接給 `Date` 者 HEAD 即如此)」改為 reject `ambiguous column name`(不論型別類別是否相同,R4)。
+- **`{f:{$options:undefined}}`**(僅有值為 `undefined` 之 `$options`):由「條件消失而成恆真,`delAll` 刪全表」改為 reject(R4)。
+- **最終審(run05)新增之 reject**(相對 HEAD 皆為由放行〔或由資料庫報錯〕改為轉譯階段 reject):映射後欄名為空字串、首尾皆 `$` 含單一 `$` 與中間有換行者、`field` 已設而非字串之屬性(R4 欄名解析 b);共用一欄時之先定義者與欄名恰為先定義者名稱之後定義者(R4 c);形狀不符之 `attrs`(`invalid ctx`,R4 d);`$regex`+`i` 於以 `*` 開頭之欄(R4 b);欄位層原生 `Op.values`/`Op.join`、值非兩元素陣列之 `Op.between`/`Op.notBetween`(R2);`delAll` 遇 `defaultScope` 帶 `group`/`having`/非空 `include`/含 `Op.and` 之 `where`(R1)。
+- **DATE 欄之極端值**:Date、epoch、ISO 字串換算 UTC 後年份不在 1–9999 者(如 `new Date(253402300800000)`、`'9999-12-31T23:30:00-05:00'`)由「放行(sqlite 以文字比較致 `$gt` 命中並刪除全部日期列;mssql 轉型失敗 reject)」改為 reject。
+- **原生 `Op.startsWith`/`Op.endsWith`/`Op.substring` 用於 DATE 欄**:由放行(命中恆為空)改為 reject(R4)。
+- 新增(非破壞):`cvFind` 可選 ctx `dateNoTz:'local'`(R4);預設行為不變。DATE 之 ISO 字串年 0001–0099 由拒收(曆法驗證之缺陷)改為放行,與同一瞬間之 Date/epoch 同處置(R4)。
+
+## 破壞性變更紀錄(第 33 項批 1,2026-10-19;條件白名單接線,wsemi ^1.9.20)
+
+「原行為」一律以 HEAD(1.1.9,`c8b6566`)實跑為準(`git archive HEAD src` 取出副本,sqlite,6 列種子〔案例表 `seed()`〕,探測腳本與輸出 `probe-head-breaking.mjs`、`probe-head-breaking.json` 存於 `C:\opensrcOper\dnow\20261019163525\agent-out\run01-evidence\`);方案 §5.1 之原行為敘述不一致者以此為準。無過渡期(fail-closed)。建議版本:minor 以上(含「由放行改為 reject」),版號由主控/使用者決定。
+
+| find | 原行為(HEAD 實跑) | 現行為 |
+|---|---|---|
+| 頂層 `null`、`[]`、`[{id:'a'}]`、字串、數字、`true`、函數、`BigInt`、`Symbol`、Proxy 包 `{}` | select 回**全部**、delAll **刪全部**(n=6)(視為 `{}`) | reject `invalid find: condition must be a plain object…`(Proxy 包 `{}`:`an empty find must be an ordinary object`) |
+| 頂層 `Map`/class 實例/`Object.create(proto)` | 已 reject(`find must be a plain object`) | reject(訊息改為共用詞彙) |
+| `$not`、`$nor`、`$exists` | 支援(`NOT (…)`、`NOT (a OR b)`、IS [NOT] NULL) | reject `unsupported operator` |
+| `$regex`/`$options`、RegExp 值 | 字面子字串 LIKE | reject(`unsupported operator [$regex]`/`unsupported value type [RegExp]`) |
+| 欄位值為陣列 `{c:[1,2]}`(含 null) | 視為 `$in` | reject `array value is not supported, use $in` |
+| sequelize `Op` Symbol 為鍵(`Op.or/in/between/like/and/not`…) | 接受 | reject `symbol key is not allowed` |
+| `$in`/`$nin` 含 null | 接受(`IN (…) OR IS NULL`、`NOT IN … AND IS NOT NULL`) | reject `null is not allowed here`;可攜寫法見 R5 |
+| `$nin:[]` | 命中**全部**(delAll 刪全部) | reject |
+| `$and:[{}]`、`$or:[{}]` | 命中**全部**(delAll 刪全部) | reject `empty condition` |
+| getter 欄位、不可列舉欄位、陣列額外屬性、孤立代理字元字串 | 接受(getter 被呼叫並命中;孤立代理字元無命中) | reject |
+| `Buffer` 值於未分類型別欄(如 BLOB) | 接受(`= X'…'`;HEAD `chkScalar` 僅對 `kind === 'any'` 收 Buffer) | reject `unsupported value type [Uint8Array]` |
+| 含 NUL 之字串 | DB 錯誤(`unrecognized token`) | reject `string contains NUL` |
+| `$or` 999 項 | select 報 `Expression tree is too large`、delAll 成功刪除 1 列(不一致) | 接受(分組為平衡樹,select 與 delAll 一致) |
+| `$or` 1001 項 | DB 錯誤 | 形狀階段 reject(連線前) |
+| `$in` 70000 項 | 接受 | reject `array is too large (> 10000)` |
+| 連續 32 層 `$and` | reject(`find is too deep`) | 接受(上限 32 層;33 層 reject) |
+| 欄名不符 `^[\p{L}_][\p{L}\p{M}\p{N}_]*$`(如 `p$x`,model 有此欄) | 接受 | reject `unsupported column name` |
+| 同一物件重複引用使條件指數展開(深度 20) | DB 錯誤 `no query solution`(深度 25 即案例 H19:行程 OOM 崩潰,見證據 `head-whitelist-suite` 之 HEAD 實跑) | reject `condition is too large` |
+| 形狀不合法之 find(含上列)且 model 載入失敗(如 model 檔缺失) | 先載入 model、建立 sequelize 實例,回報 `can not import model: …`(壞 find 被掩蓋) | 先回報 `invalid find: …`(檢核移到載入 model 與建立實例之前;兩者皆不送出 SQL) |
+
+其他:`select(null, connState)`/`delAll(null)` 類呼叫須改為 `{}`;`cvFind` 之 ctx `escape`、`dialect` 不再使用(被忽略);`cvFind` 新增匯出 `chkFindShape`(其餘匯出簽名不變)。`getFindCtx` 不再提供 `escape`、`dialect`。
+
+## 破壞性變更紀錄(第 78 項,2026-10-19;寫入側 DATE 範圍檢核,R12)
+
+建議版本:minor 以上(含「由放行改為 reject」),版號由主控/使用者決定。無過渡期(fail-closed)。「原行為」以 HEAD(1.1.10,`90fee9c`)實跑(sqlite,`tmp/wprobe/p1-write.mjs`、`p2-dateonly.mjs`)為準。
+
+| 寫入(DATE/DATEONLY 欄之值) | 原行為(HEAD 實跑) | 現行為 |
+|---|---|---|
+| `new Date(8.64e15)`、`8.64e15`(DATE) | 存為 `275760-09-13 00:00:00.000 +00:00` | `insert`/`insertBulk`/`save` 整批 reject `invalid data: date is not a valid time in years 1-9999 at [data[i].欄]`,資料庫不變 |
+| `new Date(-8.64e15)`、`-8.64e15`(DATE) | 存為 `-271821-04-20 00:00:00.000 +00:00` | 同上 |
+| `new Date('+010000-01-01T00:00:00Z')`、`'+010000-01-01T00:00:00Z'`(DATE) | 存為 `10000-01-01 00:00:00.000 +00:00` | 同上 |
+| `new Date('0000-12-31T23:59:59.999Z')`、`'0000-12-31T23:59:59.999Z'`(DATE) | 存為 `0000-12-31 23:59:59.999 +00:00` | 同上 |
+| 同上各值(DATEONLY) | 存為 `275760-09-13`、`Invalid date`、`10000-01-01`、`0000-12-31` | 同上 |
+| mssql 方言(同上各值) | 資料庫轉型失敗(`Conversion failed when converting date and/or time from character string.`):`insert` reject 但前面合法筆已寫入;`insertBulk` reject、無一筆寫入;`save` resolve,該筆 `ok:0`+該訊息、其餘筆照寫 | 送出前即拒,整批 reject、資料庫不變,訊息與 sqlite 相同 |
+| 邊界 `0001-01-01T00:00:00.000Z`、`9999-12-31T23:59:59.999Z` | 接受 | 接受(不變) |
+| 無效時間:`Invalid Date`、`NaN`、`1e16`、`''`、`false`、垃圾字串、BigInt、Symbol(外審 Argon F5 採納,**較任務字面多一層,待主控確認**) | sqlite 存為文字 `Invalid date`(字典序大於任何年份,`$gt`/`delAll` 會誤中);mssql 由資料庫報錯(同範圍外值) | 整批 reject(同範圍外值);`0`/`-0`(epoch 0)仍有效 |
+
+其他:資料庫內既有之範圍外日期文字不遷移,`$lt`/`$gt` 對其仍有字典序風險,請自行清理或改寫(README)。`cvFind.mjs` 新增匯出 `inDateRange`、`genDateChecker`(其餘匯出簽名不變)。
+
+## 破壞性變更紀錄(第 66 項批 1f,2026-10-20;字串良構,R13)
+
+建議版本:minor 以上(含「由放行改為 reject」與建構時 throw),版號由主控/使用者決定。無過渡期(fail-closed)。「原行為」以 HEAD(1.1.12)實跑(證據夾之 `head-probe.mjs`,sqlite 與 mssql 容器,輸出見修正報告)為準。
+
+| 輸入 | 原行為(HEAD 實跑) | 現行為 |
+|---|---|---|
+| `insert` 主鍵含孤立代理(`'a\uD800'`) | sqlite 存為 `'a\uFFFD'`,或該鍵已存在時視為重複而跳過(`nInserted:0`,`ok:1`);mssql 保真存入 | 整批 reject,不寫任何一筆:`invalid id: string contains lone surrogate at [data[i].id]` |
+| `insertBulk` 同上 | sqlite 存為 `'a\uFFFD'` 或回 `Validation error`(撞鍵);mssql 存入 | 整批 reject(同訊息) |
+| `save` 同上 | sqlite 覆寫 `'a\uFFFD'` 之列;mssql 寫入 | 該筆 `ok:0`+同訊息,其他筆照常 |
+| `del` 同上 | sqlite 刪 `'a\uFFFD'` 之列(`ok:1`);mssql 依排序規則刪 | 該筆 `ok:0`+同訊息 |
+| `selectByPk` 同上 | sqlite 回 `'a\uFFFD'` 之列 | `null` |
+| 主鍵含 NUL | sqlite:`insert` 存入;`insertBulk` reject、`save`/`del` 該筆 `ok:0`、`selectByPk` reject,皆為 `SQLITE_ERROR: unrecognized token`(處置不一致) | 與孤立代理同:`invalid id: string contains NUL at …`;資料值之 NUL 不拒 |
+| 資料之字串值/鍵名(含巢狀、陣列、model 外欄位)含孤立代理 | sqlite 存為 U+FFFD(model 外欄位被 sequelize 丟棄);mssql 保真 | `insert`/`insertBulk` 整批 reject,`save` 該筆 `ok:0`:`invalid data: string contains lone surrogate at [data[i].路徑]` |
+| `opt.url`/`opt.db`/`opt.cl`/`opt.storage` 含孤立代理 | 接受(路徑經 UTF-8 轉換,不同名稱共用同一檔) | 建構時 throw `invalid opt.<名>: string contains lone surrogate` |
+| 去回顯 | `invalid data[0].id[12.4], type does not match pk column [id]`、`invalid id[NaN]`、`invalid id[012], type does not match pk column` | 不含值:`invalid data[0].id, type does not match pk column [id]`、`invalid data[0].id`、`invalid data[0].id, type does not match pk column` |
+| 呼叫後立即改動原數據(`insert` 等四函數) | `useStable`(預設)時於佇列輪到才複製,改動影響寫入值 | 呼叫當下同步複製,改動不影響 |
+
+其他:`cvFind.mjs` 新增匯出 `chkPkWf`、`chkWf`(其餘匯出簽名不變,`normPk` 之字串分支對不合格字串回 `{kind:'invalid'}`)。`models/twf.js` 為測試用新增 model(版控內)。
+
+## 破壞性變更紀錄(第 87/94 項批 B1、B5,2026-10-21;浮動時間與 defaultScope 合併,R14、R16)
+
+建議版本:minor(B1 新增值域與匯出,預設行為不變;B5 修既有越界缺陷),版號由主控/使用者決定。B2 只增測試,無需發布。「原行為」以 HEAD(1.1.13)實跑為準(修前紅沙箱 `tmp/pre/`)。
+
+| 輸入 | 原行為(HEAD 實跑) | 現行為 |
+|---|---|---|
+| `cvFind(find, { dateNoTz: 'floating' })` | 拋 `invalid ctx: dateNoTz must be 'local' or undefined, got [floating]` | 受理(R14) |
+| `ctx.dateNoTz` 非法值之訊息 | `invalid ctx: dateNoTz must be 'local' or undefined, got [x]` | `invalid ctx: dateNoTz must be 'local', 'floating' or undefined, got [x]`(合法值列表隨值域擴充;前綴不變,仍早於空 find 提前返回) |
+| `import { toFloating } from 'src/cvFind.mjs'` | 無此匯出 | 新增匯出(其餘匯出簽章不變) |
+| model `defaultScope.where` 為 `Sequelize.literal`/`Sequelize.where` | scope 被丟棄:`select` 回出 scope 外之列(連 `select({})` 亦然)、`delAll` 刪到 scope 外、`selectByPk`/`del` 亦不套 scope | scope 與條件一律 AND(R16) |
+| model `defaultScope.where` 含 `Op.and` | `select` 不套用該 scope(被頂層 `Op.and` 覆寫);`delAll` 拒收 | `select` 套用;`delAll` 拒收維持 |
+| model 自身指定 `whereMergeStrategy:'overwrite'` | 依 model 之策略(scope 可被覆寫/丟棄) | 匯入後強制為 `'and'` |
+| `save` 一個已存在於 scope **之外**的主鍵 | `Sequelize.literal`/`Sequelize.where` scope:scope 被丟棄,該列被更新(`nModified:1`);其他 scope:失敗 | 一律失敗:`ok:0`、`can not save data[i].<pk> in 3 tries`,該列不動(見 R16) |
+| `selectByPk`/`del`/`save` 之主鍵條件與 scope.where 含同名鍵 | scope 之該鍵被覆寫 | 兩者皆須成立(AND) |
+
+其他:`models/tfloat.js`、`models/tlower.js` 為測試用新增 model(版控內);`package.json` 之 `wsemi` 由 `^1.9.24` 升為 `^1.9.25`(測試 import `wsemi/src/_lowerFindCases.mjs`)。
+
+## 深引用者(w-orm-mdb,排程第 32 項)之接線契約(run04 外審 opus [3][4][5][6]、sol H5、M1)
+
+`src/cvFind.mjs` 之 `cvFind(find, ctx)` 介面不變。深引用者須遵守:
+
+- **ctx.attrs** 取**實際執行 where 之 model 之 `rawAttributes`**(如 mdb 之記憶體 sqlite model:無來源 `field`、字串類改 CITEXT、含內部序號欄 `keys.wi`),不得傳來源 model 之 attrs 另加內部欄;`escape`、`dialect` 第 33 項批 1 起不再使用(可不傳,傳入被忽略);需無時區日期字串者給 `dateNoTz`:`'local'`(依主機時區解析,於負偏移時區與夏令時區有已知缺陷,R14)或 `'floating'`(牆上時間作為 UTC 瞬間,無時區後端〔Jet〕應用此值,且**數據列須同樣經匯出之 `toFloating`、轉換失敗整批拒收、編碼後之 Date 不可再當條件輸入**,R14 契約①–④;mdb 第③步〔B4〕採用,須待本套件含 B1 之版本發布)。
+- **`cvFind` 必須收到呼叫端之原始 find**:呼叫端於 `cvFind` 之前以 lodash `each`/`keys` 迭代 find(如 mdb 之 `castPkFind`、`size(keys(find)) === 0` 之空條件判定)會丟棄 Symbol 鍵、具數值 `length` 之物件、非一般物件而使條件變 `{}`(全表),此屬呼叫端責任;須改用 `Reflect.ownKeys` 與一般物件判定,或先以 `cvFind` 驗證。
+- 主鍵條件之處置須與嚴格鍵一致:嚴格鍵只收完全相符之主鍵名,與 mdb `castPkFind` 之 `k === pk` 一致;不得於 `cvFind` 前後另對近似鍵(大小寫、尾端空白)作不同處置(Jet 字串等值不分大小寫且忽略尾端空白,近似鍵於 `$ne` 會誤刪)。
+- 本套件 `WOrmReladb` 之 `getFindCtx` 已符合(attrs 取 `md.rawAttributes`、pk;`escape`、`dialect` 第 33 項批 1 起不再使用)。
+- 第 33 項批 1 起 `cvFind` 第一步為 `cvOrmFind`(maxList 999):深引用者(w-orm-mdb 批 2)傳入之 find 一律須在系列白名單內(其主鍵改寫後之序號佔位條件須為 `$in`/`$nin`),`$not`/`$nor`/`$regex`/`$exists`/RegExp/Symbol/陣列值/`$in` 含 null/空 `$nin`/非物件 find 皆 reject;對已檢核之複本再呼叫為冪等(
+`chkFindShape` 亦匯出供其預檢)。mdb 傳 `maxIn: 2000` 須自行在 `normFind` 呼叫 `cvOrmFind`(本套件固定 `{ maxList: 999 }`、不提供其他上限之注入)。
+
+## 〔條件(find)之支援範圍〕(主控 2026-10-16 依使用者交辦寫入)
+
+- 系列盤點與處置原則:`C:\opensrcOper\dspec\w-orm系列條件語法支援盤點.md`.
+- 轉譯路徑:`src/cvFind.mjs`(1.1.7 起自寫;**第 33 項批 1 起第一步為 wsemi `cvOrmFind` 之系列白名單形狀檢核**,R11),select 與 delAll 共用;再交 sequelize 之 `findAll`/`destroy`.詳見本帳本 R1–R11 與 README〈Condition (`find`) whitelist〉〈Breaking changes〉節.
+- 支援範圍(第 33 項批 1 起即系列白名單,R3、R11):欄位直給純量/null;欄位層 `$eq $ne $gt $gte $lt $lte $in $nin`;文件層 `$and $or`.**`$not $nor $regex $options $exists`、RegExp 值、陣列值、sequelize `Op` Symbol、null 於 `$in/$nin`、空 `$nin` 皆已移除(reject)**.
+- 不支援之處置:一律 reject(含依 model 欄型之值檢核,R4).
+- 語意:SQL 三值邏輯(R5);可攜寫法見 R5;`$regex` 已移除(R6).
+- 非物件之 find:第 33 項批 1 起一律 reject(R1;原視為 `{}` 之現況保留已移除).
+- **非缺陷聲明**:本套件之支援範圍(運算子集合、NULL、`$regex`、大小寫之語意)屬設計.**不得**僅因「MongoDB 或其他 w-orm 套件支援」而視為缺陷、撰寫建議書或自行擴充;擴充或改變語意須主控同意(有更好之解法,並有全盤矩陣與第三方審佐證時才同意).
+- **系列最低要求(違反者才屬缺陷)**:①同一 find 於 select 命中之數據即 delAll 刪除之數據;②不支援之運算子與無法轉譯之值必須 reject,不得靜默忽略、改變語意或擴大刪除範圍;③不得因條件清單恰為空或值為 `undefined` 而刪全表.
+
+## 〔delAll 與 find 之頂層語意〕(主控 2026-10-16 依使用者裁示寫入;全系列規格)
+
+- **`delAll()` 不給條件就是全刪;給條件才是部分刪除.**「不給條件」指:未傳 find、傳 `undefined`、或傳空物件 `{}`——三者皆為全部(select 亦同).
+- **傳了值但不是條件物件者一律 reject**(使用者裁示 B):`null`、陣列、字串、數值、布林、函數、Date、RegExp、Map、Set、類別實例等,以整批性錯誤 reject,不得視同 `{}` 而全刪.適用於所有接受 find 之函數.
+- 規格出處:`C:\opensrcOper\dspec\w-orm系列條件語法支援盤點.md` 〈一之一〉.本條未實作前,本套件之現況若與此不符,屬待修(排程第 33 項),不得以「現況如此」為由維持.
+
+## 〔系列條件白名單〕(使用者 2026-10-17 裁示;主控寫入)
+
+- 全文與定案細節在 `C:\opensrcOper\dspec\w-orm系列條件語法支援盤點.md`〈一之三〉;本節為摘要,兩者不一致時以 dspec 為準.
+- **只支援白名單,其他一律不支援(reject,整批性錯誤,不得靜默忽略)**:
+  1. 頂層:未給、`undefined`、`{}` 為全部;其餘須為條件物件,否則 reject(〈delAll 與 find 之頂層語意〉).
+  2. 欄位直接等值 `{欄: 純量}`,多欄隱含 AND.
+  3. 欄位運算子 `$eq $ne $gt $gte $lt $lte`(純量)、`$in $nin`(純量陣列).
+  4. 文件層 `$and`、`$or`(條件物件之陣列).
+  5. 其餘(`$not $nor $regex $options $exists $where $expr $function $like $ilike $custom`、子查詢、欄位層 `$and/$or`、sequelize `Op` Symbol、函數值等)一律 reject.
+- 純量型別、NULL 語意、空 `$in/$nin`、欄名文法、上限等細節由排程第 33 項審計提案、主控複審後定案,回寫 dspec 與本節.
+- **delAll 之 JSDoc 須載明使用須知**(使用者 2026-10-17):不給條件(未給、`undefined`、`{}`)即刪除全部;傳非條件物件會 reject;白名單外運算子會 reject;delAll 須審慎使用、非必要不用.經 w-serv-webdata 資料通道呼叫者語意與本套件一致,不另加限制.
+- 狀態:**本套件已實作(第 33 項批 1,2026-10-19,wsemi ^1.9.20)**:R11、〈破壞性變更紀錄(第 33 項批 1)〉.下游 w-orm-mdb(批 2)須待本套件新版發布.

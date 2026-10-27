@@ -7,11 +7,12 @@ import strright from 'wsemi/src/strright.mjs'
 import iseobj from 'wsemi/src/iseobj.mjs'
 import isestr from 'wsemi/src/isestr.mjs'
 import fsCreateFolder from 'wsemi/src/fsCreateFolder.mjs'
+import { getOptLog, getDiag, getBriefErr } from './getDiag.mjs'
 
 
 let fieldsAll = {} //Sequelize Datatypes: https://sequelize.org/v5/manual/data-types.html
 
-function getField(type, pk = false) {
+function getField(type, pk = false, diag) {
 
     //add type
     fieldsAll[type] = true
@@ -33,14 +34,14 @@ function getField(type, pk = false) {
 
     //check
     if (o.primaryKey && o.type === 'TEXT') {
-        console.log(`Can not use TEXT type for primary key. It will change type to STRING automatically.`)
+        diag(`Can not use TEXT type for primary key. It will change type to STRING automatically.`)
         o.type = `DataTypes.STRING` //STRING => VARCHAR(255)
     }
 
     return o
 }
 
-function getFields(kpType) {
+function getFields(kpType, diag) {
     let fields = {}
     each(kpType, (t, k) => {
         let pk = false
@@ -51,12 +52,12 @@ function getFields(kpType) {
                 t = _t
             }
         }
-        fields[k] = getField(t, pk)
+        fields[k] = getField(t, pk, diag)
     })
     return fields
 }
 
-function getJsonModel(name, kpType) {
+function getJsonModel(name, kpType, diag) {
 
     let tmp = `
     {
@@ -68,7 +69,7 @@ function getJsonModel(name, kpType) {
     }
     `
 
-    let f = getFields(kpType)
+    let f = getFields(kpType, diag)
     let fields = JSON.stringify(f, null, 4)
 
     tmp = replace(tmp, '{name}', name)
@@ -81,7 +82,7 @@ function getJsonModel(name, kpType) {
     return tmp
 }
 
-function getJsModel(name, kpType) {
+function getJsModel(name, kpType, diag) {
 
     let tmp = `module.exports = function(sequelize, DataTypes) {
     return sequelize.define('{name}', {fields}, {
@@ -90,7 +91,7 @@ function getJsModel(name, kpType) {
 };
     `
 
-    let f = getFields(kpType)
+    let f = getFields(kpType, diag)
     let fields = JSON.stringify(f, null, 4)
 
     tmp = replace(tmp, '{name}', name)
@@ -102,7 +103,7 @@ function getJsModel(name, kpType) {
     return tmp
 }
 
-function genModelsByTabs(fd, tabs, opt = {}) {
+function genModelsByTabs(fd, tabs, opt = {}, diag = getDiag(getOptLog(undefined))) {
     // console.log('genModelsByTabs')
     // console.log('fd', fd)
     // console.log('tabs', tabs)
@@ -130,10 +131,10 @@ function genModelsByTabs(fd, tabs, opt = {}) {
         //getModel
         let c = null
         if (type === 'js') {
-            c = getJsModel(name, kpType)
+            c = getJsModel(name, kpType, diag)
         }
         else if (type === 'json') {
-            c = getJsonModel(name, kpType)
+            c = getJsonModel(name, kpType, diag)
         }
         // console.log('model',c)
 
@@ -147,10 +148,10 @@ function genModelsByTabs(fd, tabs, opt = {}) {
         //write
         try {
             fs.writeFileSync(fn, c, 'utf8')
-            console.log('generate file: ', fn)
+            diag('generate file:', { name, type }, () => fn)
         }
         catch (err) {
-            console.log('save file catch', err)
+            diag('save file catch', { name, type, ...getBriefErr(err) }, () => err)
         }
 
     })

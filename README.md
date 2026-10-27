@@ -246,6 +246,67 @@ The scope of the atomicity guarantee, by range:
 
 Cross process was measured with 2 independent processes against the same 20 primary keys: `nInserted` summed to exactly 20 with 20 rows in the table, and with each process writing a different column to those keys all 40 operations returned `ok: 1` with both columns preserved on all 20 rows. sqlite was repeated over 6 rounds to rule out timing dependent `SQLITE_BUSY`. Platform: Windows 11, Node 24, sequelize 6, MSSQL 2022.
 
+### Diagnostic output: `opt.logDetail`, `opt.funLog` and `opt.logging`
+
+Everything this package prints goes through **one exit**. By default that exit writes only a fixed label and a short summary that holds **no data value, no primary key, no user identity, no error text of the back end and no path** — the console of a service is often collected by a log system, and a row's primary key (a user id or e-mail in downstream systems) or the text of a driver error must not end up there by accident. Connection strings and credentials (`opt.url`, the user name and the password, also as `user:password`, URL encoded, as `scheme://user:password@host` and as the value of `PRAGMA key`) are **never** printed, not even in the detailed forms below: they are replaced by `***`.
+
+| Option | Default | Effect |
+|---|---|---|
+| `opt.logDetail` | `false` | `true` restores the former detailed console output (the error a subscriber threw and the original error when a model cannot be imported, printed bare as before; the full SQL of `opt.logging`; the generated file path). It can show data values and ids: **for debugging only**. Anything other than `true` is ignored. |
+| `opt.funLog` | none | A function `(label, safe, detail)`. When given, diagnostic output goes **only** to it, the console is not written. `label` is the fixed label, `safe` the summary without personal data (may be `undefined`), `detail` the full detail (the argument is absent when there is none), with credentials already replaced by `***`. Use it to mask and forward to your own logger. `detail` is a masked **copy**, bounded in size: plain objects (class instances become plain objects, the prototype is not kept), arrays, `Error`s (message, stack, `cause`, own fields such as `original` and `parameters`) and dates are copied; nesting deeper than 6 levels or more than 2000 nodes becomes `'[Truncated]'`, and functions, binary data, `Map`/`Set` and getters become markers (`'[Function]'`, `'[Binary 12 bytes]'`, `'[Object]'`, `'[Getter/Setter]'`). No code of yours (getters, custom `inspect`) is run to build it. Anything but a function is ignored; a function that throws, or returns a promise that rejects, never affects the operation. |
+| `opt.logging` | `false` | `true` records the SQL that is executed. By default only the kind of statement is printed (`sql { stmt: 'SELECT' }`); the full SQL needs `logDetail` or `funLog`. |
+
+**SQL records carry values.** `select`, `selectByPk`, `del` and `delAll` (and the read inside `save`) embed the values of the condition in the SQL text — `WHERE users.id = 'a@b.c'` — so the full SQL contains primary keys and column values. `insert`, `insertBulk` and the update of `save` use bind parameters (`$1`, `$2`, …) and the package keeps the sequelize option `logQueryParameters` off, so their values do not appear (checked on sqlite). That is why the full SQL is available only when you ask for it twice (`logging: true` together with `logDetail: true` or `funLog`), and why it is meant for debugging, not for production.
+
+What is printed by default:
+
+| Where | Before (1.1.15 and earlier) | Now |
+|---|---|---|
+| a `change` or `error` subscriber throws | `console.log(err)`: the whole error, including whatever the subscriber put in its message | `change handler threw { mode: 'insert', errType: 'Error' }` — the operation, the error class, and a machine code (`ENOENT`, `ELOGIN`, `SQLITE_…`, a small integer) when there is one |
+| a model cannot be imported (file missing or throwing, database unreachable) | `console.log({ state: 'error', msg: <the original error> })`, with file paths, driver text, host and login | `can not import model { cl: 'users', errType: 'Error' }`. **To see the original error, set `logDetail: true`** (or read it from `funLog`). The reject message `can not import model: …` is unchanged. |
+| `opt.logging: true` | sequelize wrote the full SQL with `console.log` | `sql { stmt: 'SELECT' }` per statement |
+| `sqlcipher` does not support transactions | a fixed line | the same fixed line |
+| the constructor throws for an invalid `opt.url` | `…, opt.url[mssql://user:password@host]` (the password in the message) | `…, opt.url[mssql://***@host]` (same prefix, same `Error`; see the breaking changes below) |
+| `genModelsByTabs` | `generate file:  <path>`, `save file catch <error>` | `generate file: { name: 'users', type: 'js' }`, `save file catch { name: 'users', type: 'js', errType: 'Error', errCode: 'EISDIR' }` |
+
+```alias
+// production: only labels and summaries on the console
+let w = WOrmReladb({ url })
+
+// debugging: the former detail, credentials still masked
+let wd = WOrmReladb({ url, logging: true, logDetail: true })
+
+// forward everything to your own logger, masking what you must
+let wf = WOrmReladb({
+    url,
+    logging: true,
+    funLog: (label, safe, detail) => {
+        logger.info({ label, safe }) // safe holds no personal data
+        // `detail` has full text, keys and values: mask it before it leaves your process
+    },
+})
+```
+
+### Breaking changes: diagnostic output
+
+Only what is printed changes. The values a function resolves or rejects with, their timing, and the `change` and `error` events are the same as before.
+
+- The detailed console output listed above is now opt-in (`opt.logDetail`).
+- `opt.logging: true` no longer prints the SQL text by default: **to see the full SQL add `logDetail: true`, or read it from `funLog`**. By itself `logging: true` now prints only the kind of statement. It is passed to sequelize as a function, so the sequelize warning `SEQUELIZE0002` about `logging: true` is gone as well.
+
+  ```alias
+  // before (1.1.15 and earlier): full SQL on the console, ids and column values included
+  WOrmReladb({ url, logging: true })
+
+  // now: the same output, asked for explicitly (credentials in it are masked)
+  WOrmReladb({ url, logging: true, logDetail: true })
+  // or receive it yourself: funLog('sql', { stmt: 'SELECT' }, 'Executing (default): SELECT …')
+  WOrmReladb({ url, logging: true, funLog: (label, safe, detail) => { /* … */ } })
+  ```
+- The constructor still throws an `Error` for an invalid `opt.url`, with the same message prefix as before (`no dialect in opt.url`, `invalid dialect in opt.url`, `invalid username or password in opt.url`, `invalid username in opt.url`, `invalid password in opt.url`, `invalid host in opt.url`, `invalid port in opt.url`), but the quoted `opt.url[…]` no longer carries the user name or the password (the message goes to stderr when nothing catches it). It is now `<scheme>://***@<host[:port]>`: everything between `://` and the **last** `@` is replaced by `***`; the host part is kept only when it looks like a host name or address (up to the first `/`, `?` or `#`), otherwise it is `***` too. Without an `@` (for example `mssql://host:1433`, which the parser reads as user `host` and password `1433`) only `<scheme>://***` is shown, and without `://` the whole value is `***`; a scheme that is not a plain identifier is `***`. Example: `invalid port in opt.url, opt.url[mssql://***@db.local]`.
+- The summary may name the table (`cl`, or the table names you pass to `genModelsByTabs`) and the error class and machine code (`errType`, `errCode`): they are schema and program identifiers that are also part of the reject messages, so do not put personal data into table names. A user name on its own is masked only when it has at least 3 characters (shorter ones would blot out unrelated text); `user:password` and the connection string are always masked.
+- Not covered: `genModelsByDB` runs the package `w-auto-sequelize`, which builds its own sequelize instance — that instance logs its table-structure queries with sequelize's default logger (no row data) and `w-auto-sequelize` writes its own errors with `console.error`, neither can be reached by `funLog` or `logging`; sequelize also prints a few fixed warnings itself (for example about `UNSIGNED` columns on sqlite); and a reversed, mistyped URL (`host:port@user:12345`, with a numeric password of at most 5 digits) looks like a host name and port after the `@` and would be quoted by the constructor's error message.
+
 ## Before Installation
 > If you need to use encrypted sqlite, you need to manually install `@journeyapps/sqlcipher`, as follows:
 >1. Open visual studio code by system administrator.

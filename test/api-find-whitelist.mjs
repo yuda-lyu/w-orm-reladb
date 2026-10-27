@@ -152,7 +152,7 @@ export function defineWhitelistSuites(label, getOpt) {
             await w.createStorage()
             ins = await w.init()
             cs = { instance: ins }
-            w2 = wo(getOpt({ cl: 'tfind', logging: true })) //不給instance, 每次呼叫各自連線並輸出實際執行之sql
+            w2 = wo(getOpt({ cl: 'tfind', logging: true, logDetail: true })) //不給instance, 每次呼叫各自連線並輸出實際執行之sql(R17: logging預設只輸出敘述種類, 全文需logDetail)
         })
 
         after(async function() {
