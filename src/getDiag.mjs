@@ -66,6 +66,35 @@ function getOptLog(opt) {
 }
 
 
+function mergeOptLog(base, opt) {
+    //單次呼叫(如genModelsByDB的option)覆寫建構時之診斷設定快照base { logging, logDetail, funLog }, 回傳新快照(不改動base)
+    //各選項分別讀取; 型別正確者才覆寫(logging、logDetail須為布林, true與false皆可; funLog須為函數), 型別錯誤或讀取拋錯者沿用base: 單次呼叫的設定錯誤不放寬輸出也不關閉輸出
+    //註: funLog無法在單次呼叫改回無(null視同未給), 建構時給予者可被另一函數取代
+    let r = { ...base }
+    for (let k of ['logging', 'logDetail']) {
+        try {
+            let v = opt[k]
+            if (typeof v === 'boolean') {
+                r[k] = v
+            }
+        }
+        catch (e) {
+            //忽略
+        }
+    }
+    try {
+        let f = opt.funLog
+        if (typeof f === 'function') {
+            r.funLog = f
+        }
+    }
+    catch (e) {
+        //忽略
+    }
+    return r
+}
+
+
 function getSecrets(url, username, password) {
     //連線憑證清單: 連線字串(無帳密者如sqlite://:亦列入)、帳號、密碼、帳號:密碼, 各取原樣、URL編碼與單引號加倍(SQL字串字面值之形式); 長者在前, 使長字串先被遮罩
     //註: 本套件不對opt.url內之百分比編碼解碼, 帳密即其原字串, 故不另列解碼形式
@@ -277,13 +306,14 @@ function swallow(r) {
 
 
 function getDiag(optLog, secrets = []) {
-    //回傳診斷輸出函數diag(label, safe, getDetail, bare), 所有診斷輸出皆經此(R17)
+    //回傳診斷輸出函數diag(label, safe, getDetail, bare, method), 所有診斷輸出皆經此(R17)
     //label: 固定標籤; safe: 不含資料值、id、錯誤原文與路徑的摘要(預設輸出), 無則undefined; getDetail: 回傳完整細節的函數(只在有消費者時才呼叫), 無細節則undefined
     //bare: 為true者, logDetail還原時只輸出細節而不加label(舊版該站即為console.log(細節))
+    //method: console方法名稱, 預設'log'; 舊版以console.error輸出之站點(genModelsByDB的建表與外鍵查詢失敗)給'error', 使預設摘要與logDetail還原之輸出仍走同一串流(stderr); 比照w-auto-sequelize之getDiag
     //輸出不得使呼叫端的流程拋錯: 細節的取得、console與funLog的拋錯一律吞下; funLog回傳的promise之reject亦吞下
     let { logDetail, funLog } = optLog === undefined ? getOptLog(undefined) : optLog
     let nums = getNums(secrets)
-    return (label, safeRaw, getDetail, bare = false) => {
+    return (label, safeRaw, getDetail, bare = false, method = 'log') => {
 
         //safe, 摘要(防禦性遮罩後)
         let safe = maskSafe(safeRaw, secrets, nums)
@@ -315,18 +345,18 @@ function getDiag(optLog, secrets = []) {
         //console, 預設為安全摘要; logDetail為true時還原完整細節
         try {
             if (logDetail) {
-                console.log(...(bare ? [] : [label]), ...getArgs())
+                console[method](...(bare ? [] : [label]), ...getArgs())
             }
             else if (safe === undefined) {
-                console.log(label)
+                console[method](label)
             }
             else {
-                console.log(label, safe)
+                console[method](label, safe)
             }
         }
         catch (e) {
             try {
-                console.log(label, '(unprintable)')
+                console[method](label, '(unprintable)')
             }
             catch (e2) {
                 //放棄輸出
@@ -408,4 +438,4 @@ function getSqlStmt(sql) {
 }
 
 
-export { getOptLog, getSecrets, maskText, maskUrl, cpMask, getDiag, getBriefErr, getSqlStmt }
+export { getOptLog, mergeOptLog, getSecrets, maskText, maskUrl, cpMask, getDiag, getBriefErr, getSqlStmt }

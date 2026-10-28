@@ -1,6 +1,8 @@
 import util from 'util'
 import assert from 'assert'
 import { getOptLog, getDiag, getBriefErr, getSecrets, maskText, maskUrl, cpMask, getSqlStmt } from '../src/getDiag.mjs'
+import * as G from '../src/getDiag.mjs' //mergeOptLog以命名空間取用: 修前不存在時各案個別失敗, 不連累整檔
+import captureConsole from './tools/captureConsole.mjs'
 
 
 //rulebook R17: 診斷輸出單一出口(src/getDiag.mjs)之純函數測試, 不連線
@@ -585,6 +587,135 @@ describe('maskUrl', function() {
             }
         }
         assert.ok(n > 1500, `組合數 ${n}`)
+    })
+
+})
+
+
+describe('getDiag 之 method(R17-7d)', function() {
+
+    it('R17-7d 未給method預設為log(stdout): 摘要、無摘要、logDetail皆然', async function() {
+        let { out, err } = await captureConsole(() => {
+            let d = getDiag(getOptLog({}))
+            d('L1', { a: 1 })
+            d('L2')
+            let dd = getDiag(getOptLog({ logDetail: true }))
+            dd('L3', { a: 1 }, () => 'D3')
+            dd('L4', { a: 1 }, () => 'D4', true)
+        })
+        assert.deepStrictEqual(out, ['L1 { a: 1 }', 'L2', 'L3 D3', 'D4'])
+        assert.deepStrictEqual(err, [])
+    })
+
+    it('R17-7d method為error: 預設摘要、無摘要皆走console.error(stderr), 不寫stdout', async function() {
+        let { out, err } = await captureConsole(() => {
+            let d = getDiag(getOptLog({}))
+            d('L1', { a: 1 }, () => 'detail', false, 'error')
+            d('L2', undefined, undefined, true, 'error')
+        })
+        assert.deepStrictEqual(out, [])
+        assert.deepStrictEqual(err, ['L1 { a: 1 }', 'L2'])
+    })
+
+    it('R17-7d method為error: logDetail還原(加標籤與裸輸出)走console.error; getDetail拋錯之(unprintable)亦然', async function() {
+        let { out, err } = await captureConsole(() => {
+            let d = getDiag(getOptLog({ logDetail: true }))
+            d('L1', { a: 1 }, () => 'D1', false, 'error')
+            d('L2', { a: 1 }, () => 'D2', true, 'error')
+            d('L3', { a: 1 }, () => {
+                throw new Error('x')
+            }, false, 'error')
+        })
+        assert.deepStrictEqual(out, [])
+        assert.deepStrictEqual(err, ['L1 D1', 'D2', 'L3 (unprintable)'])
+    })
+
+    it('R17-7d method為error: console.error拋錯時退而輸出之(unprintable)仍走同一方法, 不拋錯', function() {
+        let oldErr = console.error
+        let calls = []
+        console.error = (...a) => {
+            calls.push(a)
+            if (calls.length === 1) {
+                throw new Error('boom')
+            }
+        }
+        try {
+            getDiag(getOptLog({}))('L1', { a: 1 }, undefined, false, 'error')
+        }
+        finally {
+            console.error = oldErr
+        }
+        assert.deepStrictEqual(calls, [['L1', { a: 1 }], ['L1', '(unprintable)']])
+    })
+
+    it('R17-7d funLog取代console: method不影響funLog收到之引數, console無輸出', async function() {
+        let got = []
+        let { all } = await captureConsole(() => {
+            let d = getDiag(getOptLog({ funLog: (...a) => got.push(a) }))
+            d('L1', { a: 1 }, () => 'D1', false, 'error')
+            d('L2', { a: 1 }, () => 'D2', false)
+        })
+        assert.deepStrictEqual(all, [])
+        assert.deepStrictEqual(got, [['L1', { a: 1 }, 'D1'], ['L2', { a: 1 }, 'D2']])
+    })
+
+})
+
+
+describe('mergeOptLog(R17-7a, 單次呼叫覆寫建構時之診斷設定)', function() {
+
+    let base = () => ({ logging: false, logDetail: false, funLog: null })
+    let fc = () => {}
+    let fb = () => {}
+
+    it('R17-7a 單次未給或opt非物件者: 回傳base之副本(不同參照, 不改動base)', function() {
+        for (let o of [undefined, null, 1, 'x', true, {}]) {
+            let b = { logging: true, logDetail: true, funLog: fb }
+            let r = G.mergeOptLog(b, o)
+            assert.deepStrictEqual(r, { logging: true, logDetail: true, funLog: fb }, String(o))
+            assert.notStrictEqual(r, b)
+        }
+    })
+
+    it('R17-7a logging、logDetail為布林者覆寫(true與false皆可), funLog為函數者覆寫', function() {
+        assert.deepStrictEqual(G.mergeOptLog(base(), { logging: true, logDetail: true, funLog: fc }), { logging: true, logDetail: true, funLog: fc })
+        let b = { logging: true, logDetail: true, funLog: fb }
+        assert.deepStrictEqual(G.mergeOptLog(b, { logging: false, logDetail: false, funLog: fc }), { logging: false, logDetail: false, funLog: fc })
+    })
+
+    it('R17-7a 型別錯誤者沿用base(不放寬也不關閉): logging、logDetail非布林, funLog非函數', function() {
+        let b = { logging: true, logDetail: true, funLog: fb }
+        for (let v of ['true', 'false', 1, 0, null, {}, [], fc]) {
+            assert.deepStrictEqual(G.mergeOptLog(b, { logging: v, logDetail: v }), b, String(v))
+        }
+        for (let v of ['x', 1, true, null, {}, []]) {
+            assert.deepStrictEqual(G.mergeOptLog(b, { funLog: v }), b, String(v))
+        }
+        let c = base()
+        for (let v of ['true', 1, {}]) {
+            assert.deepStrictEqual(G.mergeOptLog(c, { logging: v, logDetail: v }), c, String(v))
+        }
+    })
+
+    it('R17-7a 各選項分別讀取: 單一選項getter拋錯只丟該選項, 不連累其餘有效選項', function() {
+        let o = {
+            get logging() {
+                throw new Error('x')
+            },
+            logDetail: true,
+            funLog: fc
+        }
+        assert.deepStrictEqual(G.mergeOptLog({ logging: true, logDetail: false, funLog: null }, o), { logging: true, logDetail: true, funLog: fc })
+        let o2 = {
+            logging: true,
+            get logDetail() {
+                throw new Error('x')
+            },
+            get funLog() {
+                throw new Error('y')
+            }
+        }
+        assert.deepStrictEqual(G.mergeOptLog({ logging: false, logDetail: true, funLog: fb }, o2), { logging: true, logDetail: true, funLog: fb })
     })
 
 })

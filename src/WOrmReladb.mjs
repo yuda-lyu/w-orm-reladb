@@ -26,7 +26,7 @@ import chkOrmStr from 'wsemi/src/chkOrmStr.mjs'
 import WAutoSequelize from 'w-auto-sequelize/src/WAutoSequelize.mjs'
 import importModels from './importModels.mjs'
 import _genModelsByTabs from './genModelsByTabs.mjs'
-import { getOptLog, getSecrets, getDiag, getBriefErr, getSqlStmt, maskUrl } from './getDiag.mjs'
+import { getOptLog, mergeOptLog, getSecrets, getDiag, getBriefErr, getSqlStmt, maskUrl } from './getDiag.mjs'
 import cvFind, { getColKind, getColScale, normPk, chkWf, chkFindShape, genDateChecker } from './cvFind.mjs'
 
 
@@ -186,7 +186,9 @@ function WOrmReladb(opt = {}) {
     //diag, 診斷輸出之單一出口(R17): src內所有console輸出與傳給sequelize之SQL紀錄函數皆經此, 除getDiag.mjs外不得直接呼叫console;
     //預設只輸出固定標籤與不含個資之摘要, opt.logDetail還原細節, opt.funLog取代console; 連線字串與帳密(opt.url、username、password)於任何輸出皆遮罩;
     //其後各路徑共用此快照, 不再讀取使用端的opt
-    let diag = getDiag(getOptLog(opt), getSecrets(opt.url, username, password))
+    let optLog = getOptLog(opt)
+    let secrets = getSecrets(opt.url, username, password)
+    let diag = getDiag(optLog, secrets)
 
 
     //logSql, 傳給sequelize之logging函數: sequelize以(sql全文, 查詢選項)呼叫, 查詢選項含綁定參數值故不取用, 只取第一個引數;
@@ -1944,6 +1946,8 @@ function WOrmReladb(opt = {}) {
      *
      * include from: [w-auto-sequelize](https://github.com/yuda-lyu/w-auto-sequelize)
      *
+     * 診斷輸出(sql紀錄與建表、外鍵查詢失敗)經本套件單一出口：預設承接建構時之opt.logging、opt.logDetail、opt.funLog，標籤加前綴'genModelsByDB '(如'genModelsByDB sql'、'genModelsByDB tables catch')，option內給予者(型別正確)覆寫單次呼叫；連線字串與帳密(含opt.url、option.username、option.password)於任何輸出皆以***遮罩
+     *
      * @memberOf WOrmReladb
      * @param {Object} [option={}] 輸入設定物件，預設{}
      * @param {String} [option.storage='./worm.db'] 輸入sqlite資料庫檔案位置字串，預設'./worm.db'
@@ -1954,6 +1958,9 @@ function WOrmReladb(opt = {}) {
      * @param {String} [option.fdModels='./models'] 輸入models儲存的資料夾名稱字串，預設'./models'
      * @param {String} [option.host='localhost'] 輸入連線主機host位址字串，預設'localhost'
      * @param {Integer} [option.port=1433] 輸入連線主機port整數，預設1433
+     * @param {Boolean} [option.logging] 輸入是否紀錄實際執行的sql指令布林值，預設承接建構時之opt.logging，型別錯誤者沿用建構時之設定。為true時預設只輸出敘述種類(如'genModelsByDB sql { stmt: 'SELECT' }')，sql全文需搭配logDetail或funLog
+     * @param {Boolean} [option.logDetail] 輸入是否還原診斷輸出之舊版細節布林值，預設承接建構時之opt.logDetail，型別錯誤者沿用建構時之設定。為true時sql全文以console.log、建表或外鍵查詢失敗之錯誤物件以console.error裸輸出(不加標籤)，有洩漏個資之風險，僅供除錯使用，連線字串與帳密仍遮罩
+     * @param {Function} [option.funLog] 輸入診斷輸出函數(label, safe, detail)，預設承接建構時之opt.funLog，非函數者沿用建構時之設定。給予時診斷輸出只交給此函數(不寫console)：label為'genModelsByDB sql'、'genModelsByDB foreign keys catch'、'genModelsByDB tables catch'，safe為不含個資之摘要，detail為完整細節(帳密已遮罩為***)
      * @returns {Promise} 回傳Promise，resolve回傳產生的models資料，reject回傳錯誤訊息
      */
     function genModelsByDB(option = {}) {
@@ -1989,8 +1996,26 @@ function WOrmReladb(opt = {}) {
         //storage
         option.storage = path.resolve(option.storage)
 
+        //optLogCall, 診斷設定(R17-7): 預設承接建構時之opt.logging、opt.logDetail、opt.funLog, option內型別正確者覆寫單次呼叫
+        let optLogCall = mergeOptLog({ ...optLog, logging: opt.logging }, option)
+
+        //diagCall, w-auto-sequelize一律給funLog(其輸出不再自寫console), 經此轉入本套件單一出口, 使輸出遵守logDetail與funLog, 且遮罩含opt.url
+        //(單次呼叫option.username、option.password由w-auto-sequelize遮罩, 建構時之連線字串與帳密由此遮罩)
+        let diagCall = getDiag(optLogCall, secrets)
+
+        //funLogForAuto, label為'sql'、'foreign keys catch'、'tables catch', detail為已遮罩之副本且可能不存在;
+        //舊版三者皆為不加標籤之裸輸出(sql由sequelize預設logger以console.log, 建表與外鍵查詢失敗以console.error(err)), 故bare, 兩個錯誤標籤維持stderr
+        let funLogForAuto = (label, safe, detail) => {
+            diagCall(`genModelsByDB ${label}`, safe, detail === undefined ? undefined : () => detail, true, label === 'sql' ? 'log' : 'error')
+        }
+
         //WAutoSequelize
-        return WAutoSequelize(option)
+        return WAutoSequelize({
+            ...option,
+            logging: optLogCall.logging,
+            logDetail: optLogCall.logDetail,
+            funLog: funLogForAuto,
+        })
 
     }
 

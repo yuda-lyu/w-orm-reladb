@@ -180,3 +180,15 @@
 - **主機段要用樣式白名單而非「@ 之後原樣照回」**:反向筆誤 `host:port@user:pass` 時 `@` 之後是帳密;`^(?:host|[IPv6])?(?::\d{0,5})?$` 擋掉非數字密碼,但 ≤5 位純數字密碼仍合 `主機:port` 樣式而被回顯(已文件化,待裁示是否連 host 也不回顯)。
 - **未捕獲例外的 stderr 要用子行程實測**:`test/tools/urlerrWorker.mjs` 以 `execFile(process.execPath, …, { windowsHide: true })` 建構且不捕獲,斷言 stderr 含新訊息、不含帳密標記;只測 `try/catch` 取得的 `err.message` 不能證明 Node 實際印出的內容(堆疊首行含訊息)。
 - **清理 `./tmp/` 前先以 lstat 遞迴列連結**(不跟進):`readdirSync(withFileTypes)` + `lstatSync().isSymbolicLink()`(Windows 連接點亦回 true),遇連結只記錄不下探;列出結果見報告。刪除用 `rm -rf`(對連結本身刪除、不跟進)前須確認無連結,或先以 `cmd //c rmdir` 拆連結並回驗目標。
+
+## reladb-run03(2026-10-28,`genModelsByDB` 診斷輸出接上單一出口 R17-7;w-auto-sequelize 1.0.51;證據在 `C:\opensrcOper\dnow\20261028054319\agent-out\reladb-run03-evidence\`)
+
+- **只升依賴不改碼並不會讓建構設定生效**:w-auto-sequelize 1.0.51 預設 `logging:false`、無 console,所以升版後 `genModelsByDB` 的預設輸出已靜默(「預設無輸出」案修前也是綠,屬回歸守則);但建構時的 `logging`/`logDetail`/`funLog` 完全不被承接(探測:建構 `logging:true` 無任何輸出)、失敗摘要沒有 `genModelsByDB ` 前綴、`opt.url` 不遮罩。修前紅的是「承接」「前綴」「遮罩 opt.url」這幾類案,不是「預設靜默」。
+- **`genModelsByDB` 的 `directory`/`database` 取建構時的 `opt.fdModels`/`opt.db`,不是 `option.fdModels`/`option.db`**(`WOrmReladb.mjs` `option.directory = opt.fdModels`、`option.database = opt.db`;既有行為,未動):測試若建構時 `fdModels: './models'`,`genModelsByDB` 會把產出的 model 檔寫回專案 `models/`、覆寫版控中的檔。測試一律把建構時 `fdModels` 指到 `test/_tmp/<案名>/` 內夾。
+- **w-auto-sequelize 的 `funLog` 只要給了函數,其 `logDetail` 就不被使用**(`getDiag` 在 `funLog !== null` 時先 return):故 `genModelsByDB` 的 `logDetail` 實際生效處是本套件 `diagCall`(以合併後的 `optLogCall` 建立),傳給 w-auto-sequelize 的 `logDetail` 只是語意一致(變異 W13 預期為等價存活)。
+- **單次覆寫要能分辨「未給」與「給 false」**:`getOptLog` 回傳預設值(`logDetail:false`),無法分辨,所以另寫 `mergeOptLog(base, opt)`:型別正確才覆寫,型別錯誤沿用 base(不放寬也不關閉)。`funLog` 無法於單次呼叫改回無(`null` 視同未給),README 已寫。
+- **兩層 `cpMask` 的顯示差異**:w-auto-sequelize 的錯誤副本保留建構子名稱(`ConnectionError [SequelizeConnectionError]`),本套件 `cpMask` 再複製一次後變成 `Error [SequelizeConnectionError]`;訊息、堆疊、`parent`/`original` 欄位內容不變。測試用 `/SQLITE_CANTOPEN: unable to open database file/` 判斷,不比類別前綴。
+- **外鍵查詢失敗的注入法**:`import Sequelize from 'sequelize'`(與 w-auto-sequelize 同一份模組實例,`node_modules/w-auto-sequelize/node_modules` 不存在),暫換 `Sequelize.prototype.query`,遇 `foreign_key_list` 回 reject(帶 `code:'SQLITE_ERROR'` 與夾帶憑證的訊息),`finally` 還原;建表清單失敗則把 `storage` 指到資料夾(真實 `SQLITE_CANTOPEN`)。
+- **`npm i <套件>@<版本>` 會在 `package.json` 檔尾補換行**(原檔無結尾換行),`git diff package.json` 多出 `\ No newline at end of file` 差異:裝完用 Edit 去掉,只留 `w-auto-sequelize` 版本號一行與 lock 的版本欄位。
+- **測試鎖被他套件長時間占用時**:`quiet-run --lock` 會排隊(最多 3 小時),排隊期間指令尚未讀 `src/`,故不能同時改 src;做法是把修前 `src/` 與新測試複製到 `./tmp/<輪>/pre/`(inside repo,`node_modules` 向上解析仍可用),用一支腳本在**一次取鎖內**依序跑「修前快照(紅)」與「現行(綠)」。
+- **殘留警示**:`import * as G from '../src/getDiag.mjs'` 取命名空間可讓「修前不存在的新匯出」的測試個別失敗(TypeError)而非整檔 import 失敗,修前紅的統計才有意義。

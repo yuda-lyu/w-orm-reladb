@@ -268,6 +268,7 @@ What is printed by default:
 | `sqlcipher` does not support transactions | a fixed line | the same fixed line |
 | the constructor throws for an invalid `opt.url` | `…, opt.url[mssql://user:password@host]` (the password in the message) | `…, opt.url[mssql://***@host]` (same prefix, same `Error`; see the breaking changes below) |
 | `genModelsByTabs` | `generate file:  <path>`, `save file catch <error>` | `generate file: { name: 'users', type: 'js' }`, `save file catch { name: 'users', type: 'js', errType: 'Error', errCode: 'EISDIR' }` |
+| `genModelsByDB` (needs `w-auto-sequelize` 1.0.51 or later) | sequelize's default logger wrote the full SQL of every table-structure query with `console.log`; when the list of tables or the foreign keys could not be read, `console.error(err)` wrote the whole error and the models were still generated | nothing on success; with `logging: true` one `genModelsByDB sql { stmt: 'SELECT' }` per statement (stdout); on failure one `genModelsByDB tables catch { errType: 'ConnectionError', errCode: 'SQLITE_CANTOPEN' }` or `genModelsByDB foreign keys catch { … }` (stderr, as before) |
 
 ```alias
 // production: only labels and summaries on the console
@@ -287,6 +288,23 @@ let wf = WOrmReladb({
 })
 ```
 
+`genModelsByDB` takes the same three options. By default it **inherits** the `logging`, `logDetail` and `funLog` given to the constructor; the `option` passed to a single call overrides them for that call (`logging` and `logDetail` must be booleans, `funLog` a function; anything else is ignored and the constructor's setting stays). Its labels carry the prefix `genModelsByDB ` (`genModelsByDB sql`, `genModelsByDB foreign keys catch`, `genModelsByDB tables catch`), and everything goes through the same exit, so the connection string `opt.url` and the credentials are masked as well, also in `detail`:
+
+```alias
+let w = WOrmReladb({ url, fdModels: './models', logging: true, funLog: (label, safe, detail) => { /* … */ } })
+
+// inherits logging and funLog from the constructor
+await w.genModelsByDB({ dialect: 'mssql', host, port, username, password })
+
+// this call only: no SQL records
+await w.genModelsByDB({ dialect: 'mssql', host, port, username, password, logging: false })
+
+// this call only: a different receiver
+await w.genModelsByDB({ dialect: 'mssql', host, port, username, password, funLog: (label, safe, detail) => { /* … */ } })
+```
+
+A `funLog` given at the constructor cannot be switched off for a single call (`null` counts as not given); give a different function instead.
+
 ### Breaking changes: diagnostic output
 
 Only what is printed changes. The values a function resolves or rejects with, their timing, and the `change` and `error` events are the same as before.
@@ -305,7 +323,8 @@ Only what is printed changes. The values a function resolves or rejects with, th
   ```
 - The constructor still throws an `Error` for an invalid `opt.url`, with the same message prefix as before (`no dialect in opt.url`, `invalid dialect in opt.url`, `invalid username or password in opt.url`, `invalid username in opt.url`, `invalid password in opt.url`, `invalid host in opt.url`, `invalid port in opt.url`), but the quoted `opt.url[…]` no longer carries the user name or the password (the message goes to stderr when nothing catches it). It is now `<scheme>://***@<host[:port]>`: everything between `://` and the **last** `@` is replaced by `***`; the host part is kept only when it looks like a host name or address (up to the first `/`, `?` or `#`), otherwise it is `***` too. Without an `@` (for example `mssql://host:1433`, which the parser reads as user `host` and password `1433`) only `<scheme>://***` is shown, and without `://` the whole value is `***`; a scheme that is not a plain identifier is `***`. Example: `invalid port in opt.url, opt.url[mssql://***@db.local]`.
 - The summary may name the table (`cl`, or the table names you pass to `genModelsByTabs`) and the error class and machine code (`errType`, `errCode`): they are schema and program identifiers that are also part of the reject messages, so do not put personal data into table names. A user name on its own is masked only when it has at least 3 characters (shorter ones would blot out unrelated text); `user:password` and the connection string are always masked.
-- Not covered: `genModelsByDB` runs the package `w-auto-sequelize`, which builds its own sequelize instance — that instance logs its table-structure queries with sequelize's default logger (no row data) and `w-auto-sequelize` writes its own errors with `console.error`, neither can be reached by `funLog` or `logging`; sequelize also prints a few fixed warnings itself (for example about `UNSIGNED` columns on sqlite); and a reversed, mistyped URL (`host:port@user:12345`, with a numeric password of at most 5 digits) looks like a host name and port after the `@` and would be quoted by the constructor's error message.
+- `genModelsByDB` (with `w-auto-sequelize` 1.0.51 or later) no longer lets sequelize's default logger write the table-structure queries, and its failures to read the tables or the foreign keys are no longer written as a whole error object with `console.error`: both go through the exit described above (labels `genModelsByDB sql`, `genModelsByDB foreign keys catch`, `genModelsByDB tables catch`; the two failure labels still go to stderr). What it resolves or rejects with, the generated model files, and "a failure to read the tables or the foreign keys is only reported, not rejected" are the same as before. With `logDetail: true` the error is printed bare as before, but as a masked copy, so its class shows as `Error [SequelizeConnectionError]` instead of `ConnectionError [SequelizeConnectionError]`.
+- Not covered: sequelize prints a few fixed warnings itself (for example about `UNSIGNED` columns on sqlite); and a reversed, mistyped URL (`host:port@user:12345`, with a numeric password of at most 5 digits) looks like a host name and port after the `@` and would be quoted by the constructor's error message.
 
 ## Before Installation
 > If you need to use encrypted sqlite, you need to manually install `@journeyapps/sqlcipher`, as follows:

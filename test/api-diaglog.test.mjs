@@ -4,6 +4,7 @@ import util from 'util'
 import assert from 'assert'
 import wo from '../src/WOrmReladb.mjs'
 import { scenario, settle } from './tools/diagScenario.mjs'
+import captureConsole from './tools/captureConsole.mjs'
 
 
 //rulebook R17: 診斷輸出(console)與SQL紀錄(opt.logging)之預設安全與可控, 僅以sqlite驗證(診斷輸出之邏輯與資料庫種類無關)
@@ -41,22 +42,8 @@ let getOpt = (ex = {}) => {
 
 //capture, 擷取console各方法之輸出(以util.format格式化, 與實際輸出一致)
 async function capture(fn) {
-    let lines = []
-    let ks = ['log', 'info', 'warn', 'error', 'debug']
-    let olds = ks.map((k) => console[k])
-    ks.forEach((k) => {
-        console[k] = (...a) => lines.push(util.format(...a))
-    })
-    let res
-    try {
-        res = await fn()
-    }
-    finally {
-        ks.forEach((k, i) => {
-            console[k] = olds[i]
-        })
-    }
-    return { res, lines }
+    let { res, all } = await captureConsole(fn)
+    return { res, lines: all }
 }
 
 
