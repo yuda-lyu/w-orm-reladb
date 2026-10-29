@@ -8,8 +8,9 @@ import captureConsole from './tools/captureConsole.mjs'
 
 
 //rulebook R17: 診斷輸出(console)與SQL紀錄(opt.logging)之預設安全與可控, 僅以sqlite驗證(診斷輸出之邏輯與資料庫種類無關)
+//本檔為接線測試(出口為wsemi之getDiag; 遮罩形態由wsemi之共用語料測, 本套件之語料接線見api-diaglog-wire)
 //  R17-1 預設只輸出標籤與不含個資之摘要(不含資料值、id、錯誤原文、連線憑證、路徑)
-//  R17-2 opt.logDetail為true還原舊版細節輸出, 連線字串與帳密一律以***遮罩
+//  R17-2 opt.logDetail為true輸出(label, 遮罩後細節), 連線字串與帳密一律以***遮罩
 //  R17-3 opt.funLog(label, safe, detail)取代console收完整細節(憑證仍遮罩); 型別錯誤之選項忽略並用預設(同本套件其他選項)
 //  R17-4 診斷輸出不得影響各操作之resolve/reject內容與時機
 //  R17-5 SQL紀錄(opt.logging)預設關閉; 開啟時預設亦只輸出敘述種類, 完整SQL(select/del之where值為內嵌)需logDetail或funLog
@@ -92,11 +93,11 @@ describe('diaglog', function() {
 
     describe('單一出口', function() {
 
-        it('R17-1 src內除getDiag.mjs外不得直接呼叫console或寫process.stdout/stderr(所有診斷輸出經單一出口)', function() {
+        it('R17-1 src內不得直接呼叫console或寫process.stdout/stderr(所有診斷輸出經wsemi之getDiag單一出口)', function() {
             let bads = []
             let n = 0
             for (let f of fs.readdirSync('./src')) {
-                if (!/\.(mjs|js)$/.test(f) || f === 'getDiag.mjs') {
+                if (!/\.(mjs|js)$/.test(f)) {
                     continue
                 }
                 n++
@@ -393,7 +394,7 @@ describe('diaglog', function() {
             })
             let text = lines.join('\n')
             noCred(text, 'logDetail ')
-            assert.ok(lines.some((v) => v.indexOf('Executing (default): SELECT') === 0 && v.indexOf(ID) >= 0), `完整SQL未還原: ${text.slice(0, 300)}`)
+            assert.ok(lines.some((v) => v.indexOf('sql Executing (default): SELECT') === 0 && v.indexOf(ID) >= 0), `完整SQL未還原(格式為label加細節): ${text.slice(0, 300)}`)
             assert.ok(lines.some((v) => v.indexOf('= \'***\'') >= 0), `密碼值未遮罩: ${text.slice(0, 300)}`)
             let ins = lines.filter((v) => v.indexOf('INSERT INTO `users`') >= 0)
             assert.ok(ins.length >= 1 && ins.every((v) => v.indexOf('$1') >= 0 && v.indexOf(NAME) < 0 && v.indexOf(ID) < 0), `INSERT應為佔位: ${ins.join('|')}`)
@@ -401,24 +402,24 @@ describe('diaglog', function() {
             assert.ok(upd.length >= 1 && upd.every((v) => v.indexOf('$1') >= 0 && v.indexOf(`${NAME}2`) < 0), `UPDATE應為佔位: ${upd.join('|')}`)
         })
 
-        it('R17-2 logDetail還原舊版輸出格式: 訂閱函數之錯誤與model載入失敗皆不加標籤(同舊版console.log(細節)), 帳號單獨出現亦遮罩', async function() {
+        it('R17-2 logDetail之輸出格式為(label, 細節)(wsemi之getDiag, 舊版之裸輸出bare已移除): 訂閱函數之錯誤與model載入失敗皆加標籤, 帳號單獨出現亦遮罩', async function() {
             let w = wo(getOpt({ logDetail: true }))
             w.on('change', () => {
                 throw new Error(`plain listener ${USER} only`)
             })
             let a = await capture(() => settle(w.insert({ id: ID, name: NAME })))
-            assert.ok(a.lines.length === 1 && a.lines[0].split('\n')[0] === 'Error: plain listener *** only', a.lines.join('|'))
+            assert.ok(a.lines.length === 1 && a.lines[0].split('\n')[0] === 'change handler threw Error: plain listener *** only', a.lines.join('|'))
             noCred(a.lines.join('\n'), 'logDetail ')
             await clean()
             let wb = wo(getOpt({ cl: 'tbad', fdModels: dirBad, logDetail: true }))
             let b = await capture(() => settle(wb.select({})))
-            assert.ok(b.lines.length === 1 && b.lines[0].startsWith('{\n  state: \'error\','), b.lines.join('|').slice(0, 200))
+            assert.ok(b.lines.length === 1 && b.lines[0].startsWith('can not import model {\n  state: \'error\','), b.lines.join('|').slice(0, 200))
             let we = wo(getOpt({ logDetail: true }))
             we.on('error', () => {
                 throw new Error(`plain error listener ${ID}`)
             })
             let c = await capture(() => settle(we.select({ $foo: 1 })))
-            assert.ok(c.lines.length === 1 && c.lines[0].split('\n')[0] === `Error: plain error listener ${ID}`, c.lines.join('|'))
+            assert.ok(c.lines.length === 1 && c.lines[0].split('\n')[0] === `error handler threw Error: plain error listener ${ID}`, c.lines.join('|'))
         })
 
         it('R17-2 PRAGMA key敘述(sqlite加密時由本套件以帳號:密碼設定)經SQL紀錄時: 預設只列PRAGMA, logDetail與funLog之全文帳密皆遮罩', async function() {
@@ -468,7 +469,7 @@ describe('diaglog', function() {
             assert.ok(fs.existsSync(`${dirGen}/tgen1.js`))
         })
 
-        it('genModelsByTabs寫檔失敗: 預設只列錯誤類別與代碼(不含路徑), logDetail還原; 不拋錯', async function() {
+        it('genModelsByTabs寫檔失敗: 預設只列錯誤類別與代碼(不含路徑), logDetail輸出錯誤副本(錯誤自帶之path於細節遮罩, wsemi之R-DIAG-01); 不拋錯', async function() {
             let fd = `${dirGen}/clash`
             fs.mkdirSync(`${fd}/tclash.js`, { recursive: true }) //以同名資料夾使writeFileSync失敗(EISDIR)
             let tabs = { tclash: { id: { type: 'STRING', pk: true } } }
@@ -477,7 +478,9 @@ describe('diaglog', function() {
             assert.ok(a.lines.some((v) => v.indexOf('save file') >= 0 && v.indexOf('EISDIR') >= 0), ta)
             assert.ok(ta.indexOf('tclash.js') < 0 && ta.indexOf('api-diaglog') < 0, `預設不得輸出路徑: ${ta}`)
             let b = await capture(() => wo(getOpt({ logDetail: true })).genModelsByTabs(fd, tabs))
-            assert.ok(b.lines.join('\n').indexOf('tclash.js') >= 0, b.lines.join('\n'))
+            let tb = b.lines.join('\n')
+            assert.ok(b.lines.length === 1 && tb.indexOf('save file catch Error: EISDIR: illegal operation on a directory, open \'***\'') === 0, tb.slice(0, 300))
+            assert.ok(tb.indexOf('tclash.js') < 0 && tb.indexOf('code: \'EISDIR\'') >= 0, tb.slice(0, 300))
         })
 
     })

@@ -7,7 +7,11 @@ import strright from 'wsemi/src/strright.mjs'
 import iseobj from 'wsemi/src/iseobj.mjs'
 import isestr from 'wsemi/src/isestr.mjs'
 import fsCreateFolder from 'wsemi/src/fsCreateFolder.mjs'
-import { getOptLog, getDiag, getBriefErr } from './getDiag.mjs'
+import getDiag from 'wsemi/src/getDiag.mjs'
+
+
+//SAFE_KEYS, 本模組診斷摘要safe用到之鍵(errType與errCode由wsemi恆含): name(表名)、type(檔案類型js或json)
+const SAFE_KEYS = ['name', 'type']
 
 
 let fieldsAll = {} //Sequelize Datatypes: https://sequelize.org/v5/manual/data-types.html
@@ -103,8 +107,29 @@ function getJsModel(name, kpType, diag) {
     return tmp
 }
 
-function genModelsByTabs(fd, tabs, opt = {}, diag = getDiag(getOptLog(undefined))) {
+/**
+ * 由資料表物件生成各資料表的models檔
+ *
+ * 診斷輸出經第4參數diag(跨套件契約, dspec〈診斷輸出與遮罩〉設計§6.7第6條)：diag須為wsemi之getDiag所回傳之實例(函數且帶brief方法)，由呼叫端以其設定(logDetail、funLog、秘密與safeKeys)建立；
+ * 本函數只以下列固定標籤呼叫diag(label, safe, getDetail)與diag.brief(err)，不以呼叫端之值組成label：
+ * 'generate file:'(safe為{ name, type }，細節為檔案路徑)、'save file catch'(safe為{ name, type, errType, errCode }，細節為寫檔之錯誤)、
+ * 'Can not use TEXT type for primary key. It will change type to STRING automatically.'(無safe)；safe之name為表名、type為'js'或'json'，呼叫端之safeKeys須含'name'、'type'方能保留之(白名單外之鍵由wsemi丟棄)
+ * 未給或不合契約者(非函數或無brief)改用本模組之預設出口(wsemi之getDiag，console只輸出固定標籤與摘要，不輸出細節)；寫檔失敗只記錄、不拋錯
+ *
+ * @param {String} [fd='./models'] 輸入models儲存的資料夾名稱字串，預設'./models'
+ * @param {Object} [tabs={}] 輸入各資料表物件，預設{}
+ * @param {Object} [opt={}] 輸入設定物件，預設{}
+ * @param {String} [opt.type='js'] 輸入資料表類型字串，可有'js'、'json'，預設'js'
+ * @param {Function} [diag] 輸入wsemi之getDiag所回傳之診斷輸出實例，預設為本模組之預設出口
+ * @returns {undefined} 無回傳值
+ */
+function genModelsByTabs(fd, tabs, opt = {}, diag) {
     // console.log('genModelsByTabs')
+
+    //diag, 不合契約者用預設出口
+    if (typeof diag !== 'function' || typeof diag.brief !== 'function') {
+        diag = getDiag(undefined, { safeKeys: SAFE_KEYS })
+    }
     // console.log('fd', fd)
     // console.log('tabs', tabs)
     // console.log('opt', opt)
@@ -151,7 +176,7 @@ function genModelsByTabs(fd, tabs, opt = {}, diag = getDiag(getOptLog(undefined)
             diag('generate file:', { name, type }, () => fn)
         }
         catch (err) {
-            diag('save file catch', { name, type, ...getBriefErr(err) }, () => err)
+            diag('save file catch', { name, type, ...diag.brief(err) }, () => err)
         }
 
     })

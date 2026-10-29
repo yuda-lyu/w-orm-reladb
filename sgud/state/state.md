@@ -2,7 +2,7 @@
 
 本檔記當前已開發功能之最新狀態(各功能做到哪裡、對應之規則帳本條目與測試檔、已知缺口與待辦、最近一次驗證或發布之版本),只記現況、不寫過程(過程見 `sgud/exp/experience.md`)。藍圖(規則)見 `sgud/rule/rulebook.md`。
 
-- 套件版本:`package.json` 1.1.16(reladb-run03〔2026-10-28〕未動 `version`;發布由使用者/主控負責)。依賴 `w-auto-sequelize` `^1.0.51`。
+- 套件版本:`package.json` 1.1.17(mig-reladb〔2026-10-29〕未動 `version`;發布由使用者/主控負責)。依賴 `wsemi` `^1.9.31`、`w-auto-sequelize` `^1.0.52`(mig-reladb 以 `npm i` 升級)。
 - 本檔於 2026-10-28(reladb-run01)首次建立;更早之功能現況請以 `sgud/rule/rulebook.md` 之 R1–R16 與〈破壞性變更紀錄〉為準。
 
 ## 功能現況
@@ -12,7 +12,14 @@
 | 條件(find)系列白名單、值檢核、主鍵正規化、scope 合併 | R1–R11、R16 | `unit-cvfind`、`api-find-whitelist`、`api-suite`、`api-scope`、`api-lower-cases` | 完成 |
 | 寫入側 DATE 範圍、字串良構、浮動時間 | R12–R14 | `unit-date-write`、`api-date-write`、`unit-wellformed`、`api-wellformed`、`unit-float`、`api-float` | 完成 |
 | model 檔載入與發布產物 | R9、R10 | `api-models`、`api-dist`、`api-init` | 完成 |
-| **診斷輸出之單一出口與預設安全(reladb-run01)、建構函式 opt.url 例外不回顯帳密(reladb-run02)、`genModelsByDB` 診斷輸出接上單一出口(reladb-run03)** | R17(含 R17-6、R17-7) | `unit-diaglog`、`api-diaglog`、`api-diaglog-gen`、`unit-urlerr` | 完成(見下) |
+| **診斷輸出之單一出口與預設安全(reladb-run01)、建構函式 opt.url 例外不回顯帳密(reladb-run02)、`genModelsByDB` 診斷輸出接上單一出口(reladb-run03)、遷移至 wsemi 共用模組(mig-reladb)** | R17(含 R17-6、R17-7、R17-8) | `unit-diaglog`、`api-diaglog`、`api-diaglog-gen`、`api-diaglog-wire`、`unit-urlerr` | 完成(見下;驗證結果見 R17-8 段) |
+
+### R17-8 遷移至 wsemi 共用診斷模組(2026-10-29,mig-reladb;排程第 161 項,第 2 波)
+
+- 實作:刪 `src/getDiag.mjs`;新增 `src/getSqlStmt.mjs`、`src/mergeOptLog.mjs`、`src/ownErr.mjs`;`src/WOrmReladb.mjs` 以 wsemi `getDiag(optLog, cfg)`(cfg:secrets〔url、帳密、sqlite 路徑〕、patterns `pragmaKey`、codes、types 24 名、nested、safeKeys)為出口,整批 7 站 `outErr`、逐筆 2 站 `diag.mask`、`initSequelize`/`closeSequelize`/`genTransaction`/`snap` 經 `diag.err`,固定詞彙以 `ownErr`/`markOwnErr`/`si.err` 辨識不包;`throwUrlErr` 改 `maskDiagUrl`(`<scheme>://***`);`genModelsByDB` 用 `getDiag(optLogCall, cfg).with(單次帳密與 sqlite 路徑)`,其 reject 原樣交出;`src/genModelsByTabs.mjs` 第 4 參數契約(wsemi getDiag 實例,不合者用預設出口);`src/cvFind.mjs` 之拋錯改 `ownErr`、`chkFindShape` 以 `markOwnErr` 登記。規則見 rulebook R17-8。
+- 文件:README〈Diagnostic output〉改指 wsemi、增「Errors handed back to you」,〈Breaking changes: shared diagnostic module (wsemi)〉;JSDoc(`WOrmReladb` 之 opt.url/logDetail/funLog 與類別註、`genModelsByDB`、`genModelsByTabs`)。
+- 驗證(2026-10-29,單次 `quiet-run --lock` 內依序執行;證據 `C:\opensrcOper\dnow\20261029002013\agent-out\mig-reladb-evidence\`):受影響 5 檔 141 passing / 0 failing(`unit-diaglog` 12、`unit-urlerr` 35、`api-diaglog` 25、`api-diaglog-gen` 27、`api-diaglog-wire` 42);全套 `npm test` 6712 passing / 1280 pending / 0 failing(exit 0,7 分);修前(git HEAD 之 `src/` + 新測試)129 案中 63 紅 66 綠(綠者為回歸守則與修前自寫遮罩已涵蓋之形態);變異 39 個全數殺死(皆由行為測試,未套用 0)。`diagGolden.json` 0 改變(未重產)。
+- 已知限制/待辦:①`getErrMsg` 讀取逐筆錯誤之 `message` 時仍可能執行使用端之 getter(修前即如此;取得後才經 `diag.mask`);②預設 url(`username:password`)時字詞 `password` 於對外錯誤值被遮(fail-closed,README 已寫);③mssql/mysql/postgres 之對外錯誤值未實連驗證(遮罩與方言無關;sqlite 以 hook 注入外來錯誤驗證);④w-orm-mdb(第 3 波)須傳 wsemi getDiag 實例為 `genModelsByTabs` 第 4 參數,其 safeKeys 須含 `name`、`type`,並提高對本套件之依賴下限。
 
 ### R17-7 `genModelsByDB` 診斷輸出(2026-10-28,reladb-run03;第 156 項)
 
@@ -41,4 +48,4 @@
   3. `genModelsByTabs.mjs` 之 TEXT 主鍵提示(`getField` 內 `o.type === 'TEXT'`)現況不可達(既有死碼,未動)。
   4. mssql 之 `insert`/`save` 綁定形式與 SQL 全文是否含值,未實測(診斷邏輯與資料庫種類無關;sqlite 已測)。
   5. `CLAUDE.md`〈除錯要點〉補句(`can not import model` 之原錯誤需 `logDetail:true` 才見)**由主控補**(主控裁示 4;本套件不改 `CLAUDE.md`)。
-- 最近一次驗證:2026-10-28 reladb-run03,全套 `npm test`(`quiet-run --lock`)6695 passing / 1280 pending / 0 failing,exit 0(= reladb-run02 之 6662 + 當時新增 33 案);其後僅於 `test/api-diaglog-gen.test.mjs` 補 1 案(無 src 改動),相關 4 檔(`unit-diaglog`、`api-diaglog-gen`、`api-diaglog`、`unit-urlerr`)重跑 125 passing / 0 failing(未發布;發布版本由主控決定)。
+- 最近一次驗證:**2026-10-29 mig-reladb,全套 `npm test`(`quiet-run --lock`)6712 passing / 1280 pending / 0 failing,exit 0**(見 R17-8 段;未發布)。前次:2026-10-28 reladb-run03,全套 `npm test`(`quiet-run --lock`)6695 passing / 1280 pending / 0 failing,exit 0(= reladb-run02 之 6662 + 當時新增 33 案);其後僅於 `test/api-diaglog-gen.test.mjs` 補 1 案(無 src 改動),相關 4 檔(`unit-diaglog`、`api-diaglog-gen`、`api-diaglog`、`unit-urlerr`)重跑 125 passing / 0 failing(未發布;發布版本由主控決定)。

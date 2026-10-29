@@ -7,12 +7,14 @@ import wo from '../src/WOrmReladb.mjs'
 import captureConsole from './tools/captureConsole.mjs'
 
 
-//rulebook R17-7: genModelsByDB(w-auto-sequelize >= 1.0.51)之診斷輸出經本套件單一出口, 僅以sqlite驗證(不動docker容器)
+//rulebook R17-7: genModelsByDB(w-auto-sequelize >= 1.0.52)之診斷輸出經本套件單一出口(wsemi之getDiag), 僅以sqlite驗證(不動docker容器); 本檔為接線測試
+//  errType為sequelize之name(如SequelizeConnectionError, 宣告於本套件與w-auto-sequelize之types)
 //  R17-7a 預設承接建構時之opt.logging、opt.logDetail、opt.funLog; 單次呼叫之option(型別正確者)覆寫
 //  R17-7b 預設無輸出; logging:true只輸出 genModelsByDB sql { stmt }(不含SQL全文、表名)
 //  R17-7c funLog收到(label, safe, detail), label加前綴genModelsByDB; 憑證(含opt.url)以***遮罩
 //  R17-7d 兩個錯誤標籤(foreign keys catch、tables catch)維持stderr(舊版為console.error), sql走stdout
-//  R17-7e logDetail還原舊版細節(裸輸出), 憑證仍遮罩
+//  R17-7e logDetail輸出(label, 遮罩後細節)(舊版之裸輸出bare已移除), 憑證仍遮罩
+//  R-DIAG genModelsByDB以diag.with併入單次呼叫之帳密與sqlite檔案路徑; w-auto-sequelize之reject原樣交出(其固定詞彙不被本套件之遮罩切碎)
 //  R17-7f 回傳契約不變(resolve值與models檔), 建表/外鍵失敗仍只記錄不reject
 
 
@@ -67,11 +69,11 @@ let noCred = (text, msg = '') => {
 //withFkFail, 令外鍵查詢失敗, 錯誤文字夾帶憑證; 建表清單與其餘查詢照常
 //  外鍵查詢(auto-sequelize mapForeignKeys)為 PRAGMA foreign_key_list(users); (無反引號, 結尾分號);
 //  describeTable內亦有 PRAGMA foreign_key_list(`users`) (帶反引號、無分號), 不可一併打壞, 否則tables會變空而非只觸發外鍵標籤
-async function withFkFail(fn) {
+async function withFkFail(fn, msg = `${ERRTXT} ${PW} ${CALL_PW} ${URL_}`) {
     let old = Sequelize.prototype.query
     Sequelize.prototype.query = function(sql, ...rest) {
         if (typeof sql === 'string' && /^PRAGMA foreign_key_list\(\w+\);$/i.test(sql.trim())) {
-            let e = new Error(`${ERRTXT} ${PW} ${CALL_PW} ${URL_}`)
+            let e = new Error(msg)
             e.code = 'SQLITE_ERROR'
             return Promise.reject(e)
         }
@@ -164,12 +166,12 @@ describe('diaglog genModelsByDB', function() {
             }
         })
 
-        it('R17-7b logging:true與logDetail:true並用: 還原sql全文(裸輸出, 同舊版sequelize logger), 憑證遮罩', async function() {
+        it('R17-7b logging:true與logDetail:true並用: 輸出(genModelsByDB sql, sql全文), 憑證遮罩', async function() {
             let { out, err } = await genByDB({ logging: true, logDetail: true })
             assert.deepStrictEqual(err, [])
             assert.ok(out.length >= 1)
-            assert.ok(out.some((l) => /^Executing \(default\): /.test(l)), `未還原sql全文: ${out.join('|')}`)
-            assert.ok(out.every((l) => l.indexOf('genModelsByDB') < 0), '裸輸出不應加標籤')
+            assert.ok(out.some((l) => /^genModelsByDB sql Executing \(default\): /.test(l)), `未輸出sql全文: ${out.join('|')}`)
+            assert.ok(out.every((l) => l.indexOf('genModelsByDB sql ') === 0), '每行皆帶固定標籤')
             noCred(out.join('\n'))
         })
 
@@ -218,7 +220,7 @@ describe('diaglog genModelsByDB', function() {
             assert.strictEqual(got.length, 1)
             let [label, safe, detail] = got[0]
             assert.strictEqual(label, 'genModelsByDB tables catch')
-            assert.deepStrictEqual(safe, { errType: 'ConnectionError', errCode: 'SQLITE_CANTOPEN' })
+            assert.deepStrictEqual(safe, { errType: 'SequelizeConnectionError', errCode: 'SQLITE_CANTOPEN' })
             assert.ok(detail instanceof Error)
             assert.ok(String(detail.message).indexOf('SQLITE_CANTOPEN') >= 0)
         })
@@ -269,7 +271,7 @@ describe('diaglog genModelsByDB', function() {
             let { res, out, err } = await genByDB({}, { storage: dir })
             assert.deepStrictEqual(res, { tables: {}, foreignKeys: {} })
             assert.deepStrictEqual(out, [])
-            assert.deepStrictEqual(err, ['genModelsByDB tables catch { errType: \'ConnectionError\', errCode: \'SQLITE_CANTOPEN\' }'])
+            assert.deepStrictEqual(err, ['genModelsByDB tables catch { errType: \'SequelizeConnectionError\', errCode: \'SQLITE_CANTOPEN\' }'])
             noCred(err.join('\n'))
             assert.ok(err.join('\n').indexOf(process.cwd()) < 0, '預設輸出不含路徑')
         })
@@ -298,12 +300,12 @@ describe('diaglog genModelsByDB', function() {
 
     describe('logDetail(R17-7a、R17-7e)', function() {
 
-        it('R17-7e 建構時logDetail:true被承接: tables catch還原為裸輸出之錯誤物件(stderr, 同舊版console.error(err)), 憑證遮罩', async function() {
+        it('R17-7e 建構時logDetail:true被承接: tables catch輸出(label, 錯誤副本)(stderr), 憑證遮罩', async function() {
             let { out, err } = await genByDB({ logDetail: true }, { storage: dir })
             assert.deepStrictEqual(out, [])
             assert.strictEqual(err.length, 1)
-            assert.ok(/SQLITE_CANTOPEN: unable to open database file/.test(err[0]), `應還原錯誤物件: ${err[0].slice(0, 200)}`)
-            assert.ok(err[0].indexOf('genModelsByDB') < 0, '裸輸出不應加標籤')
+            assert.ok(/SQLITE_CANTOPEN: unable to open database file/.test(err[0]), `應輸出錯誤物件: ${err[0].slice(0, 200)}`)
+            assert.ok(err[0].indexOf('genModelsByDB tables catch ') === 0, '須帶固定標籤')
             noCred(err[0])
         })
 
@@ -319,19 +321,19 @@ describe('diaglog genModelsByDB', function() {
             let { err } = await genByDB({}, { storage: dir, logDetail: true })
             assert.strictEqual(err.length, 1)
             assert.ok(/SQLITE_CANTOPEN: unable to open database file/.test(err[0]), err[0].slice(0, 200))
-            assert.ok(err[0].indexOf('genModelsByDB') < 0, '裸輸出不應加標籤')
+            assert.ok(err[0].indexOf('genModelsByDB tables catch ') === 0, '須帶固定標籤')
         })
 
         it('R17-7a 單次呼叫logDetail:false覆寫建構時之logDetail:true, 回到摘要', async function() {
             let { err } = await genByDB({ logDetail: true }, { storage: dir, logDetail: false })
-            assert.deepStrictEqual(err, ['genModelsByDB tables catch { errType: \'ConnectionError\', errCode: \'SQLITE_CANTOPEN\' }'])
+            assert.deepStrictEqual(err, ['genModelsByDB tables catch { errType: \'SequelizeConnectionError\', errCode: \'SQLITE_CANTOPEN\' }'])
         })
 
         it('R17-7a 單次呼叫logDetail型別錯誤(非布林)者沿用建構時之設定', async function() {
             let a = await genByDB({ logDetail: true }, { storage: dir, logDetail: 'false' })
-            assert.ok(/SQLITE_CANTOPEN: unable to open database file/.test(a.err[0]) && a.err[0].indexOf('genModelsByDB') < 0, a.err[0].slice(0, 100))
+            assert.ok(/SQLITE_CANTOPEN: unable to open database file/.test(a.err[0]) && a.err[0].indexOf('genModelsByDB tables catch ') === 0, a.err[0].slice(0, 100))
             let b = await genByDB({}, { storage: dir, logDetail: 'true' })
-            assert.deepStrictEqual(b.err, ['genModelsByDB tables catch { errType: \'ConnectionError\', errCode: \'SQLITE_CANTOPEN\' }'])
+            assert.deepStrictEqual(b.err, ['genModelsByDB tables catch { errType: \'SequelizeConnectionError\', errCode: \'SQLITE_CANTOPEN\' }'])
         })
 
     })
@@ -368,6 +370,38 @@ describe('diaglog genModelsByDB', function() {
                 let { res } = await genByDB(ctor, { storage: dir })
                 assert.deepStrictEqual(res, { tables: {}, foreignKeys: {} }, JSON.stringify(Object.keys(ctor)))
             }
+        })
+
+    })
+
+
+    describe('R-DIAG 接線(diag.with與reject)', function() {
+
+        it('diag.with併入單次呼叫之sqlite檔案路徑(呼叫端所給之相對形式; w-auto-sequelize只宣告絕對形式, 建構時之storage另指他檔): 細節中遮罩, 錯誤原文保留', async function() {
+            let rel = storage //'./test/_tmp/api-diaglog-gen/gen.sqlite'
+            let relN = rel.replace(/^\.\//, '') //'test/_tmp/api-diaglog-gen/gen.sqlite'
+            assert.ok(relN.indexOf('./') < 0 && path.resolve(rel) !== rel)
+            let got = []
+            let { res } = await withFkFail(() => captureConsole(() => wo(getOpt({ storage: `${dir}/ctor-other.sqlite`, funLog: (...a) => got.push(a) })).genModelsByDB(getCall({ storage: rel }))), `${ERRTXT} open ${rel} and ${relN}`)
+            assert.deepStrictEqual(Object.keys(res.tables), ['users'])
+            let g = got.filter((x) => x[0] === 'genModelsByDB foreign keys catch')
+            assert.strictEqual(g.length, 1)
+            let text = String(g[0][2].message)
+            assert.ok(text.indexOf(ERRTXT) >= 0, text)
+            assert.ok(text.indexOf(relN) < 0 && text.indexOf('gen.sqlite') < 0, `單次呼叫之sqlite檔案路徑未遮罩: ${text}`)
+        })
+
+        it('w-auto-sequelize之固定詞彙reject原樣交出: 建構時之密碼恰為其子字串(username)亦不被本套件之遮罩切碎', async function() {
+            let msg
+            await captureConsole(async () => {
+                try {
+                    await wo(getOpt({ url: `sqlite://${USER}:username@:` })).genModelsByDB(getCall({ username: '' }))
+                }
+                catch (e) {
+                    msg = e
+                }
+            })
+            assert.strictEqual(msg, 'need username')
         })
 
     })

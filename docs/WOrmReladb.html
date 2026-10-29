@@ -29,7 +29,7 @@
 <nav >
     
     
-    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="WOrmReladb.html">WOrmReladb</a><ul class='methods'><li data-type='method'><a href="WOrmReladb.html#.closeSequelize">closeSequelize</a></li><li data-type='method'><a href="WOrmReladb.html#.createStorage">createStorage</a></li><li data-type='method'><a href="WOrmReladb.html#.del">del</a></li><li data-type='method'><a href="WOrmReladb.html#.delAll">delAll</a></li><li data-type='method'><a href="WOrmReladb.html#.genModelsByDB">genModelsByDB</a></li><li data-type='method'><a href="WOrmReladb.html#.genModelsByTabs">genModelsByTabs</a></li><li data-type='method'><a href="WOrmReladb.html#.genTransaction">genTransaction</a></li><li data-type='method'><a href="WOrmReladb.html#.initSequelize">initSequelize</a></li><li data-type='method'><a href="WOrmReladb.html#.insert">insert</a></li><li data-type='method'><a href="WOrmReladb.html#.insertBulk">insertBulk</a></li><li data-type='method'><a href="WOrmReladb.html#.save">save</a></li><li data-type='method'><a href="WOrmReladb.html#.select">select</a></li><li data-type='method'><a href="WOrmReladb.html#.selectByPk">selectByPk</a></li></ul></li></ul><h3>Global</h3><ul><li><a href="global.html#chkPkWf">chkPkWf</a></li><li><a href="global.html#chkWf">chkWf</a></li><li><a href="global.html#cvFind">cvFind</a></li><li><a href="global.html#genDateChecker">genDateChecker</a></li><li><a href="global.html#getColKind">getColKind</a></li><li><a href="global.html#getColScale">getColScale</a></li><li><a href="global.html#importModels">importModels</a></li><li><a href="global.html#inDateRange">inDateRange</a></li><li><a href="global.html#isKindOk">isKindOk</a></li><li><a href="global.html#normPk">normPk</a></li><li><a href="global.html#toFloating">toFloating</a></li></ul>
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="WOrmReladb.html">WOrmReladb</a><ul class='methods'><li data-type='method'><a href="WOrmReladb.html#.closeSequelize">closeSequelize</a></li><li data-type='method'><a href="WOrmReladb.html#.createStorage">createStorage</a></li><li data-type='method'><a href="WOrmReladb.html#.del">del</a></li><li data-type='method'><a href="WOrmReladb.html#.delAll">delAll</a></li><li data-type='method'><a href="WOrmReladb.html#.genModelsByDB">genModelsByDB</a></li><li data-type='method'><a href="WOrmReladb.html#.genModelsByTabs">genModelsByTabs</a></li><li data-type='method'><a href="WOrmReladb.html#.genTransaction">genTransaction</a></li><li data-type='method'><a href="WOrmReladb.html#.initSequelize">initSequelize</a></li><li data-type='method'><a href="WOrmReladb.html#.insert">insert</a></li><li data-type='method'><a href="WOrmReladb.html#.insertBulk">insertBulk</a></li><li data-type='method'><a href="WOrmReladb.html#.save">save</a></li><li data-type='method'><a href="WOrmReladb.html#.select">select</a></li><li data-type='method'><a href="WOrmReladb.html#.selectByPk">selectByPk</a></li></ul></li></ul><h3>Global</h3><ul><li><a href="global.html#chkPkWf">chkPkWf</a></li><li><a href="global.html#chkWf">chkWf</a></li><li><a href="global.html#cvFind">cvFind</a></li><li><a href="global.html#genDateChecker">genDateChecker</a></li><li><a href="global.html#genModelsByTabs">genModelsByTabs</a></li><li><a href="global.html#getColKind">getColKind</a></li><li><a href="global.html#getColScale">getColScale</a></li><li><a href="global.html#importModels">importModels</a></li><li><a href="global.html#inDateRange">inDateRange</a></li><li><a href="global.html#isKindOk">isKindOk</a></li><li><a href="global.html#normPk">normPk</a></li><li><a href="global.html#toFloating">toFloating</a></li></ul>
     
 </nav>
 
@@ -81,13 +81,15 @@
 <p>注意: 寫入與主鍵查詢之字串須良構(第66項)：主鍵不得含孤立代理碼元或NUL，insert、insertBulk、save之數據字串值與鍵名(含巢狀、陣列元素)不得含孤立代理碼元(值之NUL不拒)；
 不合格者insert與insertBulk整批reject、save與del該筆ok為0附err、selectByPk回傳null，詳見各函數說明與README。
 註: mssql預設排序規則(如SQL_Latin1_General_CP1_CI_AS)下字串相等由排序規則決定，良構字串亦可能相等('a'、'a'+emoji、'a'+U+FFFD)，屬資料庫語意不在檢核範圍，
-需精確比對時請以二進位排序規則(如Latin1_General_100_BIN2)建表</p></li></ul></dd>
+需精確比對時請以二進位排序規則(如Latin1_General_100_BIN2)建表</p>
+<p>注意: 各函數reject之值、error事件之錯誤訊息與逐筆結果之err，凡來自後端、驅動、model檔或呼叫端數據之getter(外來值)者，其中之憑證(密碼至少4字元、帳號:密碼、連線字串之帳密、PRAGMA key之值)以***遮罩：
+含憑證者為遮罩後之副本(instanceof同類、其餘屬性保留)，無憑證者為原物件；單獨帳號與儲存路徑不遮(dspec〈診斷輸出與遮罩〉Q3)。本套件以固定詞彙自行產生之訊息(如invalid find: …、can not import model: …)原樣交出</p></li></ul></dd>
     
 
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line67">line 67</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line89">line 89</a>
     </li></ul></dd>
     
 
@@ -259,7 +261,7 @@
                 </td>
             
 
-            <td class="description last"><p>輸入連接資料庫字串，資料庫可選'mssql'、'sqlite'、'mysql'、'mariadb'、'postgres'，預設'mssql://username:password@localhost:1433'。格式不合者建構時拋出Error(訊息前綴如invalid host in opt.url)，訊息內回顯之url不含帳號與密碼：為'<scheme>://<em><strong>@&lt;host[:port]&gt;'(最後一個@之前換成</strong></em>)，無@者只回'<scheme>://<em><strong>'，無://者整段為</strong></em></p></td>
+            <td class="description last"><p>輸入連接資料庫字串，資料庫可選'mssql'、'sqlite'、'mysql'、'mariadb'、'postgres'，預設'mssql://username:password@localhost:1433'。格式不合者建構時拋出Error(訊息前綴如invalid host in opt.url)，訊息內回顯之url只含scheme：scheme為上列五者之一時為'<scheme>://<em><strong>'，其餘(含無://者)整段為</strong></em>，不回顯主機、帳號與密碼(wsemi之maskDiagUrl)</p></td>
         </tr>
 
     
@@ -579,7 +581,7 @@
                 </td>
             
 
-            <td class="description last"><p>輸入是否還原診斷輸出之完整細節布林值，預設false，型別錯誤者視同false。診斷輸出(console)預設只含固定標籤與不含個資之摘要(不含資料值、id、後端錯誤原文、路徑)；為true時還原為含細節的輸出(訂閱函數之錯誤、model載入失敗之原文、opt.logging之sql全文等)，有洩漏個資之風險，僅供除錯使用。連線字串與帳密於任何情形皆以***遮罩</p></td>
+            <td class="description last"><p>輸入是否於console輸出遮罩後之細節布林值，預設false，型別錯誤者視同false。診斷輸出(console)預設只含固定標籤與不含個資之摘要(不含資料值、id、後端錯誤原文、路徑)；為true時console輸出(label, 細節)(訂閱函數之錯誤、model載入失敗之原文、opt.logging之sql全文如console.log('sql', sql全文)等)，有洩漏個資之風險，僅供除錯使用。連線字串、帳號、密碼與sqlite檔案路徑於細節皆以***遮罩。出口、遮罩與選項語意同wsemi之getDiag(規則見wsemi之R-DIAG-01)</p></td>
         </tr>
 
     
@@ -619,7 +621,7 @@
                 </td>
             
 
-            <td class="description last"><p>輸入診斷輸出函數(label, safe, detail)，預設無，型別錯誤者視同未給。給予時診斷輸出只交給它而不寫console：label為固定標籤字串，safe為不含個資之摘要物件(可能為undefined)，detail為完整細節之遮罩拷貝(可能無此引數；連線字串與帳密已以***遮罩；深度與大小有上限，函數、二進位資料、Map/Set、存取器以標記字串代替，不沿用原型，不執行使用端程式)，供使用端遮罩後轉送。函數拋錯或回傳reject之promise皆被吞下，不影響各操作之結果</p></td>
+            <td class="description last"><p>輸入診斷輸出函數(label, safe, detail)，預設無，型別錯誤者視同未給。給予時診斷輸出只交給它而不寫console：label為固定標籤字串，safe為不含個資之摘要物件(可能為undefined；鍵限stmt、mode、cl、name、type、errType、errCode)，detail為完整細節之遮罩拷貝(可能無此引數；連線字串、帳號、密碼與sqlite檔案路徑已以***遮罩；拷貝之形態與上限依wsemi之maskDiagCopy，不執行使用端程式)，供使用端遮罩後轉送。函數拋錯或回傳reject之promise皆被吞下，不影響各操作之結果</p></td>
         </tr>
 
     
@@ -836,7 +838,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line608">line 608</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line670">line 670</a>
     </li></ul></dd>
     
 
@@ -944,7 +946,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1919">line 1919</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1991">line 1991</a>
     </li></ul></dd>
     
 
@@ -1060,7 +1062,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1594">line 1594</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1666">line 1666</a>
     </li></ul></dd>
     
 
@@ -1406,7 +1408,7 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1814">line 1814</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1886">line 1886</a>
     </li></ul></dd>
     
 
@@ -1731,13 +1733,14 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
     <dd class="tag-description"><ul class="dummy"><li><p>由指定資料庫生成各資料表的models資料</p>
 <p>目前僅能產生js檔格式，且mssql欄位為nvarchar(MAX)無法自動轉成TEXT格式</p>
 <p>include from: <a href="https://github.com/yuda-lyu/w-auto-sequelize">w-auto-sequelize</a></p>
-<p>診斷輸出(sql紀錄與建表、外鍵查詢失敗)經本套件單一出口：預設承接建構時之opt.logging、opt.logDetail、opt.funLog，標籤加前綴'genModelsByDB '(如'genModelsByDB sql'、'genModelsByDB tables catch')，option內給予者(型別正確)覆寫單次呼叫；連線字串與帳密(含opt.url、option.username、option.password)於任何輸出皆以***遮罩</p></li></ul></dd>
+<p>診斷輸出(sql紀錄與建表、外鍵查詢失敗)經本套件單一出口：預設承接建構時之opt.logging、opt.logDetail、opt.funLog，標籤加前綴'genModelsByDB '(如'genModelsByDB sql'、'genModelsByDB tables catch')，option內給予者(型別正確)覆寫單次呼叫；連線字串、帳號、密碼與sqlite檔案路徑(含opt.url、option.username、option.password、option.storage)於細節皆以***遮罩</p>
+<p>reject與同步拋出之值為w-auto-sequelize所給(其固定詞彙如need username原樣；後端錯誤中單次呼叫之憑證已由w-auto-sequelize遮罩)</p></li></ul></dd>
     
 
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1966">line 1966</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line2040">line 2040</a>
     </li></ul></dd>
     
 
@@ -2265,7 +2268,7 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
                 </td>
             
 
-            <td class="description last"><p>輸入是否還原診斷輸出之舊版細節布林值，預設承接建構時之opt.logDetail，型別錯誤者沿用建構時之設定。為true時sql全文以console.log、建表或外鍵查詢失敗之錯誤物件以console.error裸輸出(不加標籤)，有洩漏個資之風險，僅供除錯使用，連線字串與帳密仍遮罩</p></td>
+            <td class="description last"><p>輸入是否於console輸出遮罩後之細節布林值，預設承接建構時之opt.logDetail，型別錯誤者沿用建構時之設定。為true時console輸出(label, 細節)：sql全文以console.log('genModelsByDB sql', sql全文)、建表或外鍵查詢失敗之錯誤物件副本以console.error('genModelsByDB tables catch', 錯誤)等，有洩漏個資之風險，僅供除錯使用，連線字串、帳密與sqlite檔案路徑仍遮罩</p></td>
         </tr>
 
     
@@ -2303,7 +2306,7 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
                 </td>
             
 
-            <td class="description last"><p>輸入診斷輸出函數(label, safe, detail)，預設承接建構時之opt.funLog，非函數者沿用建構時之設定。給予時診斷輸出只交給此函數(不寫console)：label為'genModelsByDB sql'、'genModelsByDB foreign keys catch'、'genModelsByDB tables catch'，safe為不含個資之摘要，detail為完整細節(帳密已遮罩為***)</p></td>
+            <td class="description last"><p>輸入診斷輸出函數(label, safe, detail)，預設承接建構時之opt.funLog，非函數者沿用建構時之設定。給予時診斷輸出只交給此函數(不寫console)：label為'genModelsByDB sql'、'genModelsByDB foreign keys catch'、'genModelsByDB tables catch'，safe為不含個資之摘要(如{ stmt: 'SELECT' }、{ errType: 'SequelizeConnectionError', errCode: 'SQLITE_CANTOPEN' })，detail為完整細節(帳密與sqlite檔案路徑已遮罩為***)</p></td>
         </tr>
 
     
@@ -2373,13 +2376,14 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
 <dl class="details">
     
     <dt class="tag-description">Description:</dt>
-    <dd class="tag-description"><ul class="dummy"><li><p>由資料表物件生成各資料表的models資料</p></li></ul></dd>
+    <dd class="tag-description"><ul class="dummy"><li><p>由資料表物件生成各資料表的models資料</p>
+<p>診斷輸出(產生之檔案路徑、寫檔失敗之錯誤)經本實例之單一出口(遵守opt.logDetail、opt.funLog)：標籤為'generate file:'、'save file catch'，預設只輸出{ name, type }與錯誤類別、代碼，路徑與錯誤原文為細節；寫檔失敗只記錄、不拋錯</p></li></ul></dd>
     
 
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line2032">line 2032</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line2116">line 2116</a>
     </li></ul></dd>
     
 
@@ -2684,7 +2688,7 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line624">line 624</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line691">line 691</a>
     </li></ul></dd>
     
 
@@ -2792,7 +2796,7 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line530">line 530</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line586">line 586</a>
     </li></ul></dd>
     
 
@@ -2987,7 +2991,7 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line913">line 913</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line985">line 985</a>
     </li></ul></dd>
     
 
@@ -3369,7 +3373,7 @@ mssql因綁定參數數量上限會由驅動層自動拆為多語句送出，實
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1104">line 1104</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1176">line 1176</a>
     </li></ul></dd>
     
 
@@ -3707,7 +3711,7 @@ mssql因綁定參數數量上限會由驅動層自動拆為多語句送出，實
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1454">line 1454</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1526">line 1526</a>
     </li></ul></dd>
     
 
@@ -4091,7 +4095,7 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line666">line 666</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line738">line 738</a>
     </li></ul></dd>
     
 
@@ -4425,7 +4429,7 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line772">line 772</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line844">line 844</a>
     </li></ul></dd>
     
 
@@ -4751,7 +4755,7 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Wed Oct 28 2026 10:35:30 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Fri Oct 30 2026 00:52:19 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
 </footer>
 
 <script>prettyPrint();</script>

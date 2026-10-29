@@ -23,11 +23,30 @@ import pmSeries from 'wsemi/src/pmSeries.mjs'
 import pm2resolve from 'wsemi/src/pm2resolve.mjs'
 import pmQueue from 'wsemi/src/pmQueue.mjs'
 import chkOrmStr from 'wsemi/src/chkOrmStr.mjs'
+import getDiag from 'wsemi/src/getDiag.mjs'
+import getDiagSecrets from 'wsemi/src/getDiagSecrets.mjs'
+import maskDiagUrl from 'wsemi/src/maskDiagUrl.mjs'
 import WAutoSequelize from 'w-auto-sequelize/src/WAutoSequelize.mjs'
 import importModels from './importModels.mjs'
 import _genModelsByTabs from './genModelsByTabs.mjs'
-import { getOptLog, mergeOptLog, getSecrets, getDiag, getBriefErr, getSqlStmt, maskUrl } from './getDiag.mjs'
+import getSqlStmt from './getSqlStmt.mjs'
+import mergeOptLog from './mergeOptLog.mjs'
+import { ownErr, isOwnErr } from './ownErr.mjs'
 import cvFind, { getColKind, getColScale, normPk, chkWf, chkFindShape, genDateChecker } from './cvFind.mjs'
+
+
+//DIALECTS, opt.url可用之資料庫種類(scheme); 建構期錯誤訊息回顯opt.url時只回顯其中之scheme(maskDiagUrl)
+const DIALECTS = ['mssql', 'sqlite', 'mysql', 'mariadb', 'postgres']
+
+//ERR_TYPES, 診斷摘要errType可照列之錯誤類別名(sequelize建構時設this.name為'Sequelize…', wsemi之getDiagBriefErr取原型鏈首個name資料屬性); 未列者一律'Error'
+const ERR_TYPES = ['SequelizeBaseError', 'SequelizeDatabaseError', 'SequelizeValidationError', 'SequelizeUniqueConstraintError', 'SequelizeForeignKeyConstraintError',
+    'SequelizeExclusionConstraintError', 'SequelizeUnknownConstraintError', 'SequelizeTimeoutError', 'SequelizeConnectionError', 'SequelizeConnectionRefusedError',
+    'SequelizeAccessDeniedError', 'SequelizeHostNotFoundError', 'SequelizeHostNotReachableError', 'SequelizeInvalidConnectionError', 'SequelizeConnectionTimedOutError',
+    'SequelizeConnectionAcquireTimeoutError', 'SequelizeEagerLoadingError', 'SequelizeEmptyResultError', 'SequelizeInstanceError', 'SequelizeOptimisticLockError',
+    'SequelizeQueryError', 'SequelizeScopeError', 'SequelizeAssociationError', 'SequelizeBulkRecordError']
+
+//SAFE_KEYS, 診斷摘要safe會用到之鍵(errType與errCode由wsemi恆含; 白名單外之鍵丟棄): stmt(sql敘述種類)、mode(操作別)、cl(表名)、name與type(genModelsByTabs之表名與檔案類型)
+const SAFE_KEYS = ['stmt', 'mode', 'cl', 'name', 'type']
 
 
 //放置於全域宣告, 若使用useStable=true才可於當創建多實例時仍能全域控管
@@ -47,9 +66,12 @@ let pmq = pmQueue(1)
  * 註: mssql預設排序規則(如SQL_Latin1_General_CP1_CI_AS)下字串相等由排序規則決定，良構字串亦可能相等('a'、'a'+emoji、'a'+U+FFFD)，屬資料庫語意不在檢核範圍，
  * 需精確比對時請以二進位排序規則(如Latin1_General_100_BIN2)建表
  *
+ * 注意: 各函數reject之值、error事件之錯誤訊息與逐筆結果之err，凡來自後端、驅動、model檔或呼叫端數據之getter(外來值)者，其中之憑證(密碼至少4字元、帳號:密碼、連線字串之帳密、PRAGMA key之值)以***遮罩：
+ * 含憑證者為遮罩後之副本(instanceof同類、其餘屬性保留)，無憑證者為原物件；單獨帳號與儲存路徑不遮(dspec〈診斷輸出與遮罩〉Q3)。本套件以固定詞彙自行產生之訊息(如invalid find: …、can not import model: …)原樣交出
+ *
  * @class
  * @param {Object} [opt={}] 輸入設定物件，預設{}
- * @param {String} [opt.url='mssql://username:password@localhost:1433'] 輸入連接資料庫字串，資料庫可選'mssql'、'sqlite'、'mysql'、'mariadb'、'postgres'，預設'mssql://username:password@localhost:1433'。格式不合者建構時拋出Error(訊息前綴如invalid host in opt.url)，訊息內回顯之url不含帳號與密碼：為'<scheme>://***@<host[:port]>'(最後一個@之前換成***)，無@者只回'<scheme>://***'，無://者整段為***
+ * @param {String} [opt.url='mssql://username:password@localhost:1433'] 輸入連接資料庫字串，資料庫可選'mssql'、'sqlite'、'mysql'、'mariadb'、'postgres'，預設'mssql://username:password@localhost:1433'。格式不合者建構時拋出Error(訊息前綴如invalid host in opt.url)，訊息內回顯之url只含scheme：scheme為上列五者之一時為'<scheme>://***'，其餘(含無://者)整段為***，不回顯主機、帳號與密碼(wsemi之maskDiagUrl)
  * @param {String} [opt.storage='./worm.db'] 輸入為sqlite時，資料庫檔案所在位置字串，預設'./worm.db'
  * @param {Boolean} [opt.useEncryption=false] 輸入為sqlite時是否使用加密套件[@journeyapps/sqlcipher]，型別為布林值，預設false，若是的話因依賴預設不安裝，得自行人工安裝
  * @param {String} [opt.db='worm'] 輸入使用資料庫名稱字串，預設'worm'
@@ -57,8 +79,8 @@ let pmq = pmQueue(1)
  * @param {String} [opt.fdModels='./models'] 輸入資料表設定檔所在資料夾字串，預設'./models'
  * @param {String} [opt.modelType='js'] 輸入資料表設定檔類型字串，可有'js'、'json'，預設'js'
  * @param {Boolean} [opt.logging=false] 輸入是否紀錄實際執行的sql指令布林值，預設false。為true時預設只輸出敘述種類(如SELECT)，不輸出sql全文：select、selectByPk、del、delAll之where條件值為內嵌於sql內(含主鍵與欄位值)，需搭配opt.logDetail或opt.funLog才取得sql全文，有洩漏個資之風險，僅供除錯使用
- * @param {Boolean} [opt.logDetail=false] 輸入是否還原診斷輸出之完整細節布林值，預設false，型別錯誤者視同false。診斷輸出(console)預設只含固定標籤與不含個資之摘要(不含資料值、id、後端錯誤原文、路徑)；為true時還原為含細節的輸出(訂閱函數之錯誤、model載入失敗之原文、opt.logging之sql全文等)，有洩漏個資之風險，僅供除錯使用。連線字串與帳密於任何情形皆以***遮罩
- * @param {Function} [opt.funLog=null] 輸入診斷輸出函數(label, safe, detail)，預設無，型別錯誤者視同未給。給予時診斷輸出只交給它而不寫console：label為固定標籤字串，safe為不含個資之摘要物件(可能為undefined)，detail為完整細節之遮罩拷貝(可能無此引數；連線字串與帳密已以***遮罩；深度與大小有上限，函數、二進位資料、Map/Set、存取器以標記字串代替，不沿用原型，不執行使用端程式)，供使用端遮罩後轉送。函數拋錯或回傳reject之promise皆被吞下，不影響各操作之結果
+ * @param {Boolean} [opt.logDetail=false] 輸入是否於console輸出遮罩後之細節布林值，預設false，型別錯誤者視同false。診斷輸出(console)預設只含固定標籤與不含個資之摘要(不含資料值、id、後端錯誤原文、路徑)；為true時console輸出(label, 細節)(訂閱函數之錯誤、model載入失敗之原文、opt.logging之sql全文如console.log('sql', sql全文)等)，有洩漏個資之風險，僅供除錯使用。連線字串、帳號、密碼與sqlite檔案路徑於細節皆以***遮罩。出口、遮罩與選項語意同wsemi之getDiag(規則見wsemi之R-DIAG-01)
+ * @param {Function} [opt.funLog=null] 輸入診斷輸出函數(label, safe, detail)，預設無，型別錯誤者視同未給。給予時診斷輸出只交給它而不寫console：label為固定標籤字串，safe為不含個資之摘要物件(可能為undefined；鍵限stmt、mode、cl、name、type、errType、errCode)，detail為完整細節之遮罩拷貝(可能無此引數；連線字串、帳號、密碼與sqlite檔案路徑已以***遮罩；拷貝之形態與上限依wsemi之maskDiagCopy，不執行使用端程式)，供使用端遮罩後轉送。函數拋錯或回傳reject之promise皆被吞下，不影響各操作之結果
  * @param {String} [opt.pk='id'] 輸入數據主鍵字串，預設'id'
  * @param {Boolean} [opt.autoGenPk=true] 輸入若數據pk(id)欄位沒給時則自動給予隨機uuid，型別為布林值，預設true
  * @param {Boolean} [opt.useStable=true] 輸入是否使用穩定模式，使用佇列管理同時只能進行一種操作故會犧牲效能，sqlite需開啟穩定模式才不會有非預期錯誤，型別為布林值，預設true
@@ -111,6 +133,7 @@ function WOrmReladb(opt = {}) {
         }
     }
 
+    let storageRaw = opt.storage //呼叫端所給之形式(相對路徑等), 供診斷輸出之秘密(儲存路徑)使用
     opt.storage = path.resolve(opt.storage)
     if (!isbol(opt.useEncryption)) {
         opt.useEncryption = false
@@ -126,9 +149,9 @@ function WOrmReladb(opt = {}) {
     //建構為同步而無從以Promise.reject回報, 拋出即為reject之同步對應;
     //若僅console.log而回傳未綁定各函數之ee, 錯誤不經任何管道抵達呼叫端, 呼叫端僅得到
     //[w.select is not a function]之無關訊息, 與本規格[錯誤不得靜默]之通則相違;
-    //訊息前綴與Error型態不變, 回顯之opt.url經maskUrl(R17-6): 帳號與密碼不出現(未捕獲時Node會把訊息印到stderr); maskUrl為純函數, 不依賴尚未建立之diag
+    //訊息前綴與Error型態不變, 回顯之opt.url經wsemi之maskDiagUrl(R17-6, dspec Q2): 只回顯宣告之scheme(<scheme>://***), 不回顯主機、帳號與密碼(未捕獲時Node會把訊息印到stderr); maskDiagUrl為純函數, 不依賴尚未建立之diag
     let throwUrlErr = (msg) => {
-        throw new Error(`${msg}, opt.url[${maskUrl(opt.url)}]`)
+        throw new Error(`${msg}, opt.url[${maskDiagUrl(opt.url, { schemes: DIALECTS })}]`)
     }
 
 
@@ -139,7 +162,7 @@ function WOrmReladb(opt = {}) {
     if (!dialect) {
         throwUrlErr('no dialect in opt.url')
     }
-    if (!arrHas(dialect, ['mssql', 'sqlite', 'mysql', 'mariadb', 'postgres'])) {
+    if (!arrHas(dialect, DIALECTS)) {
         throwUrlErr('invalid dialect in opt.url')
     }
     u = get(ss, 1, '') //另存給後面使用
@@ -183,18 +206,50 @@ function WOrmReladb(opt = {}) {
     }
 
 
-    //diag, 診斷輸出之單一出口(R17): src內所有console輸出與傳給sequelize之SQL紀錄函數皆經此, 除getDiag.mjs外不得直接呼叫console;
-    //預設只輸出固定標籤與不含個資之摘要, opt.logDetail還原細節, opt.funLog取代console; 連線字串與帳密(opt.url、username、password)於任何輸出皆遮罩;
-    //其後各路徑共用此快照, 不再讀取使用端的opt
-    let optLog = getOptLog(opt)
-    let secrets = getSecrets(opt.url, username, password)
-    let diag = getDiag(optLog, secrets)
+    //diag, 診斷輸出之單一出口(R17, wsemi之getDiag, 規則見wsemi之R-DIAG-01): src內所有console輸出與傳給sequelize之SQL紀錄函數皆經此, src不得直接呼叫console;
+    //預設只輸出固定標籤與不含個資之摘要, opt.logDetail輸出遮罩後細節, opt.funLog取代console; 建構時取快照optLog(各選項型別錯誤者用預設), 其後各路徑共用, 不再讀取使用端的opt
+    //cfg為本套件之宣告: 秘密(opt.url、帳號、密碼; sqlite另含資料庫檔案路徑)、樣式pragmaKey(sqlite加密時PRAGMA key之值)、代碼集合、錯誤類別名、巢狀錯誤鍵(sequelize包裝驅動錯誤之original、parent)、safe之鍵;
+    //細節以detail清單遮罩(憑證、單獨帳號、儲存路徑), 對外之錯誤值(diag.err、diag.mask)以reject清單遮罩(只含憑證, dspec Q3)
+    let optLog = mergeOptLog({ logging: false, logDetail: false, funLog: null }, opt)
+    let cfg = {
+        secrets: getDiagSecrets({ urls: [opt.url], username, password, paths: dialect === 'sqlite' ? [storageRaw, path.normalize(storageRaw), opt.storage] : [] }),
+        patterns: ['pragmaKey'],
+        codes: ['sqlite', 'mysql', 'mssql', 'sqlstate'],
+        types: ERR_TYPES,
+        nested: ['original', 'parent'],
+        safeKeys: SAFE_KEYS,
+    }
+    let diag = getDiag(optLog, cfg)
 
 
     //logSql, 傳給sequelize之logging函數: sequelize以(sql全文, 查詢選項)呼叫, 查詢選項含綁定參數值故不取用, 只取第一個引數;
-    //預設只輸出敘述種類, 完整sql(select等之where條件值為內嵌)為細節; logQueryParameters維持關閉, 故insert、update之綁定參數值($1…)不進sql紀錄
+    //預設只輸出敘述種類, 完整sql(select等之where條件值為內嵌)為細節(logDetail時console.log('sql', sql全文)); logQueryParameters維持關閉, 故insert、update之綁定參數值($1…)不進sql紀錄
     let logSql = (sql) => {
-        diag('sql', { stmt: getSqlStmt(sql) }, () => sql, true)
+        diag('sql', { stmt: getSqlStmt(sql) }, () => sql)
+    }
+
+
+    /**
+     * 整批reject、error事件交出之錯誤值(R-DIAG, dspec D3)
+     * 註: 本套件以固定詞彙自行產生者(ownErr登記之檢核與狀態錯誤、model載入失敗之訊息si.err)原樣交出: 固定字串經遮罩挖空即可反推短密碼
+     * 註: 其餘(後端、驅動、model檔之hook、呼叫端數據之getter等外來值)經diag.err: 含憑證者為遮罩後之副本(instanceof同類、屬性保留), 無憑證者為原物件
+     *
+     * @ignore
+     * @param {*} err 輸入攔得之錯誤值
+     * @param {Object|null} si 輸入本次使用之實例(其err為model載入失敗之固定訊息), 無則null
+     * @returns {*} 回傳交出之錯誤值
+     */
+    function outErr(err, si) {
+        let own = isOwnErr(err)
+        if (!own && si !== null) {
+            try {
+                own = err === si.err
+            }
+            catch (e) {
+                //讀取實例拋錯者視為外來值
+            }
+        }
+        return own ? err : diag.err(err)
     }
 
 
@@ -231,7 +286,7 @@ function WOrmReladb(opt = {}) {
             ee.emit('change', mode, data, res)
         }
         catch (err) {
-            diag('change handler threw', { mode, ...getBriefErr(err) }, () => err, true)
+            diag('change handler threw', { mode, ...diag.brief(err) }, () => err)
         }
     }
 
@@ -241,11 +296,12 @@ function WOrmReladb(opt = {}) {
      * 註: 事件僅為附加通知，所送出之資訊必另有正規管道——整批性錯誤經Promise.reject，逐筆失敗經該筆之err欄位
      * 註: 訂閱函數拋錯不得影響本次操作之結果，故另包try並自行吞掉
      * 註: 正常結果不得發出本事件，如insert全數已存在、save合併後內容相同、del主鍵未命中、selectByPk查無數據
+     * 註: err須為已處置之值(R-DIAG): 外來值已經diag.err(整批之outErr)或diag.mask(逐筆err), 本套件之固定詞彙原樣, 與reject之值或逐筆err同源; data為呼叫端之輸入, 屬回傳契約不遮罩
      *
      * @ignore
      * @param {String} mode 輸入操作別字串
      * @param {Object|Array|null} data 輸入本次操作之數據
-     * @param {Error|String} err 輸入錯誤物件或字串
+     * @param {Error|String} err 輸入已處置之錯誤物件或字串
      * @returns {undefined} 無回傳值
      */
     function emitError(mode, data, err) {
@@ -253,7 +309,7 @@ function WOrmReladb(opt = {}) {
             ee.emit('error', mode, data, getErrMsg(err))
         }
         catch (errEmit) {
-            diag('error handler threw', { mode, ...getBriefErr(errEmit) }, () => errEmit, true)
+            diag('error handler threw', { mode, ...diag.brief(errEmit) }, () => errEmit)
         }
     }
 
@@ -309,7 +365,7 @@ function WOrmReladb(opt = {}) {
 
         //check
         if (sequelize === null) {
-            throw new Error(`instance is closed, need to use init() to get a new instance`)
+            throw ownErr(`instance is closed, need to use init() to get a new instance`)
         }
 
     }
@@ -398,7 +454,7 @@ function WOrmReladb(opt = {}) {
             bads.push('where[Op.and]')
         }
         if (bads.length > 0) {
-            throw new Error(`model [${opt.cl}] has defaultScope with ${bads.join(', ')}, delAll can not delete the same rows as select`)
+            throw ownErr(`model [${opt.cl}] has defaultScope with ${bads.join(', ')}, delAll can not delete the same rows as select`)
         }
     }
 
@@ -422,7 +478,7 @@ function WOrmReladb(opt = {}) {
             }
             let r = normPkOf(md, get(v, opt.pk))
             if (r.kind !== 'ok') {
-                throw new Error(`invalid data[${k}].${opt.pk}, type does not match pk column [${opt.pk}]`)
+                throw ownErr(`invalid data[${k}].${opt.pk}, type does not match pk column [${opt.pk}]`)
             }
             v[opt.pk] = r.v
         })
@@ -451,7 +507,7 @@ function WOrmReladb(opt = {}) {
             }
             let col = chk(v)
             if (col !== null) {
-                throw new Error(`invalid data: date is not a valid time in years 1-9999 at [data[${k}].${col}]`)
+                throw ownErr(`invalid data: date is not a valid time in years 1-9999 at [data[${k}].${col}]`)
             }
         })
     }
@@ -498,19 +554,19 @@ function WOrmReladb(opt = {}) {
 
         //check, autoGenPk為false時主鍵須由呼叫端自備
         if (!opt.autoGenPk) {
-            throw new Error(`invalid data[${k}].${opt.pk}, autoGenPk is false`)
+            throw ownErr(`invalid data[${k}].${opt.pk}, autoGenPk is false`)
         }
 
         //at
         let at = get(md, `rawAttributes.${opt.pk}`)
         if (!iseobj(at)) {
-            throw new Error(`can not find pk column [${opt.pk}] in model [${opt.cl}]`)
+            throw ownErr(`can not find pk column [${opt.pk}] in model [${opt.cl}]`)
         }
 
         //check, 自動產生之主鍵值為字串, 主鍵欄位須為字串類型方能容納
         let tp = get(at, 'type.key', '')
         if (!arrHas(tp, ['STRING', 'TEXT', 'CHAR', 'UUID', 'CITEXT'])) {
-            throw new Error(`autoGenPk is true but pk column [${opt.pk}] in model [${opt.cl}] is [${tp}], auto generated pk is a string, need to set autoGenPk to false and supply pk by caller`)
+            throw ownErr(`autoGenPk is true but pk column [${opt.pk}] in model [${opt.cl}] is [${tp}], auto generated pk is a string, need to set autoGenPk to false and supply pk by caller`)
         }
 
         //genIDSeq, 為UUIDv7格式而具單調遞增性, 主鍵接近順序遞增可減少索引頁面分裂
@@ -563,19 +619,25 @@ function WOrmReladb(opt = {}) {
             optSeq.dialectModulePath = '@journeyapps/sqlcipher' //sqlite加密版
         }
 
-        //sequelize
-        sequelize = new Sequelize(opt.db, username, password, optSeq)
-        if (opt.useEncryption && dialect === 'sqlite') {
-            await sequelize.query('PRAGMA cipher_compatibility = 4') //設置sqlite密鑰相容性
-            await sequelize.query(`PRAGMA key = '${username}:${password}'`) //設置slqite密碼為${username}:${password}, 為使用者名稱與密碼用冒號分隔
+        //sequelize, 建構(缺少驅動等同步拋出)與sqlite加密設定之例外為外來值(加密設定失敗之錯誤含PRAGMA key敘述, 即帳號:密碼), 經diag.err後拋出(R-DIAG);
+        //init之reject與各函數之整批reject皆源於此, 由各函數之outErr再經diag.err時已無憑證而回原物件
+        try {
+            sequelize = new Sequelize(opt.db, username, password, optSeq)
+            if (opt.useEncryption && dialect === 'sqlite') {
+                await sequelize.query('PRAGMA cipher_compatibility = 4') //設置sqlite密鑰相容性
+                await sequelize.query(`PRAGMA key = '${username}:${password}'`) //設置slqite密碼為${username}:${password}, 為使用者名稱與密碼用冒號分隔
+            }
+        }
+        catch (errSeq) {
+            throw diag.err(errSeq)
         }
 
-        //importModels, 若model內id不是pk則需要強制更改成為pk, 否則sequelize無法匯入
+        //importModels, 若model內id不是pk則需要強制更改成為pk, 否則sequelize無法匯入; 其錯誤只進診斷輸出之細節, 對外為本套件之固定訊息err
         let r = await pm2resolve(importModels)(opt.fdModels, sequelize, opt.cl, { sync, type: opt.modelType })
 
         //check
         if (r.state === 'error') {
-            diag('can not import model', { cl: opt.cl, ...getBriefErr(r.msg) }, () => r, true)
+            diag('can not import model', { cl: opt.cl, ...diag.brief(r.msg) }, () => r)
             err = `can not import model: ${opt.cl}, need to use genModelsByDB, genModelsByTabs or create ${opt.cl}.${opt.modelType}`
         }
 
@@ -607,7 +669,12 @@ function WOrmReladb(opt = {}) {
      */
     async function closeSequelize(from) {
         if (sequelize !== null) {
-            await sequelize.close()
+            try {
+                await sequelize.close()
+            }
+            catch (err) {
+                throw diag.err(err) //驅動之關閉錯誤為外來值(R-DIAG); 各函數之finally與init回傳之close皆經此
+            }
             //console.log(from, 'sequelize.close()')
         }
         sequelize = null
@@ -624,7 +691,12 @@ function WOrmReladb(opt = {}) {
     async function genTransaction() {
         let t
         if (sequelize !== null) {
-            t = await sequelize.transaction() //使用Unmanaged transaction (then-callback)
+            try {
+                t = await sequelize.transaction() //使用Unmanaged transaction (then-callback)
+            }
+            catch (err) {
+                throw diag.err(err) //開啟交易失敗(連線等)為外來值(R-DIAG); 'invalid sequelize'為本套件之固定詞彙, 不經遮罩
+            }
             // t.afterCommit(() => {
             //     console.log('afterCommit')
             // })
@@ -731,7 +803,7 @@ function WOrmReladb(opt = {}) {
         }
         catch (err) {
             isErr = true
-            res = err
+            res = outErr(err, si) //外來值經diag.err, 本套件之固定詞彙原樣; reject之值與error事件同源
         }
         finally {
 
@@ -859,7 +931,7 @@ function WOrmReladb(opt = {}) {
         }
         catch (err) {
             isErr = true
-            res = err
+            res = outErr(err, si) //外來值經diag.err, 本套件之固定詞彙原樣; reject之值與error事件同源
         }
         finally {
 
@@ -960,7 +1032,7 @@ function WOrmReladb(opt = {}) {
             let bads = chkWf(isarr(data) ? data : [data], opt.pk, true)
             let iBad = bads.findIndex((v) => v !== null)
             if (iBad >= 0) {
-                throw new Error(bads[iBad])
+                throw ownErr(bads[iBad])
             }
 
             //initSequelize, 內部自動初始化須在try內: 其例外(如驅動缺失)與si.err同屬整批性錯誤, 方能於reject前發出error事件, 已建構之sequelize亦由finally關閉
@@ -1050,7 +1122,7 @@ function WOrmReladb(opt = {}) {
         }
         catch (err) {
             isErr = true
-            res = err
+            res = outErr(err, si) //外來值經diag.err, 本套件之固定詞彙原樣; reject之值與error事件同源
         }
         finally {
 
@@ -1145,7 +1217,7 @@ function WOrmReladb(opt = {}) {
             let bads = chkWf(isarr(data) ? data : [data], opt.pk, true)
             let iBad = bads.findIndex((v) => v !== null)
             if (iBad >= 0) {
-                throw new Error(bads[iBad])
+                throw ownErr(bads[iBad])
             }
 
             //initSequelize, 內部自動初始化須在try內: 其例外(如驅動缺失)與si.err同屬整批性錯誤, 方能於reject前發出error事件, 已建構之sequelize亦由finally關閉
@@ -1228,7 +1300,7 @@ function WOrmReladb(opt = {}) {
         }
         catch (err) {
             isErr = true
-            res = err
+            res = outErr(err, si) //外來值經diag.err, 本套件之固定詞彙原樣; reject之值與error事件同源
         }
         finally {
 
@@ -1392,13 +1464,13 @@ function WOrmReladb(opt = {}) {
                     throw err
                 }
 
-                //其餘錯誤視為本筆失敗, 不中斷整批, 由呼叫端以ok與err判讀
+                //其餘錯誤視為本筆失敗, 不中斷整批, 由呼叫端以ok與err判讀; err為後端之外來值, 建立時即經diag.mask(R-DIAG), 令回傳值與error事件同源
                 rest = {
                     n: 1,
                     nInserted: 0,
                     nModified: 0,
                     ok: 0,
-                    err: getErrMsg(err),
+                    err: diag.mask(getErrMsg(err)),
                 }
                 break
             }
@@ -1548,7 +1620,7 @@ function WOrmReladb(opt = {}) {
         }
         catch (err) {
             isErr = true
-            res = err
+            res = outErr(err, si) //外來值經diag.err, 本套件之固定詞彙原樣; reject之值與error事件同源
         }
         finally {
 
@@ -1739,12 +1811,12 @@ function WOrmReladb(opt = {}) {
                             throw err
                         }
 
-                        //rest, 本筆失敗不中斷整批
+                        //rest, 本筆失敗不中斷整批; err為後端之外來值, 建立時即經diag.mask(R-DIAG), 令回傳值與error事件同源
                         rest = {
                             n: 1,
                             nDeleted: 0,
                             ok: 0,
-                            err: getErrMsg(err),
+                            err: diag.mask(getErrMsg(err)),
                         }
 
                         //emit
@@ -1758,7 +1830,7 @@ function WOrmReladb(opt = {}) {
         }
         catch (err) {
             isErr = true
-            res = err
+            res = outErr(err, si) //外來值經diag.err, 本套件之固定詞彙原樣; reject之值與error事件同源
         }
         finally {
 
@@ -1886,7 +1958,7 @@ function WOrmReladb(opt = {}) {
         }
         catch (err) {
             isErr = true
-            res = err
+            res = outErr(err, si) //外來值經diag.err, 本套件之固定詞彙原樣; reject之值與error事件同源
         }
         finally {
 
@@ -1946,7 +2018,9 @@ function WOrmReladb(opt = {}) {
      *
      * include from: [w-auto-sequelize](https://github.com/yuda-lyu/w-auto-sequelize)
      *
-     * 診斷輸出(sql紀錄與建表、外鍵查詢失敗)經本套件單一出口：預設承接建構時之opt.logging、opt.logDetail、opt.funLog，標籤加前綴'genModelsByDB '(如'genModelsByDB sql'、'genModelsByDB tables catch')，option內給予者(型別正確)覆寫單次呼叫；連線字串與帳密(含opt.url、option.username、option.password)於任何輸出皆以***遮罩
+     * 診斷輸出(sql紀錄與建表、外鍵查詢失敗)經本套件單一出口：預設承接建構時之opt.logging、opt.logDetail、opt.funLog，標籤加前綴'genModelsByDB '(如'genModelsByDB sql'、'genModelsByDB tables catch')，option內給予者(型別正確)覆寫單次呼叫；連線字串、帳號、密碼與sqlite檔案路徑(含opt.url、option.username、option.password、option.storage)於細節皆以***遮罩
+     *
+     * reject與同步拋出之值為w-auto-sequelize所給(其固定詞彙如need username原樣；後端錯誤中單次呼叫之憑證已由w-auto-sequelize遮罩)
      *
      * @memberOf WOrmReladb
      * @param {Object} [option={}] 輸入設定物件，預設{}
@@ -1959,8 +2033,8 @@ function WOrmReladb(opt = {}) {
      * @param {String} [option.host='localhost'] 輸入連線主機host位址字串，預設'localhost'
      * @param {Integer} [option.port=1433] 輸入連線主機port整數，預設1433
      * @param {Boolean} [option.logging] 輸入是否紀錄實際執行的sql指令布林值，預設承接建構時之opt.logging，型別錯誤者沿用建構時之設定。為true時預設只輸出敘述種類(如'genModelsByDB sql { stmt: 'SELECT' }')，sql全文需搭配logDetail或funLog
-     * @param {Boolean} [option.logDetail] 輸入是否還原診斷輸出之舊版細節布林值，預設承接建構時之opt.logDetail，型別錯誤者沿用建構時之設定。為true時sql全文以console.log、建表或外鍵查詢失敗之錯誤物件以console.error裸輸出(不加標籤)，有洩漏個資之風險，僅供除錯使用，連線字串與帳密仍遮罩
-     * @param {Function} [option.funLog] 輸入診斷輸出函數(label, safe, detail)，預設承接建構時之opt.funLog，非函數者沿用建構時之設定。給予時診斷輸出只交給此函數(不寫console)：label為'genModelsByDB sql'、'genModelsByDB foreign keys catch'、'genModelsByDB tables catch'，safe為不含個資之摘要，detail為完整細節(帳密已遮罩為***)
+     * @param {Boolean} [option.logDetail] 輸入是否於console輸出遮罩後之細節布林值，預設承接建構時之opt.logDetail，型別錯誤者沿用建構時之設定。為true時console輸出(label, 細節)：sql全文以console.log('genModelsByDB sql', sql全文)、建表或外鍵查詢失敗之錯誤物件副本以console.error('genModelsByDB tables catch', 錯誤)等，有洩漏個資之風險，僅供除錯使用，連線字串、帳密與sqlite檔案路徑仍遮罩
+     * @param {Function} [option.funLog] 輸入診斷輸出函數(label, safe, detail)，預設承接建構時之opt.funLog，非函數者沿用建構時之設定。給予時診斷輸出只交給此函數(不寫console)：label為'genModelsByDB sql'、'genModelsByDB foreign keys catch'、'genModelsByDB tables catch'，safe為不含個資之摘要(如{ stmt: 'SELECT' }、{ errType: 'SequelizeConnectionError', errCode: 'SQLITE_CANTOPEN' })，detail為完整細節(帳密與sqlite檔案路徑已遮罩為***)
      * @returns {Promise} 回傳Promise，resolve回傳產生的models資料，reject回傳錯誤訊息
      */
     function genModelsByDB(option = {}) {
@@ -1994,22 +2068,30 @@ function WOrmReladb(opt = {}) {
         option.directory = opt.fdModels
 
         //storage
+        let storageCallRaw = option.storage
         option.storage = path.resolve(option.storage)
 
-        //optLogCall, 診斷設定(R17-7): 預設承接建構時之opt.logging、opt.logDetail、opt.funLog, option內型別正確者覆寫單次呼叫
-        let optLogCall = mergeOptLog({ ...optLog, logging: opt.logging }, option)
+        //optLogCall, 診斷設定(R17-7): 預設承接建構時之快照optLog(opt.logging、opt.logDetail、opt.funLog), option內型別正確者覆寫單次呼叫
+        let optLogCall = mergeOptLog(optLog, option)
 
-        //diagCall, w-auto-sequelize一律給funLog(其輸出不再自寫console), 經此轉入本套件單一出口, 使輸出遵守logDetail與funLog, 且遮罩含opt.url
-        //(單次呼叫option.username、option.password由w-auto-sequelize遮罩, 建構時之連線字串與帳密由此遮罩)
-        let diagCall = getDiag(optLogCall, secrets)
+        //diagCall, 單次呼叫之出口: 本套件之宣告cfg(建構時之連線字串與帳密)以diag.with併入單次呼叫之帳號、密碼與sqlite檔案路徑(dspec §6.2第7點)
+        let pathsCall = option.dialect === 'sqlite' && isestr(storageCallRaw) ? [storageCallRaw, path.normalize(storageCallRaw), option.storage] : []
+        let diagCall = getDiag(optLogCall, cfg).with({ username: option.username, password: option.password, paths: pathsCall })
 
-        //funLogForAuto, label為'sql'、'foreign keys catch'、'tables catch', detail為已遮罩之副本且可能不存在;
-        //舊版三者皆為不加標籤之裸輸出(sql由sequelize預設logger以console.log, 建表與外鍵查詢失敗以console.error(err)), 故bare, 兩個錯誤標籤維持stderr
+        //funLogForAuto, w-auto-sequelize一律給funLog(其輸出不再自寫console), 經此轉入本套件出口, 使輸出遵守logDetail與funLog, 細節(w-auto-sequelize已以單次之帳密遮罩之副本)再經diagCall遮罩(含opt.url);
+        //label只用固定詞彙: w-auto-sequelize之'sql'、'foreign keys catch'、'tables catch'加前綴'genModelsByDB ', 其他(未知)為'genModelsByDB diag'; sql走stdout, 兩個錯誤標籤走stderr(level 'error', 舊版為console.error)
+        let labels = {
+            'sql': 'genModelsByDB sql',
+            'foreign keys catch': 'genModelsByDB foreign keys catch',
+            'tables catch': 'genModelsByDB tables catch',
+        }
         let funLogForAuto = (label, safe, detail) => {
-            diagCall(`genModelsByDB ${label}`, safe, detail === undefined ? undefined : () => detail, true, label === 'sql' ? 'log' : 'error')
+            let lb = typeof label === 'string' && Object.prototype.hasOwnProperty.call(labels, label) ? labels[label] : 'genModelsByDB diag'
+            diagCall(lb, safe, detail === undefined ? undefined : () => detail, label === 'sql' ? 'log' : 'error')
         }
 
-        //WAutoSequelize
+        //WAutoSequelize, 其reject與同步拋出之值不再經本套件遮罩: w-auto-sequelize已於其catch站點以單次呼叫之帳密經diag.err(建構時之帳密不傳給它, 不會出現於其錯誤),
+        //且其固定詞彙之reject(need username等)若再經遮罩, 帳密恰為其子字串時會被切碎(dspec D3)
         return WAutoSequelize({
             ...option,
             logging: optLogCall.logging,
@@ -2022,6 +2104,8 @@ function WOrmReladb(opt = {}) {
 
     /**
      * 由資料表物件生成各資料表的models資料
+     *
+     * 診斷輸出(產生之檔案路徑、寫檔失敗之錯誤)經本實例之單一出口(遵守opt.logDetail、opt.funLog)：標籤為'generate file:'、'save file catch'，預設只輸出{ name, type }與錯誤類別、代碼，路徑與錯誤原文為細節；寫檔失敗只記錄、不拋錯
      *
      * @memberOf WOrmReladb
      * @param {String} [fd='./models'] 輸入models儲存的資料夾名稱字串，預設'./models'
@@ -2047,7 +2131,7 @@ function WOrmReladb(opt = {}) {
 
     //snap, 數據於呼叫當下即同步複製(R13): useStable時各函數經佇列延後執行(pmQueue於執行前delay), 若於函數內才複製,
     //呼叫端於呼叫後立即改動原數據(如重用同一陣列)會影響實際檢核與寫入之值; 函數內只使用此複本, 檢核與寫入皆作用於同一份複本
-    //複製拋錯(如getter拋錯)與函數內之其他錯誤同為rejected promise
+    //複製拋錯(如getter拋錯)與函數內之其他錯誤同為rejected promise; 其錯誤值為呼叫端數據之getter所拋(外來值), 經diag.err(R-DIAG)
     let snap = (fn) => {
         return function(data, ...rest) {
             let d
@@ -2055,7 +2139,7 @@ function WOrmReladb(opt = {}) {
                 d = cloneDeep(data)
             }
             catch (err) {
-                return Promise.reject(err)
+                return Promise.reject(diag.err(err))
             }
             return fn(d, ...rest)
         }

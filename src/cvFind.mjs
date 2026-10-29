@@ -3,6 +3,7 @@ import get from 'lodash-es/get.js'
 import cvOrmFind from 'wsemi/src/cvOrmFind.mjs'
 import chkOrmStr from 'wsemi/src/chkOrmStr.mjs'
 import chkOrmData from 'wsemi/src/chkOrmData.mjs'
+import { ownErr, markOwnErr } from './ownErr.mjs'
 
 
 //查詢條件(find)之轉譯, 供select與delAll共用, 令同一find於兩函數由同一SQL謂詞決定命中
@@ -222,7 +223,7 @@ function isCalendarDate(y, m, d) {
  * @ignore
  */
 function err(msg, path) {
-    throw new Error(`invalid find: ${msg}${path ? ` at [${path}]` : ''}`)
+    throw ownErr(`invalid find: ${msg}${path ? ` at [${path}]` : ''}`) //本套件之固定詞彙錯誤(ownErr.mjs)
 }
 
 
@@ -312,7 +313,7 @@ function buildAttrIdx(attrs) {
 function chkAttrs(attrs) {
     let p = typeof attrs === 'object' ? Object.getPrototypeOf(attrs) : undefined
     if (!(p === Object.prototype || p === null) || Object.getOwnPropertySymbols(attrs).length > 0 || Object.getOwnPropertyNames(attrs).length !== Object.keys(attrs).length) {
-        throw new Error('invalid ctx: attrs must be a plain object (prototype Object.prototype or null) without symbol keys and with enumerable string keys only')
+        throw ownErr('invalid ctx: attrs must be a plain object (prototype Object.prototype or null) without symbol keys and with enumerable string keys only')
     }
 }
 
@@ -987,13 +988,19 @@ function cvGroup(fn, cs) {
  * 註: 未給/undefined/{}回傳空物件(全部); 其餘非條件物件、白名單外之運算子與值、異常結構一律throw Error('invalid find: 原因 at [路徑]')
  * 註: maxList傳999(SQLite之運算式樹深度上限); select與delAll於載入model與建立sequelize實例之前先呼叫本函數, 使形狀不合法者不連線、不送出任何SQL
  * 註: 對複本再呼叫為冪等(複本本身符合白名單)
+ * 註: cvOrmFind之錯誤恆為固定詞彙(呼叫端之getter、Proxy陷阱等例外一律轉為固定原因, 不轉述其訊息), 故登記為本套件之固定詞彙錯誤(ownErr.mjs), 整批reject時原樣交出
  *
  * @ignore
  * @param {*} find 輸入查詢條件
  * @returns {Object} 回傳null原型之條件複本, 無自有鍵代表全部
  */
 function chkFindShape(find) {
-    return cvOrmFind(find, optShape)
+    try {
+        return cvOrmFind(find, optShape)
+    }
+    catch (e) {
+        throw markOwnErr(e)
+    }
 }
 
 
@@ -1018,7 +1025,7 @@ function cvFind(find, ctx) {
 
     //check, ctx.dateNoTz須為undefined、'local'或'floating', 其餘值(含拼錯、大小寫不同)拋錯, 不靜默忽略
     if (ctx && ctx.dateNoTz !== undefined && ctx.dateNoTz !== 'local' && ctx.dateNoTz !== 'floating') {
-        throw new Error(`invalid ctx: dateNoTz must be 'local', 'floating' or undefined, got [${String(ctx.dateNoTz)}]`)
+        throw ownErr(`invalid ctx: dateNoTz must be 'local', 'floating' or undefined, got [${String(ctx.dateNoTz)}]`)
     }
 
     //step1, 形狀檢核(R11), 其後一律只使用複本

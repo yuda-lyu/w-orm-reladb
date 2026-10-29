@@ -192,3 +192,13 @@
 - **`npm i <套件>@<版本>` 會在 `package.json` 檔尾補換行**(原檔無結尾換行),`git diff package.json` 多出 `\ No newline at end of file` 差異:裝完用 Edit 去掉,只留 `w-auto-sequelize` 版本號一行與 lock 的版本欄位。
 - **測試鎖被他套件長時間占用時**:`quiet-run --lock` 會排隊(最多 3 小時),排隊期間指令尚未讀 `src/`,故不能同時改 src;做法是把修前 `src/` 與新測試複製到 `./tmp/<輪>/pre/`(inside repo,`node_modules` 向上解析仍可用),用一支腳本在**一次取鎖內**依序跑「修前快照(紅)」與「現行(綠)」。
 - **殘留警示**:`import * as G from '../src/getDiag.mjs'` 取命名空間可讓「修前不存在的新匯出」的測試個別失敗(TypeError)而非整檔 import 失敗,修前紅的統計才有意義。
+
+## mig-reladb(2026-10-29,遷移至 wsemi 共用診斷模組 R17-8;排程第 161 項第 2 波;腳本與輸出之證據在 `C:\opensrcOper\dnow\20261029002013\agent-out\mig-reladb-evidence\`)
+
+- **固定詞彙與外來值同一個 catch**:七函數之整批 catch 同時攔得本套件之檢核錯誤(`invalid find`、`invalid data`、`instance is closed`、`can not import model`)與後端錯誤,依內容判斷會誤分(後端訊息也可能以 invalid 開頭);改以**來源登記**:`src/ownErr.mjs` 之 WeakSet(`ownErr` 產生、`markOwnErr` 登記既有物件),字串之 `si.err` 以身分比對。wsemi `cvOrmFind` 之 catch 一律重建 `invalid find: <固定原因>`(實讀其原始碼),故可整批登記;本套件其他會進 catch 之 `new Error` 都要換 `ownErr`,`unit-diaglog` 以「`throw new Error(` 只剩建構期 2 處」鎖住。
+- **驗固定詞彙原樣的方式**:以密碼恰為訊息子字串建實例(`invalid`、`import`、`closed`,皆 ≥4 字元才進 reject 清單),並在同一實例上放一個含該字的外來錯誤作對照(仍被遮),才能證明原樣是分流所致而非遮罩沒作用。
+- **外來錯誤之注入**:sqlite 測試用 model 檔之 hook(`beforeFind`、`beforeCreate`、`beforeBulkCreate`、`beforeBulkDestroy`)經 `globalThis.__wormWire` 拋出任意值——hook 於取連線前執行,不留 sqlite 檔案控制代碼;save/del 要觸發整批 reject 須拋 `Sequelize.ConnectionError`(`isBatchLevelError`),其他錯誤會變逐筆 err。`initSequelize` 之加密設定路徑:sqlcipher 未安裝,以 `Module._resolveFilename` 把 `@journeyapps/sqlcipher` 暫解析為 sqlite3,並在 `Sequelize.prototype.query` 層讓 `PRAGMA` 失敗(不開連線);`closeSequelize` 以先呼叫原 `close` 再拋錯之方式注入,避免檔案鎖使 `after` 刪不掉 `test/_tmp`。
+- **wsemi 之動態秘密**:`maskDiagCopy`/`maskDiagErr` 把錯誤自帶之 `path` 併入該次細節清單,故 `genModelsByTabs` 寫檔失敗之 `logDetail` 輸出不再見到檔名(`open '***'`);舊測試斷言「logDetail 還原路徑」者須改。
+- **原始碼盤點測試之註解剝除**:行內 `//` 註解裡出現 `://***` 會含 `/*`,若先以 `/\*[\s\S]*?\*/` 剝區塊註解會從該處吃到下一個 JSDoc 結尾,把中間的程式碼(如 `throwUrlErr`)整段當註解;改為只認行首之 `/*`。
+- **變異時原始碼盤點不計**:`unit-diaglog` 讀 cwd 之 `./src`,變異副本在 `./tmp/mig-reladb/mut/src`,故變異結果之「殺死」皆來自行為測試(`api-diaglog-wire` 等),盤點測試另行鎖站點。
+- **測試鎖**:同時有 2 套件跑全套且佇列 4～6 筆時,排隊可超過 20 分;背景指令(10 分鐘後即被收)會失去佇列位置,改以 `nohup node quiet-run --lock -- node tmp/<輪>/run-all.mjs` 啟動,一次取鎖內依序跑「受影響測試 → 全綠才跑修前紅與變異」。
