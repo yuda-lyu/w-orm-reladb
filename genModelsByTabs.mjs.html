@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    
+    <meta charset="utf-8">
+    <title>genModelsByTabs.mjs - Documentation</title>
+    
+    
+    <script src="scripts/prettify/prettify.js"></script>
+    <script src="scripts/prettify/lang-css.js"></script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc.css">
+    <script src="scripts/nav.js" defer></script>
+    
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body>
+
+<input type="checkbox" id="nav-trigger" class="nav-trigger" />
+<label for="nav-trigger" class="navicon-button x">
+  <div class="navicon"></div>
+</label>
+
+<label for="nav-trigger" class="overlay"></label>
+
+<nav >
+    
+    
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="WOrmReladb.html">WOrmReladb</a><ul class='methods'><li data-type='method'><a href="WOrmReladb.html#.closeSequelize">closeSequelize</a></li><li data-type='method'><a href="WOrmReladb.html#.createStorage">createStorage</a></li><li data-type='method'><a href="WOrmReladb.html#.del">del</a></li><li data-type='method'><a href="WOrmReladb.html#.delAll">delAll</a></li><li data-type='method'><a href="WOrmReladb.html#.genModelsByDB">genModelsByDB</a></li><li data-type='method'><a href="WOrmReladb.html#.genModelsByTabs">genModelsByTabs</a></li><li data-type='method'><a href="WOrmReladb.html#.genTransaction">genTransaction</a></li><li data-type='method'><a href="WOrmReladb.html#.initSequelize">initSequelize</a></li><li data-type='method'><a href="WOrmReladb.html#.insert">insert</a></li><li data-type='method'><a href="WOrmReladb.html#.insertBulk">insertBulk</a></li><li data-type='method'><a href="WOrmReladb.html#.save">save</a></li><li data-type='method'><a href="WOrmReladb.html#.select">select</a></li><li data-type='method'><a href="WOrmReladb.html#.selectByPk">selectByPk</a></li></ul></li></ul><h3>Global</h3><ul><li><a href="global.html#chkPkWf">chkPkWf</a></li><li><a href="global.html#chkWf">chkWf</a></li><li><a href="global.html#cvFind">cvFind</a></li><li><a href="global.html#genDateChecker">genDateChecker</a></li><li><a href="global.html#genModelsByTabs">genModelsByTabs</a></li><li><a href="global.html#getColKind">getColKind</a></li><li><a href="global.html#getColScale">getColScale</a></li><li><a href="global.html#importModels">importModels</a></li><li><a href="global.html#inDateRange">inDateRange</a></li><li><a href="global.html#isKindOk">isKindOk</a></li><li><a href="global.html#normPk">normPk</a></li><li><a href="global.html#toFloating">toFloating</a></li></ul>
+    
+</nav>
+
+<div id="main">
+    
+    <h1 class="page-title">genModelsByTabs.mjs</h1>
+    
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>import fs from 'fs'
+import JSON5 from 'json5'
+import each from 'lodash-es/each.js'
+import get from 'lodash-es/get.js'
+import replace from 'wsemi/src/replace.mjs'
+import strright from 'wsemi/src/strright.mjs'
+import iseobj from 'wsemi/src/iseobj.mjs'
+import isestr from 'wsemi/src/isestr.mjs'
+import fsCreateFolder from 'wsemi/src/fsCreateFolder.mjs'
+import getDiag from 'wsemi/src/getDiag.mjs'
+
+
+//SAFE_KEYS, 本模組診斷摘要safe用到之鍵(errType與errCode由wsemi恆含): name(表名)、type(檔案類型js或json)
+const SAFE_KEYS = ['name', 'type']
+
+
+let fieldsAll = {} //Sequelize Datatypes: https://sequelize.org/v5/manual/data-types.html
+
+function getField(type, pk = false, diag) {
+
+    //add type
+    fieldsAll[type] = true
+
+    //o
+    let o = {
+        type: `DataTypes.${type}`,
+        primaryKey: false,
+        allowNull: true,
+        autoIncrement: false,
+        comment: null
+    }
+
+    //check
+    if (pk) {
+        o.primaryKey = true
+        o.allowNull = false
+    }
+
+    //check
+    if (o.primaryKey &amp;&amp; o.type === 'TEXT') {
+        diag(`Can not use TEXT type for primary key. It will change type to STRING automatically.`)
+        o.type = `DataTypes.STRING` //STRING => VARCHAR(255)
+    }
+
+    return o
+}
+
+function getFields(kpType, diag) {
+    let fields = {}
+    each(kpType, (t, k) => {
+        let pk = false
+        if (iseobj(t)) {
+            pk = get(t, 'pk', false)
+            let _t = get(t, 'type', null)
+            if (_t) {
+                t = _t
+            }
+        }
+        fields[k] = getField(t, pk, diag)
+    })
+    return fields
+}
+
+function getJsonModel(name, kpType, diag) {
+
+    let tmp = `
+    {
+        table: '{name}',
+        fields: {fields}, 
+        options: {
+            tableName: '{name}'
+        }
+    }
+    `
+
+    let f = getFields(kpType, diag)
+    let fields = JSON.stringify(f, null, 4)
+
+    tmp = replace(tmp, '{name}', name)
+    tmp = replace(tmp, '{fields}', fields)
+    //不能取代否則無法format(JSON5.parse), 之後於importModels會使用readJsonModel自動轉換並繫結
+
+    //format
+    tmp = JSON5.stringify(JSON5.parse(tmp), null, 4)
+
+    return tmp
+}
+
+function getJsModel(name, kpType, diag) {
+
+    let tmp = `module.exports = function(sequelize, DataTypes) {
+    return sequelize.define('{name}', {fields}, {
+        tableName: '{name}'
+    });
+};
+    `
+
+    let f = getFields(kpType, diag)
+    let fields = JSON.stringify(f, null, 4)
+
+    tmp = replace(tmp, '{name}', name)
+    tmp = replace(tmp, '{fields}', fields)
+    each(fieldsAll, (v, field) => {
+        tmp = replace(tmp, `"DataTypes.${field}"`, `DataTypes.${field}`)
+    })
+
+    return tmp
+}
+
+/**
+ * 由資料表物件生成各資料表的models檔
+ *
+ * 診斷輸出經第4參數diag(跨套件契約, dspec〈診斷輸出與遮罩〉設計§6.7第6條)：diag須為wsemi之getDiag所回傳之實例(函數且帶brief方法)，由呼叫端以其設定(logDetail、funLog、秘密與safeKeys)建立；
+ * 本函數只以下列固定標籤呼叫diag(label, safe, getDetail)與diag.brief(err)，不以呼叫端之值組成label：
+ * 'generate file:'(safe為{ name, type }，細節為檔案路徑)、'save file catch'(safe為{ name, type, errType, errCode }，細節為寫檔之錯誤)、
+ * 'Can not use TEXT type for primary key. It will change type to STRING automatically.'(無safe)；safe之name為表名、type為'js'或'json'，呼叫端之safeKeys須含'name'、'type'方能保留之(白名單外之鍵由wsemi丟棄)
+ * 未給或不合契約者(非函數或無brief)改用本模組之預設出口(wsemi之getDiag，console只輸出固定標籤與摘要，不輸出細節)；寫檔失敗只記錄、不拋錯
+ *
+ * @param {String} [fd='./models'] 輸入models儲存的資料夾名稱字串，預設'./models'
+ * @param {Object} [tabs={}] 輸入各資料表物件，預設{}
+ * @param {Object} [opt={}] 輸入設定物件，預設{}
+ * @param {String} [opt.type='js'] 輸入資料表類型字串，可有'js'、'json'，預設'js'
+ * @param {Function} [diag] 輸入wsemi之getDiag所回傳之診斷輸出實例，預設為本模組之預設出口
+ * @returns {undefined} 無回傳值
+ */
+function genModelsByTabs(fd, tabs, opt = {}, diag) {
+    // console.log('genModelsByTabs')
+
+    //diag, 不合契約者用預設出口
+    if (typeof diag !== 'function' || typeof diag.brief !== 'function') {
+        diag = getDiag(undefined, { safeKeys: SAFE_KEYS })
+    }
+    // console.log('fd', fd)
+    // console.log('tabs', tabs)
+    // console.log('opt', opt)
+
+    //fd
+    if (!isestr(fd)) {
+        fd = './models'
+    }
+
+    //type
+    let type = get(opt, 'type')
+    if (type !== 'js' &amp;&amp; type !== 'json') {
+        type = 'js'
+    }
+    //console.log('type', type)
+
+    //fsCreateFolder
+    fsCreateFolder(fd)
+
+    //each
+    each(tabs, (kpType, name) => {
+        //console.log('kpType', kpType, 'name', name)
+
+        //getModel
+        let c = null
+        if (type === 'js') {
+            c = getJsModel(name, kpType, diag)
+        }
+        else if (type === 'json') {
+            c = getJsonModel(name, kpType, diag)
+        }
+        // console.log('model',c)
+
+        //fn
+        if (strright(fd, 1) !== '/') {
+            fd = `${fd}/`
+        }
+        let fn = `${fd}${name}.${type}`
+        // console.log('fn', fn)
+
+        //write
+        try {
+            fs.writeFileSync(fn, c, 'utf8')
+            diag('generate file:', { name, type }, () => fn)
+        }
+        catch (err) {
+            diag('save file catch', { name, type, ...diag.brief(err) }, () => err)
+        }
+
+    })
+
+}
+
+
+export default genModelsByTabs
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+    
+    
+</div>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Fri Oct 30 2026 00:52:19 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
+</footer>
+
+<script>prettyPrint();</script>
+<script src="scripts/polyfill.js"></script>
+<script src="scripts/linenumber.js"></script>
+
+
+
+</body>
+</html>
