@@ -210,6 +210,17 @@
 - **`npm i <套件>@latest` 重寫 `package.json`**:不只補檔尾換行,還把 `author` 改寫、補 `description`、`directories`、`type`、`bugs`、`homepage`(本輪實見);裝完以 Edit 還原為只剩兩個依賴版本號之差異(`git diff package.json`),`package-lock.json` 之 `version` 欄位隨 `package.json` 之 `version`(1.1.18)同步,屬 npm 衍生。單純 `npm i` 不會升已安裝版本(`^` 範圍已滿足),須 `npm i <套件>@latest`。
 - **暫換 `node_modules` 做修前紅/變異**:腳本 `mutate.mjs` 先備份(`rename`/`copy`)、套用、跑測試、還原並比對雜湊(`was-apply`/`was-restore`、`seq-apply`/`seq-restore`);w-auto-sequelize 1.0.52 以 `npm pack … --pack-destination` + `tar -C` 取得,不裝進 repo。
 
+## 第 210 項(2026-10-31,sqlite storage 無法開啟時各函數永不 settle 之修正 R19;探測與變異腳本在 `./tmp/reladb/` 結案時清除,證據在 `C:\opensrcOper\dnow\20261031101856\agent-out\reladb-evidence\`)
+
+- **懸置之偵測用事件,不用牆鐘**:懸置之 Promise 不持有事件迴圈,其後迴圈排空而觸發 `beforeExit`(結束碼 13);子行程情境於 `beforeExit` 仍有未 settle 之步驟即回報 `pending`(`test/tools/sqliteOpenScenario.mjs`),修前每案約 0.5 秒即得結果。與第 209 項之探測法相反(那裡以保活計時器加 `Promise.race` 逾時才看得出懸置):二者不衝突,但**含保活計時器者看不到 `beforeExit`**,擇一即可;父行程另設 90 秒外層逾時只防「迴圈被他物撐住」之懸置,不表達規格。
+- **一個懸置會拖垮同行程所有實例**:模組層級 `pmq = pmQueue(1)`(`WOrmReladb.mjs:54`)全域共用,第一個永不 settle 之 `select` 占住佇列,其後**任何實例**(含正常檔)之 `useStable` 操作都排在其後而永不執行(`createStorage`、`init` 不經佇列,故不受影響)。同一探測於同一行程連跑各形態會得到「正常檔也 PENDING」之假象,**探測須每形態、每函數各自獨立行程**(測試亦然),否則前一個懸置污染後一個。驗 R19-2 須以 `bg`(只啟動不等待)啟動開啟失敗者,否則依序 `await` 之情境在第一步即停,看不出擋住後續。
+- **探測對照組共用同一 storage 檔會互相污染**:首版對照組(正常檔、父資料夾可建立)各函數共用同一檔,並行之子行程之 `insert` 與 `insertBulk` 撞唯一鍵(`Validation error`),誤判為修正無效;各函數各用獨立 storage 路徑(並行子行程之通則)。
+- **`:memory:` 在本套件不是記憶體資料庫**:`opt.storage` 經 `path.resolve`(`WOrmReladb.mjs` 建構段),win32 得 `C:\…\:memory:`(非法路徑,`SQLITE_CANTOPEN`,修前懸置),POSIX 得 cwd 下名為 `:memory:` 之檔案。測試之 `:memory:` 案依平台斷言(win32 reject、POSIX resolve),子行程 cwd 設在 `test/_tmp/…` 內以免在 repo 根留下 `:memory:` 檔。
+- **無權限之造法**:win32 以 `icacls <檔> /deny <網域\使用者>:(R,W)`(`execFileSync`,不經 shell),測試之 `after` 以 `/remove:d` 還原再刪檔(否則含 deny 之檔刪不掉);POSIX 非 root 以 `chmod 000`,root 略過(root 不受檔案權限拘束)。探測腳本若因懸置而未走到 `finally`(結束碼 13)會**遺留 deny 之檔**,須手動 `icacls /remove:d` 再刪(本輪探測 `probe-perm.mjs` 即遇,已還原並回驗)。**寫探測時還原動作須放在父行程或另一道指令,不可只放在可能懸置之同一行程之 `finally`**。
+- **修正之判準選 `Database.open === false`,不選逾時、不選預先檢查**:逾時會把慢速之合法關閉當失敗,對寫入函數更會在已提交後 reject;預先檢查(`stat`/`access`)只涵蓋已知形態,`CANTOPEN` 之成因(超長檔名、路徑非法、權限、裝置)無法窮盡(探測 `probe-odd.mjs` 之 10 種古怪形態修後皆 settle,其中含 `<>`、深路徑兩種 `CANTOPEN` 為預先檢查不易預料者)。sqlite3 之 `open` 為 `InstanceAccessor`(`database.cc:28`),缺該屬性時不動(`unit-sqlite-open` R19-5 鎖定);sequelize 之 `connections` 為其連線管理物件之公開欄位(無文件),故以 `unit-sqlite-open` R19-6 盤點為升級哨。
+- **CRLF**:`src/WOrmReladb.mjs` 與 `README.md` 之工作樹為 CRLF(索引為 LF,`core.autocrlf=true`),`Edit` 工具保留之;以腳本批次替換時須先正規化為 LF 再套用、寫回時還原 CRLF(變異腳本首版因 `from` 含 `\n` 而 4 個「未套用」,即此)。新檔(LF)與既有 `src/getSqlStmt.mjs`、`test/*` 一致。
+- **`path` 含 NUL 之 storage**(範圍外,未修):`chkOrmStr(..., { nul: false })` 刻意不檢 NUL,sqlite3 把 `a\0b.sqlite` 截為檔名 `a`(探測 `probe-nul.mjs` 實測於工作夾得 `["a"]`),與 R13 同類之別名風險,待裁示。
+
 ## mig-reladb(2026-10-29,遷移至 wsemi 共用診斷模組 R17-8;排程第 161 項第 2 波;腳本與輸出之證據在 `C:\opensrcOper\dnow\20261029002013\agent-out\mig-reladb-evidence\`)
 
 - **固定詞彙與外來值同一個 catch**:七函數之整批 catch 同時攔得本套件之檢核錯誤(`invalid find`、`invalid data`、`instance is closed`、`can not import model`)與後端錯誤,依內容判斷會誤分(後端訊息也可能以 invalid 開頭);改以**來源登記**:`src/ownErr.mjs` 之 WeakSet(`ownErr` 產生、`markOwnErr` 登記既有物件),字串之 `si.err` 以身分比對。wsemi `cvOrmFind` 之 catch 一律重建 `invalid find: <固定原因>`(實讀其原始碼),故可整批登記;本套件其他會進 catch 之 `new Error` 都要換 `ownErr`,`unit-diaglog` 以「`throw new Error(` 只剩建構期 2 處」鎖住。

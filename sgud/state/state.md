@@ -2,7 +2,7 @@
 
 本檔記當前已開發功能之最新狀態(各功能做到哪裡、對應之規則帳本條目與測試檔、已知缺口與待辦、最近一次驗證或發布之版本),只記現況、不寫過程(過程見 `sgud/exp/experience.md`)。藍圖(規則)見 `sgud/rule/rulebook.md`。
 
-- 套件版本:`package.json` 1.1.18(第 208/209 項〔2026-10-31〕未動 `version`;發布由使用者/主控負責)。依賴 `wsemi` `^1.9.33`、`w-auto-sequelize` `^1.0.53`(第 208 項以 `npm i <套件>@latest` 升級;`package.json` 只改此二行)。
+- 套件版本:`package.json` 1.1.19(第 208/209/210 項〔2026-10-31〕未動 `version`;發布由使用者/主控負責)。依賴 `wsemi` `^1.9.33`、`w-auto-sequelize` `^1.0.53`、devDependency `w-package-tools` `^1.1.21`(第 210 項查證:自有相依皆已最新,`npm-check-updates` 僅列非自有之 `tedious` 19→20 major,不動)。
 - 本檔於 2026-10-28(reladb-run01)首次建立;更早之功能現況請以 `sgud/rule/rulebook.md` 之 R1–R16 與〈破壞性變更紀錄〉為準。
 
 ## 功能現況
@@ -15,12 +15,20 @@
 | **診斷輸出之單一出口與預設安全(reladb-run01)、建構函式 opt.url 例外不回顯帳密(reladb-run02)、`genModelsByDB` 診斷輸出接上單一出口(reladb-run03)、遷移至 wsemi 共用模組(mig-reladb)** | R17(含 R17-6、R17-7、R17-8) | `unit-diaglog`、`api-diaglog`、`api-diaglog-gen`、`api-diaglog-wire`、`unit-urlerr` | 完成(見下;驗證結果見 R17-8 段) |
 | **連線空檔被中斷不使行程終止(第 209 項,2026-10-31)** | R18 | `api-connerr`(經 `api-mssql.test.mjs`)、`unit-connerr`;情境 `test/tools/connErrScenario.mjs` | 完成:查證不屬實(sequelize 6 於四個網路方言之連線已永久掛 `error` 監聽),未改 `src` 行為;守則測試入庫(見下) |
 | **`genModelsByDB` 失敗改 reject(第 208 項,2026-10-31)** | R17-7f(更正) | `api-diaglog-gen`、`api-diaglog-wire` | 完成:README/JSDoc/帳本已更正,測試已改並補 reject 案(見下) |
+| **sqlite storage 無法開啟時各函數須 settle(第 210 項,2026-10-31)** | R19 | `api-sqlite-open`(73 案)、`unit-sqlite-open`(11 案);情境 `test/tools/sqliteOpenScenario.mjs` | 完成:屬實並已修(`src/dropUnopenedConn.mjs`、`closeSequelize` 呼叫);見下 |
+
+### 第 210 項:sqlite storage 無法開啟時各函數永不 settle(2026-10-31;R19)
+
+- 結論:**屬實,已修**。sequelize 6.37.1 之 sqlite connection-manager 把開啟失敗之 `Database` 留在 `connectionManager.connections`,`sequelize.close()` 對它呼叫 `close(callback)` 永不回呼(sqlite3 於未開啟之 Database 把 close 排入佇列),本套件各函數於 `finally` 之 `closeSequelize` 卡住;模組層級 `pmq` 全域共用,一個懸置另使同行程其他實例之 `useStable` 操作全部懸置。修正:`src/dropUnopenedConn.mjs`(新,純函數)於 `closeSequelize`(`WOrmReladb.mjs:681-685`)對 sqlite 在 `sequelize.close()` 前移除 `open` 嚴格為 `false` 之 Database;不採逾時、不採預先檢查(理由見 R19)。
+- 文件:README〈Breaking changes: an sqlite storage that cannot be opened rejects instead of never settling〉;JSDoc 類別註與 `closeSequelize`;帳本 R19、〈破壞性變更紀錄(第 210 項)〉、已知限制首條改「已修」。
+- 測試:`api-sqlite-open`(7 形態〔資料夾、檔名超長、無權限、父路徑為檔案、`:memory:`、正常檔、父資料夾可建立〕× 10 函數、R19-2 不擋同行程他實例、R19-2b 同實例再呼叫、R19-4 不含帳密)、`unit-sqlite-open`(`dropUnopenedConn` 嚴格判準、依賴盤點、真實 sequelize)。修前紅 41(72 案時);變異 13 個全數殺死(`tmp/reladb/mutate.mjs`,結案時隨 `./tmp/` 清除,結果記於報告)。
+- 已知缺口/待辦:①`@journeyapps/sqlcipher` 未測(假設為 sqlite3 分叉而有同一 `open` 存取器;缺該屬性者不動);②(範圍外,待裁示)路徑含 NUL 字元之 `opt.storage` 被 sqlite3 截斷(實測 `a\0b.sqlite` 得檔名 `a`),`chkOrmStr` 對 storage 刻意 `nul:false`;③其他方言之連線失敗未重測。
 
 ### 第 209 項:連線於空檔被中斷(2026-10-31;R18)
 
 - 結論:**不屬實,不改 `src` 行為**。本套件不自建驅動連線(僅 `initSequelize` 之 `new Sequelize`),sequelize 6.37.1 於 mssql、mysql、mariadb、postgres 之 `connection-manager.js` 連線建立後即永久 `connection.on('error')`(並 `pool.destroy`)。真後端實測(空檔 `KILL`/`pg_terminate_backend`、交易閒置、語句進行中):mssql(SQL Server 2022,入庫)、postgres 17、mysql 8.4、mariadb 11(探測)皆驅動確發 `error` 事件(語句進行中之 mysql 除外)且監聽者 n=1、行程離開碼 0、其後操作成功;sqlite 讀碼 + 實測(純檔、帶密碼、`SQLITE_NOTADB`)無路徑,`close()` 失敗未能重現(讀碼推測)。細節與證據見 R18、`sgud/exp/experience.md`。
 - 新增測試:`test/api-connerr.mjs`(5 案:R18-0 對照、R18-1 空檔、R18-2 交易閒置、R18-3 語句進行中、R18-4 負向對照〔移除連線監聽 → 崩潰〕;子行程情境 `test/tools/connErrScenario.mjs`;自 `api-mssql.test.mjs` 以其容器呼叫,`killSessions` 以 `host_process_id` 精準終止)、`test/unit-connerr.test.mjs`(6 案:四方言 connection-manager 之永久監聽盤點、sequelize 主版本 6、判定式負向對照)。變異(暫移除 sequelize mssql 之永久監聽):11 案 5 紅(R18-5 mssql、R18-6、R18-1、R18-2、R18-3),已還原並驗雜湊。
-- 已知缺口/待辦:①(範圍外,待裁示)sqlite storage 無法開啟(資料夾、無權限)時各函數永不 settle(sequelize `close()` 對開啟失敗之 `Database` 不 settle,純 sequelize 可重現;見 R18 後〈已知限制〉首條);②sequelize 於回滾失敗時之 `console.warn` 不經本出口(同 R17 已知限制③);③postgres/mysql/mariadb 之驅動非本套件依賴,其真後端測試不入庫(以 `unit-connerr` 之讀碼盤點為升級哨)。
+- 已知缺口/待辦:①(已修,第 210 項,見 R19)sqlite storage 無法開啟時各函數永不 settle;②sequelize 於回滾失敗時之 `console.warn` 不經本出口(同 R17 已知限制③);③postgres/mysql/mariadb 之驅動非本套件依賴,其真後端測試不入庫(以 `unit-connerr` 之讀碼盤點為升級哨)。
 
 ### 第 208 項:`genModelsByDB` 失敗改 reject(2026-10-31;R17-7f 更正)
 

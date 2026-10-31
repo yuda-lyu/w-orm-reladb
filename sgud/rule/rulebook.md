@@ -252,9 +252,34 @@
 - **修前紅**:不適用(假設不屬實,無可重現之崩潰;R18-4 即「若無監聽」之情境,於本套件實證其為紅〔崩潰〕)。
 - **改動範圍 → 測試**:升級 sequelize 或其驅動、改 `initSequelize`/`closeSequelize`/`genTransaction` → `unit-connerr`、`api-mssql`(含 `api-connerr`)。
 
+## R19 sqlite 之 storage 無法開啟:各函數須 settle,不得永不 settle(第 210 項,2026-10-31;來源:第 209 項報告 §10 之範圍外發現)
+
+- **規則**:①sqlite 之 `opt.storage` 無法開啟(`SQLITE_CANTOPEN`:路徑為資料夾、檔名超長、無權限、路徑非法〔win32 之 `:memory:`〕等)時,需連線之各函數——`select`、`selectByPk`、`insert`、`insertBulk`、`save`、`del`、`delAll`、`createStorage`、`genTransaction`、`init()` 回傳之 `close`——皆須 settle,失敗以各函數**既有**之失敗通道回報(`ConnectionError` 屬整批性錯誤〔`isBatchLevelError`〕:`select` 等 reject 驅動錯誤並於 reject 前發 `error` 事件,`createStorage` reject `can not import model: …`〔`importModels` 之 `sync()` 失敗,診斷輸出 `errCode:'SQLITE_CANTOPEN'`〕,`save`/`del` 亦 reject,`genTransaction` reject);②一個開啟失敗不得擋住同行程之其他實例(模組層級 `pmq`〔`WOrmReladb.mjs:54`〕全域共用);③reject 之訊息與診斷輸出不帶 `opt.url` 之帳密;④不以牆鐘逾時掩蓋(判準為 `Database.open === false`,見下)。
+- **屬實證據(修前,2026-10-31)**:`tmp/reladb/probe-hang.mjs`(各形態各以獨立行程跑 8 函數,6 秒未 settle 即 PENDING):資料夾、`:memory:`(win32:`path.resolve(':memory:')` → `C:\…\:memory:`,非法路徑)兩形態之 8 函數全 PENDING;正常檔、父資料夾不存在而可建立者全 resolve;父路徑為檔案者(`fs.mkdirSync` 於建立 Database 之前即拋 `EEXIST`)全已 settle。`probe-exit.mjs`:懸置時事件迴圈排空(`beforeExit` 於 96 ms 觸發、結束碼 13〔unsettled top-level await〕),故懸置可由事件判定。`probe-perm.mjs`:win32 以 `icacls /deny <使用者>:(R,W)` 拒絕讀寫之檔,`select` 同樣懸置。同行程內先有懸置者,其後**正常檔**之 `select`/`insert`……亦全 PENDING(全域 `pmq` 被占住;同一探測於獨立行程則正常)。
+- **根因(檔案:行號;sequelize 6.37.1、sqlite3 6.0.1)**:`sequelize/lib/dialects/sqlite/connection-manager.js:50` 先把 `new this.lib.Database(...)` 存入 `this.connections` 再等開啟回呼,`:51-52` 開啟失敗只 reject、不移除登記;`sequelize.close()` → `_onProcessExit`(`:21-24`)對 `connections` 內每個 Database 呼叫 `close(callback)`;`sqlite3/src/database.cc:94-113`(`Schedule`)於 `!open && !locked` 時把 close 排入佇列等開啟完成,開啟已失敗,callback 永不觸發。本套件各函數之 `finally` 以 `await closeSequelize(…)` 等它(`WOrmReladb.mjs:826、954、1145、1323、1643、1853、1981、2014`),reject 因而送不出。純 sequelize(不經本套件)可重現。
+- **修正**:`src/dropUnopenedConn.mjs`(新;純函數)於 `closeSequelize`(`WOrmReladb.mjs:681-685`)之 `sequelize.close()` 前,對 sqlite 把 `sequelize.connectionManager.connections` 內 `open` **嚴格為 `false`** 之 Database 移除(缺 `open` 屬性、`null`、讀 `open` 拋錯者不動:不誤丟仍開啟之連線)。不採逾時(逾時會把慢速之合法關閉誤判為失敗,且對寫入函數會在已提交後 reject);不採「開啟前檢查 storage」(只能涵蓋已知形態,無法窮盡 `CANTOPEN` 之成因)。
+- **輸入空間表**(軸 A 形態 × 軸 B 函數 × 軸 C 實例關係;格內為「應然:現況證據」):
+
+  | 軸 A 形態 | 軸 B:8 函數 + initClose + txClose(10) | 軸 C:同行程他實例 / 同實例再呼叫 |
+  |---|---|---|
+  | 資料夾(`dir`) | reject(`initClose`/`txClose`:close settle 且內層 reject):`api-sqlite-open` 10 案 | 他實例照常:R19-2;同實例再呼叫:R19-2b |
+  | 檔名超長(`longName`,元件 300 字元,兩平台皆失敗) | 同上 10 案 | 由同一 closeSequelize 路徑涵蓋(不另列) |
+  | 無權限(`noPermission`:win32 `icacls /deny`、POSIX 非 root `chmod 000`;root 略過) | 同上 10 案 | 同上 |
+  | 父路徑為檔案(`parentIsFile`;修前已 settle,迴歸對照) | reject;`save`/`del` 逐筆 `ok:0` 附 `err`(非連線層錯誤,`EEXIST`):10 案 | — |
+  | `:memory:`(win32 為非法路徑 → reject;POSIX 為 cwd 下名為 `:memory:` 之檔 → resolve) | 依平台:10 案 | — |
+  | 正常檔、父資料夾不存在而可建立(對照組) | 全 resolve:各 10 案 | — |
+  | 探測形態(不入庫,`tmp/reladb/probe-odd.mjs`):NUL 裝置、`con`、路徑含 NUL 字元、結尾為點與空白、含 `<>`、深路徑、UNC 不存在、磁碟機不存在、非資料庫檔、磁碟根目錄 | 皆 settle(修後);其中含 `<>`、深路徑為 `SQLITE_CANTOPEN`,其餘為 `mkdir` 錯誤、`SQLITE_NOTADB` 或照常開啟 | — |
+  | `useEncryption`(sqlcipher,依賴預設不安裝) | **未測**(判準 `open === false` 假設其為 sqlite3 之分叉而有同一存取器;缺該屬性者不動) | — |
+
+- **測試**:`test/api-sqlite-open.test.mjs`(73 案;每個〔形態 × 函數〕各一個子行程,`test/tools/sqliteOpenScenario.mjs`;**懸置以事件判定**:子行程於 `beforeExit` 仍有未 settle 之步驟即回報 `pending`,父行程另有 90 秒外層逾時只防「迴圈被他物撐住」之懸置;R19-1/3 形態 × 函數、R19-2 `bg` 啟動之開啟失敗者不擋後續之 `createStorage`/`insert`/`select`、R19-2b 同實例再呼叫、R19-4 輸出不含帳密)、`test/unit-sqlite-open.test.mjs`(11 案:R19-5 `dropUnopenedConn` 之嚴格判準與容錯、R19-6 依賴盤點〔sequelize 主版本 6、sqlite3 `open` 存取器、connection-manager 之登記與 close 寫法〕、R19-7 真實 sequelize 開啟失敗後 `open===false`、移除後 `close()` settle、正常連線不被移除)。
+- **修前紅**:`api-sqlite-open` 72 案(當時未含 R19-2b)41 紅 31 綠(紅:資料夾 10、檔名超長 10、無權限 10、`:memory:`〔win32〕10、R19-2 1;綠為對照組與父路徑為檔案者及 R19-4)。
+- **變異**(`tmp/reladb/mutate.mjs`,套用於 src 後跑兩檔,事後還原並驗雜湊):13 個全數殺死、存活 0、未套用 0(以最終版測試〔84 案〕:移除呼叫、方言條件改 mssql、呼叫移到 close 之後、只在加密時處理 → 各 42 案紅;判準改 `!== true`、`=== true`、全部移除、不實際刪除、不計數、移除首個後返回、移除連線表守門、移除 try/catch、移除 sequelize 守門 → 由 `unit-sqlite-open` 與 `api-sqlite-open` 殺死)。
+- **改動範圍 → 測試**:改 `closeSequelize`、`dropUnopenedConn.mjs`、`initSequelize`,或升級 sequelize、sqlite3 → `unit-sqlite-open`、`api-sqlite-open`、`api-sqlite`、`api-init`、`api-dist`(無瀏覽器 e2e)。
+- **已知限制**:①僅 sqlite;mssql、mysql、mariadb、postgres 之連線失敗另有機制(連線建立時即 reject,連線管理器不留未開啟之連線;未於本項重測)。②`@journeyapps/sqlcipher` 未測。③路徑含 NUL 字元之 `opt.storage` 被 sqlite3 截斷(探測 `a\0b.sqlite` 開啟了名為 `a` 之檔,與 R13 同類之別名風險),**範圍外,未修**:`WOrmReladb.mjs` 對 `storage` 之良構檢核刻意不檢 NUL(`chkOrmStr(..., { nul: false })`)。
+
 ## 已知限制(文件化)
 
-- **(範圍外發現,第 209 項查證時,未修)sqlite 之 storage 無法開啟(路徑為資料夾、無權限等 `SQLITE_CANTOPEN`)時,`select` 等操作永不 settle**:sequelize 6.37.1 sqlite 之 `connectionManager.connections` 保留開啟失敗之 `Database`,`sequelize.close()` 對它呼叫 `close(callback)` 而 callback 永不觸發(sqlite3 於未開啟之 Database 把 close 排入佇列)。純 sequelize(不經本套件)可重現(`query` reject 後 `close()` 6 秒未 settle);本套件各函數於 `finally` 之 `closeSequelize` 即卡住,reject 不會送出(探測 `dirProbe2.mjs`、`closeHang.mjs` 在證據夾)。`genModelsByDB`(w-auto-sequelize)不受影響(其不等待 close)。處置待裁示(本套件側可於 `closeSequelize` 對 sqlite 加逾時,或待 sequelize 修正)。
+- **(已修,第 210 項,見 R19;原為第 209 項查證時之範圍外發現)sqlite 之 storage 無法開啟(路徑為資料夾、無權限等 `SQLITE_CANTOPEN`)時,`select` 等操作永不 settle**:sequelize 6.37.1 sqlite 之 `connectionManager.connections` 保留開啟失敗之 `Database`,`sequelize.close()` 對它呼叫 `close(callback)` 而 callback 永不觸發(sqlite3 於未開啟之 Database 把 close 排入佇列)。純 sequelize(不經本套件)可重現(`query` reject 後 `close()` 6 秒未 settle);本套件各函數於 `finally` 之 `closeSequelize` 即卡住,reject 不會送出(探測 `dirProbe2.mjs`、`closeHang.mjs` 在證據夾)。`genModelsByDB`(w-auto-sequelize)不受影響(其不等待 close)。本套件於 `closeSequelize` 先移除未開啟之 Database 而修正(R19;不採逾時)。
 - sequelize 自身於回滾失敗時以 `console.warn` 輸出 `Rolling back transaction <id> failed with error "<驅動訊息>"`(例:連線已被中斷後對交易 `rollback`),不經本出口;訊息含驅動錯誤文字(實測僅見連線狀態訊息與 `ROLLBACK;`,未見資料值),與 R17 已知限制③同類。
 - 寫入側 DATE 範圍檢核(R12)只檢屬性本身收到之值:自訂 `set` 轉換(如 VIRTUAL 屬性之 setter 寫入 DATE 屬性、DATE 屬性之 setter 把秒換成毫秒)轉換後之結果不在檢核範圍(sqlite 實測 `VIRTUAL` setter 可把 `new Date(8.64e15)` 寫入 DATE 欄,外審 Argon 亦確認);`Sequelize.fn`/`literal` 等 SQL 運算式由呼叫端明示、放行;**記錄原型鏈上具狀態之 getter**(二次讀取回不同值)不在「檢查之值即使用之值」保證內(自有屬性之物件值已換成標準值,原型鏈屬性只讀不換,因 create/bulkCreate 不讀原型鏈屬性、換成自有屬性會改變其寫入語意;外審 Argon F1 第 4 例);DATEONLY 欄收一般物件(如 `{}`、`{a:1}`)時 moment 視為「現在」而存入今日日期(sequelize/moment 既有行為,非範圍問題,檢核以其所得文字為準而放行);空白分隔之年 0000–0049 字串(`'0000-06-15 12:00:00Z'`)寫入側依 `new Date(值)` 之 V8 舊式解析視為 2000 年(與 sequelize 實際存入一致),條件側 `isKindOk` 先把空白換成 `T` 故視為年 0 而拒收(兩側解析基準不同,各自與其後續使用一致);庫內既有之範圍外日期文字不遷移,仍有字典序風險。
 - NULL 依 SQL 三值語意,與 MongoDB/mingo 系兄弟套件不同(Q1)。
@@ -386,6 +411,13 @@
 - 行為:`genModelsByDB` 失敗時 reject 後端或 fs 之錯誤(單次呼叫之憑證已遮罩,單獨帳號與儲存路徑不遮),診斷輸出先於 reject 寫出,不寫出任何 models 檔;呼叫端未處理者將得 `unhandledRejection`,須加 `catch`。成功路徑、固定詞彙 reject(`need username` 等)、標籤、串流與遮罩不變;資料庫無表不是失敗(resolve 空結果)。無選項可還原舊行為。
 - 文件:README〈Breaking changes: `genModelsByDB` rejects on failure〉;JSDoc `genModelsByDB`;原 README〈Breaking changes: diagnostic output〉內「failure … only reported, not rejected … same as before」一句已更正。
 - 對下游:`C:\opensrc` 下他套件之 `src/` 無呼叫 `genModelsByDB` 者(Grep 全庫:僅 w-orm-mdb 之 `queryMemory.mjs` 於錯誤訊息字串提及該名;本套件根目錄 `g-*.mjs` 為註解掉之手動範例);使用端程式(本機未查)呼叫 `genModelsByDB` 者須處理 reject。
+
+## 破壞性變更紀錄(第 210 項,2026-10-31;sqlite storage 無法開啟改為 reject,R19)
+
+- 來源:sequelize 6 於 sqlite 開啟失敗後留下未開啟之 Database,`close()` 永不 settle(第 209 項報告 §10 之範圍外發現);本套件於 `closeSequelize` 先移除未開啟者。`package.json` 之 `version`、依賴皆未動(自有相依已是最新:`wsemi` 1.9.33、`w-auto-sequelize` 1.0.53、`w-package-tools` 1.1.21;`npm-check-updates` 只列非自有之 `tedious` 19→20 major,依規範不動)。
+- 行為:sqlite 之 storage 無法開啟(資料夾、檔名超長、無權限、路徑非法如 win32 之 `:memory:`)時,`select`、`selectByPk`、`insert`、`insertBulk`、`save`、`del`、`delAll`、`createStorage`、`genTransaction`、`init()` 之 `close` 由「永不 settle」變為 settle:前者 reject 驅動錯誤(`createStorage` reject `can not import model: …`)。其他方言、可開啟之 storage、已 settle 之失敗(父路徑為檔案等)不變。無選項可還原。
+- 文件:README〈Breaking changes: an sqlite storage that cannot be opened rejects instead of never settling〉;JSDoc 類別註與 `closeSequelize`。
+- 對下游(2026-10-31 Grep `C:\opensrc\*\*\package.json` 與 `*\*\src\**\*.{mjs,js}`):僅 w-orm-mdb 於 `package.json` 依賴 `w-orm-reladb`(`^1.1.18`),其 `src/` 只引用 `genModelsByTabs.mjs`、`ownErr.mjs`(不涉連線與關閉),不受影響;w-serv-orm、w-serv-webdata、w-data-collector 之 `src/` 僅於註解或錯誤訊息字串提及本套件名。使用端應用程式(本機未查)若曾以逾時包住 sqlite 之呼叫、或把「永不回應」當作某種狀態,現會收到 reject。
 
 ## 深引用者(w-orm-mdb,排程第 32 項)之接線契約(run04 外審 opus [3][4][5][6]、sol H5、M1)
 
