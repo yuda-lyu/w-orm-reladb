@@ -164,8 +164,10 @@ let noPw = (s, msg = '') => {
 
 
 //WIRE_APPLIED, 經本套件站點重跑之語料案; WIRE_NA, 不適用(理由)
-let WIRE_APPLIED = ['T01', 'T07', 'K01', 'K09', 'V02', 'E01', 'E07', 'P01', 'S07', 'C01', 'R01', 'R04', 'R07', 'R11', 'R12', 'O01', 'A07']
+let WIRE_APPLIED = ['T01', 'T07', 'K01', 'K09', 'V02', 'E01', 'E07', 'P01', 'S07', 'C01', 'C14', 'R01', 'R04', 'R07', 'R11', 'R12', 'O01', 'A07']
 let WIRE_NA = {
+    A11: 'genDiagFunLog之opt.safeKeys為轉接器自身之選項, 本套件不呼叫genDiagFunLog(由使用端產生後經opt.funLog傳入); 經本套件之路徑即A07接線(safe之鍵為本套件固定之stmt、mode、cl、name、type、errType、errCode; wsemi 1.9.33新增之案)',
+    U22: '本套件不使用getDiagSecrets之conns(連線位址)來源: 連線字串以urls、帳號與密碼以選項分別給予、sqlite路徑以paths宣告(R17-8 secrets鎖定於unit-diaglog; wsemi 1.9.33新增之案)',
     R02: '需以畸形網址(帳密含未編碼之@與/)為秘密來源; 本套件之opt.url為此形時建構即拋出(invalid port), 無從以其為秘密建立實例',
     O15: 'safe之鍵皆為本套件固定之stmt、mode、cl、name、type與errType、errCode, 無呼叫端可控之鍵(原始碼盤點鎖定於unit-diaglog)',
     A01: 'genDiagFunLog自身不讀第3引數之行為; 經本套件之路徑即A07接線(getDetail不被呼叫, 細節不產生)',
@@ -220,6 +222,20 @@ describe('diaglog wire(R-DIAG接線)', function() {
                 out.push({ errType: safe.errType, errCode: safe.errCode })
             }
             assert.strictEqual(verify(c, out, ctx), null)
+        })
+
+        it('C14 真驅動形態(pg之DatabaseError, 實例name為error)經change訂閱函數拋出: 本套件之types為固定宣告(sequelize之name系列, 不含驅動類別名DatabaseError), errType為Error, 集合外之實例name不列, errCode依宣告之sqlstate(wsemi 1.9.33新增之案)', async function() {
+            let c = cases.find((x) => x.id === 'C14')
+            let ctx = mkCtx({ util: true })
+            let { safe } = await viaListener(c.make(ctx))
+            assert.strictEqual(safe.mode, 'insert')
+            assert.deepStrictEqual({ errType: safe.errType, errCode: safe.errCode }, { errType: 'Error', errCode: '23505' })
+            //實例name為集合外之識別字者同為Error(不把name原樣列出)
+            let e = c.make(ctx)
+            e.name = 'Alice01Leak'
+            let { safe: safe2 } = await viaListener(e)
+            assert.strictEqual(safe2.errType, 'Error')
+            assert.ok(JSON.stringify(safe2).indexOf('Alice01Leak') < 0, JSON.stringify(safe2))
         })
 
         it('R01 不含憑證之外來錯誤由hook拋出 → select之reject為同一物件, error事件為其訊息', async function() {

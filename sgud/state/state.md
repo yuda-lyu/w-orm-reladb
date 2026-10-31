@@ -2,7 +2,7 @@
 
 本檔記當前已開發功能之最新狀態(各功能做到哪裡、對應之規則帳本條目與測試檔、已知缺口與待辦、最近一次驗證或發布之版本),只記現況、不寫過程(過程見 `sgud/exp/experience.md`)。藍圖(規則)見 `sgud/rule/rulebook.md`。
 
-- 套件版本:`package.json` 1.1.17(mig-reladb〔2026-10-29〕未動 `version`;發布由使用者/主控負責)。依賴 `wsemi` `^1.9.31`、`w-auto-sequelize` `^1.0.52`(mig-reladb 以 `npm i` 升級)。
+- 套件版本:`package.json` 1.1.18(第 208/209 項〔2026-10-31〕未動 `version`;發布由使用者/主控負責)。依賴 `wsemi` `^1.9.33`、`w-auto-sequelize` `^1.0.53`(第 208 項以 `npm i <套件>@latest` 升級;`package.json` 只改此二行)。
 - 本檔於 2026-10-28(reladb-run01)首次建立;更早之功能現況請以 `sgud/rule/rulebook.md` 之 R1–R16 與〈破壞性變更紀錄〉為準。
 
 ## 功能現況
@@ -13,6 +13,20 @@
 | 寫入側 DATE 範圍、字串良構、浮動時間 | R12–R14 | `unit-date-write`、`api-date-write`、`unit-wellformed`、`api-wellformed`、`unit-float`、`api-float` | 完成 |
 | model 檔載入與發布產物 | R9、R10 | `api-models`、`api-dist`、`api-init` | 完成 |
 | **診斷輸出之單一出口與預設安全(reladb-run01)、建構函式 opt.url 例外不回顯帳密(reladb-run02)、`genModelsByDB` 診斷輸出接上單一出口(reladb-run03)、遷移至 wsemi 共用模組(mig-reladb)** | R17(含 R17-6、R17-7、R17-8) | `unit-diaglog`、`api-diaglog`、`api-diaglog-gen`、`api-diaglog-wire`、`unit-urlerr` | 完成(見下;驗證結果見 R17-8 段) |
+| **連線空檔被中斷不使行程終止(第 209 項,2026-10-31)** | R18 | `api-connerr`(經 `api-mssql.test.mjs`)、`unit-connerr`;情境 `test/tools/connErrScenario.mjs` | 完成:查證不屬實(sequelize 6 於四個網路方言之連線已永久掛 `error` 監聽),未改 `src` 行為;守則測試入庫(見下) |
+| **`genModelsByDB` 失敗改 reject(第 208 項,2026-10-31)** | R17-7f(更正) | `api-diaglog-gen`、`api-diaglog-wire` | 完成:README/JSDoc/帳本已更正,測試已改並補 reject 案(見下) |
+
+### 第 209 項:連線於空檔被中斷(2026-10-31;R18)
+
+- 結論:**不屬實,不改 `src` 行為**。本套件不自建驅動連線(僅 `initSequelize` 之 `new Sequelize`),sequelize 6.37.1 於 mssql、mysql、mariadb、postgres 之 `connection-manager.js` 連線建立後即永久 `connection.on('error')`(並 `pool.destroy`)。真後端實測(空檔 `KILL`/`pg_terminate_backend`、交易閒置、語句進行中):mssql(SQL Server 2022,入庫)、postgres 17、mysql 8.4、mariadb 11(探測)皆驅動確發 `error` 事件(語句進行中之 mysql 除外)且監聽者 n=1、行程離開碼 0、其後操作成功;sqlite 讀碼 + 實測(純檔、帶密碼、`SQLITE_NOTADB`)無路徑,`close()` 失敗未能重現(讀碼推測)。細節與證據見 R18、`sgud/exp/experience.md`。
+- 新增測試:`test/api-connerr.mjs`(5 案:R18-0 對照、R18-1 空檔、R18-2 交易閒置、R18-3 語句進行中、R18-4 負向對照〔移除連線監聽 → 崩潰〕;子行程情境 `test/tools/connErrScenario.mjs`;自 `api-mssql.test.mjs` 以其容器呼叫,`killSessions` 以 `host_process_id` 精準終止)、`test/unit-connerr.test.mjs`(6 案:四方言 connection-manager 之永久監聽盤點、sequelize 主版本 6、判定式負向對照)。變異(暫移除 sequelize mssql 之永久監聽):11 案 5 紅(R18-5 mssql、R18-6、R18-1、R18-2、R18-3),已還原並驗雜湊。
+- 已知缺口/待辦:①(範圍外,待裁示)sqlite storage 無法開啟(資料夾、無權限)時各函數永不 settle(sequelize `close()` 對開啟失敗之 `Database` 不 settle,純 sequelize 可重現;見 R18 後〈已知限制〉首條);②sequelize 於回滾失敗時之 `console.warn` 不經本出口(同 R17 已知限制③);③postgres/mysql/mariadb 之驅動非本套件依賴,其真後端測試不入庫(以 `unit-connerr` 之讀碼盤點為升級哨)。
+
+### 第 208 項:`genModelsByDB` 失敗改 reject(2026-10-31;R17-7f 更正)
+
+- 來源:w-auto-sequelize 1.0.53 起建表清單、描述表、外鍵查詢、連線、建資料夾與寫檔失敗皆 reject;`genModelsByDB`(`WOrmReladb.mjs`)直接回傳其 promise,行為隨之改變。README 新增〈Breaking changes: `genModelsByDB` rejects on failure〉並更正〈Breaking changes: diagnostic output〉之一句;JSDoc `genModelsByDB`(reject 條件、`@returns`)與類別註(連線被中斷);帳本 R17-7f、依賴行、破壞性變更紀錄(第 208 項)、R18。
+- 測試:`api-diaglog-gen` 12 案改為先斷言 reject(新輔助 `genByDBRej`),R17-7f 區塊改為「失敗路徑 reject」並補 4 案(建表清單失敗各診斷設定、外鍵查詢失敗、連線失敗〔目標埠無服務〕、無表 resolve〕;`api-diaglog-wire` 因 wsemi 1.9.33 語料新增 wire 案 C14、U22、A11 補分類(C14 適用並補一案;U22、A11 不適用附理由)。修前紅:以 w-auto-sequelize 1.0.52 換入,`api-diaglog-gen` 30 案中 14 紅(無表 resolve 之對照案與其餘回歸案綠)。
+- 驗證(2026-10-31,`quiet-run --lock`):全套 `npm test` **6727 passing / 1280 pending / 0 failing,exit 0**(7m34s;較 mig-reladb 之 6712 增 15 案:`api-connerr` 5、`unit-connerr` 6、`api-diaglog-gen` 淨增 3、`api-diaglog-wire` 1);eslint 改動 7 檔 0 error。
 
 ### R17-8 遷移至 wsemi 共用診斷模組(2026-10-29,mig-reladb;排程第 161 項,第 2 波)
 
@@ -48,4 +62,4 @@
   3. `genModelsByTabs.mjs` 之 TEXT 主鍵提示(`getField` 內 `o.type === 'TEXT'`)現況不可達(既有死碼,未動)。
   4. mssql 之 `insert`/`save` 綁定形式與 SQL 全文是否含值,未實測(診斷邏輯與資料庫種類無關;sqlite 已測)。
   5. `CLAUDE.md`〈除錯要點〉補句(`can not import model` 之原錯誤需 `logDetail:true` 才見)**由主控補**(主控裁示 4;本套件不改 `CLAUDE.md`)。
-- 最近一次驗證:**2026-10-29 mig-reladb,全套 `npm test`(`quiet-run --lock`)6712 passing / 1280 pending / 0 failing,exit 0**(見 R17-8 段;未發布)。前次:2026-10-28 reladb-run03,全套 `npm test`(`quiet-run --lock`)6695 passing / 1280 pending / 0 failing,exit 0(= reladb-run02 之 6662 + 當時新增 33 案);其後僅於 `test/api-diaglog-gen.test.mjs` 補 1 案(無 src 改動),相關 4 檔(`unit-diaglog`、`api-diaglog-gen`、`api-diaglog`、`unit-urlerr`)重跑 125 passing / 0 failing(未發布;發布版本由主控決定)。
+- 最近一次驗證:**2026-10-31 第 208/209 項,全套 `npm test`(`quiet-run --lock`)6727 passing / 1280 pending / 0 failing,exit 0**(見上〈第 208 項〉段;未發布)。前次:2026-10-29 mig-reladb,6712 passing / 1280 pending / 0 failing,exit 0(見 R17-8 段)。更前:2026-10-28 reladb-run03,全套 `npm test`(`quiet-run --lock`)6695 passing / 1280 pending / 0 failing,exit 0(= reladb-run02 之 6662 + 當時新增 33 案);其後僅於 `test/api-diaglog-gen.test.mjs` 補 1 案(無 src 改動),相關 4 檔(`unit-diaglog`、`api-diaglog-gen`、`api-diaglog`、`unit-urlerr`)重跑 125 passing / 0 failing(未發布;發布版本由主控決定)。

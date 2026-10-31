@@ -8,6 +8,7 @@ import { defineWellformedSuites } from './api-wellformed.mjs'
 import { defineLowerCaseSuites } from './api-lower-cases.mjs'
 import { defineScopeSuites } from './api-scope.mjs'
 import { defineFloatSuites } from './api-float.mjs'
+import { defineConnErrSuites } from './api-connerr.mjs'
 
 
 //測試自行創建docker容器供MSSQL服務, 測試結束即銷毀, 故僅需環境已安裝docker
@@ -128,6 +129,30 @@ let stopContainer = async () => {
 }
 
 
+//killSessions, 令指定行程(tedious登入時回報之host_process_id)之連線於伺服器端被終止(KILL), 回傳被終止之連線數(api-connerr之hook);
+//inflight情境先等語句進入伺服器端執行(WAITFOR, 以可觀察條件輪詢而非固定延時)再終止
+let killSessions = async ({ pid, scenario }) => {
+    let pidN = Number(pid)
+    let count = async (sql) => {
+        let r = await sqlcmd(['-h', '-1', '-W', '-Q', `SET NOCOUNT ON; ${sql}`])
+        return Number(String(r.stdout).trim().split(/\s+/)[0])
+    }
+    let mine = `s.login_name = 'username' AND s.is_user_process = 1 AND s.host_process_id = ${pidN}`
+    if (scenario === 'inflight') {
+        let waiting = 0
+        for (let i = 0; i < 120 && waiting < 1; i++) {
+            waiting = await count(`SELECT COUNT(*) FROM sys.dm_exec_requests r JOIN sys.dm_exec_sessions s ON s.session_id = r.session_id WHERE r.wait_type = 'WAITFOR' AND ${mine}`)
+            if (waiting < 1) {
+                await delay(250)
+            }
+        }
+    }
+    let n = await count(`SELECT COUNT(*) FROM sys.dm_exec_sessions s WHERE ${mine}`)
+    await sqlcmd(['-Q', `DECLARE @k nvarchar(max) = N''; SELECT @k = @k + N'KILL ' + CAST(s.session_id AS nvarchar(10)) + N';' FROM sys.dm_exec_sessions s WHERE ${mine}; EXEC(@k);`])
+    return n
+}
+
+
 let getOpt = (ex = {}) => {
     return {
         url: `mssql://username:password@localhost:${ctPort}`,
@@ -157,3 +182,4 @@ defineWellformedSuites('mssql', getOpt)
 defineLowerCaseSuites('mssql', getOpt)
 defineScopeSuites('mssql', getOpt)
 defineFloatSuites('mssql', getOpt)
+defineConnErrSuites('mssql', getOpt, { kill: killSessions, sleepSql: `WAITFOR DELAY '00:00:30'` })

@@ -1,4 +1,5 @@
 import fs from 'fs'
+import net from 'net'
 import path from 'path'
 import assert from 'assert'
 import Sequelize from 'sequelize'
@@ -15,7 +16,7 @@ import captureConsole from './tools/captureConsole.mjs'
 //  R17-7d 兩個錯誤標籤(foreign keys catch、tables catch)維持stderr(舊版為console.error), sql走stdout
 //  R17-7e logDetail輸出(label, 遮罩後細節)(舊版之裸輸出bare已移除), 憑證仍遮罩
 //  R-DIAG genModelsByDB以diag.with併入單次呼叫之帳密與sqlite檔案路徑; w-auto-sequelize之reject原樣交出(其固定詞彙不被本套件之遮罩切碎)
-//  R17-7f 回傳契約不變(resolve值與models檔), 建表/外鍵失敗仍只記錄不reject
+//  R17-7f 成功路徑之回傳契約不變(resolve值與models檔); 建表清單、描述表、外鍵查詢與連線失敗自w-auto-sequelize 1.0.53起reject(不再只記錄; 診斷輸出照舊於reject之前寫出, 失敗時不寫出任何models檔), 資料庫無表不是失敗(resolve空結果)
 
 
 let dir = './test/_tmp/api-diaglog-gen'
@@ -59,6 +60,23 @@ let getCall = (ex = {}) => {
 let genByDB = (ctor = {}, call = {}) => captureConsole(() => wo(getOpt(ctor)).genModelsByDB(getCall(call)))
 
 
+//genByDBRej, 同genByDB但預期reject(w-auto-sequelize 1.0.53起, 建表清單、描述表、外鍵查詢與連線失敗皆reject, R17-7f): 回傳 { rej(reject之值), out, err, all }; 若resolve則斷言失敗
+let genByDBRej = async (ctor = {}, call = {}) => {
+    let r = await captureConsole(async () => {
+        try {
+            return { ok: await wo(getOpt(ctor)).genModelsByDB(getCall(call)) }
+        }
+        catch (rej) {
+            return { rej }
+        }
+    })
+    if (!Object.prototype.hasOwnProperty.call(r.res, 'rej')) {
+        assert.fail(`genModelsByDB應reject, 卻resolve: ${JSON.stringify(r.res.ok).slice(0, 200)}`)
+    }
+    return { rej: r.res.rej, out: r.out, err: r.err, all: r.all }
+}
+
+
 let noCred = (text, msg = '') => {
     for (let s of [PW, USER, `${USER}:${PW}`, URL_, CALL_PW, CALL_USER, `${CALL_USER}:${CALL_PW}`]) {
         assert.ok(text.indexOf(s) < 0, `${msg}輸出含連線憑證[${s}]: ${text.slice(0, 400)}`)
@@ -89,6 +107,17 @@ async function withFkFail(fn, msg = `${ERRTXT} ${PW} ${CALL_PW} ${URL_}`) {
 
 
 let reSql = /^genModelsByDB sql \{ stmt: '[A-Z]+' \}$/
+
+
+//getClosedPort, 取得一個當下無人監聽之埠(由系統配發後即關閉), 供連線失敗案使用
+let getClosedPort = () => new Promise((resolve, reject) => {
+    let srv = net.createServer()
+    srv.on('error', reject)
+    srv.listen(0, () => {
+        let port = srv.address().port
+        srv.close(() => resolve(port))
+    })
+})
 
 
 describe('diaglog genModelsByDB', function() {
@@ -212,11 +241,11 @@ describe('diaglog genModelsByDB', function() {
             assert.ok(b.out.length >= 1)
         })
 
-        it('R17-7c 失敗路徑: funLog收到 genModelsByDB tables catch、{ errType, errCode }, detail為遮罩副本(非原物件), console無輸出', async function() {
+        it('R17-7c 失敗路徑: funLog收到 genModelsByDB tables catch、{ errType, errCode }, detail為遮罩副本(非原物件), console無輸出; 其後genModelsByDB reject(1.0.53起)', async function() {
             let got = []
-            let { res, all } = await genByDB({ funLog: (...a) => got.push(a) }, { storage: dir })
+            let { rej, all } = await genByDBRej({ funLog: (...a) => got.push(a) }, { storage: dir })
             assert.deepStrictEqual(all, [])
-            assert.deepStrictEqual(res, { tables: {}, foreignKeys: {} })
+            assert.ok(rej instanceof Error && String(rej.message).indexOf('SQLITE_CANTOPEN') >= 0, String(rej && rej.message))
             assert.strictEqual(got.length, 1)
             let [label, safe, detail] = got[0]
             assert.strictEqual(label, 'genModelsByDB tables catch')
@@ -225,10 +254,13 @@ describe('diaglog genModelsByDB', function() {
             assert.ok(String(detail.message).indexOf('SQLITE_CANTOPEN') >= 0)
         })
 
-        it('R17-7c 外鍵失敗: funLog收到 genModelsByDB foreign keys catch, detail內憑證(含opt.url)皆為***; tables仍照常產生', async function() {
+        it('R17-7c 外鍵失敗: funLog收到 genModelsByDB foreign keys catch, detail內憑證(含opt.url)皆為***; 其後reject(1.0.53起; 單次呼叫之憑證已遮罩、錯誤原文保留), 不寫出models檔', async function() {
             let got = []
-            let { res } = await withFkFail(() => genByDB({ funLog: (...a) => got.push(a) }))
-            assert.deepStrictEqual(Object.keys(res.tables), ['users'])
+            let fd = `${dir}/models-fk-fail`
+            let { rej } = await withFkFail(() => genByDBRej({ fdModels: fd, funLog: (...a) => got.push(a) }))
+            assert.ok(rej instanceof Error && String(rej.message).indexOf(ERRTXT) >= 0, String(rej && rej.message))
+            assert.ok(String(rej.message).indexOf(CALL_PW) < 0, `reject值內單次呼叫之密碼未遮罩: ${rej.message}`)
+            assert.ok(!fs.existsSync(`${fd}/users.js`), '失敗時不應寫出models檔')
             let g = got.filter((x) => x[0] === 'genModelsByDB foreign keys catch')
             assert.strictEqual(g.length, 1)
             assert.deepStrictEqual(g[0][1], { errType: 'Error', errCode: 'SQLITE_ERROR' })
@@ -267,18 +299,16 @@ describe('diaglog genModelsByDB', function() {
 
     describe('錯誤標籤維持stderr(R17-7d)', function() {
 
-        it('R17-7d tables catch: 預設摘要走console.error(stderr), 且僅一行 genModelsByDB tables catch { errType, errCode }', async function() {
-            let { res, out, err } = await genByDB({}, { storage: dir })
-            assert.deepStrictEqual(res, { tables: {}, foreignKeys: {} })
+        it('R17-7d tables catch: 預設摘要走console.error(stderr), 且僅一行 genModelsByDB tables catch { errType, errCode }(之後reject)', async function() {
+            let { out, err } = await genByDBRej({}, { storage: dir })
             assert.deepStrictEqual(out, [])
             assert.deepStrictEqual(err, ['genModelsByDB tables catch { errType: \'SequelizeConnectionError\', errCode: \'SQLITE_CANTOPEN\' }'])
             noCred(err.join('\n'))
             assert.ok(err.join('\n').indexOf(process.cwd()) < 0, '預設輸出不含路徑')
         })
 
-        it('R17-7d foreign keys catch: 預設摘要走console.error(stderr), 不含錯誤原文與憑證; tables仍產生', async function() {
-            let { res, out, err } = await withFkFail(() => genByDB())
-            assert.deepStrictEqual(Object.keys(res.tables), ['users'])
+        it('R17-7d foreign keys catch: 預設摘要走console.error(stderr), 不含錯誤原文與憑證(之後reject)', async function() {
+            let { out, err } = await withFkFail(() => genByDBRej())
             assert.deepStrictEqual(out, [])
             assert.deepStrictEqual(err, ['genModelsByDB foreign keys catch { errType: \'Error\', errCode: \'SQLITE_ERROR\' }'])
         })
@@ -290,7 +320,7 @@ describe('diaglog genModelsByDB', function() {
         })
 
         it('R17-7d 建構時logging:true與外鍵失敗並用: sql在stdout, 錯誤摘要在stderr, 各自標籤正確', async function() {
-            let { out, err } = await withFkFail(() => genByDB({ logging: true }))
+            let { out, err } = await withFkFail(() => genByDBRej({ logging: true }))
             assert.ok(out.length >= 1 && out.every((l) => reSql.test(l)), out.join('|'))
             assert.deepStrictEqual(err, ['genModelsByDB foreign keys catch { errType: \'Error\', errCode: \'SQLITE_ERROR\' }'])
         })
@@ -301,7 +331,7 @@ describe('diaglog genModelsByDB', function() {
     describe('logDetail(R17-7a、R17-7e)', function() {
 
         it('R17-7e 建構時logDetail:true被承接: tables catch輸出(label, 錯誤副本)(stderr), 憑證遮罩', async function() {
-            let { out, err } = await genByDB({ logDetail: true }, { storage: dir })
+            let { out, err } = await genByDBRej({ logDetail: true }, { storage: dir })
             assert.deepStrictEqual(out, [])
             assert.strictEqual(err.length, 1)
             assert.ok(/SQLITE_CANTOPEN: unable to open database file/.test(err[0]), `應輸出錯誤物件: ${err[0].slice(0, 200)}`)
@@ -310,7 +340,7 @@ describe('diaglog genModelsByDB', function() {
         })
 
         it('R17-7e 外鍵失敗之細節: 錯誤原文保留, 建構憑證、opt.url與單次憑證皆為***', async function() {
-            let { err } = await withFkFail(() => genByDB({ logDetail: true }))
+            let { err } = await withFkFail(() => genByDBRej({ logDetail: true }))
             let text = err.join('\n')
             assert.ok(text.indexOf(ERRTXT) >= 0, text.slice(0, 300))
             assert.ok(text.indexOf('***') >= 0)
@@ -318,28 +348,28 @@ describe('diaglog genModelsByDB', function() {
         })
 
         it('R17-7a 單次呼叫logDetail:true覆寫建構時未開', async function() {
-            let { err } = await genByDB({}, { storage: dir, logDetail: true })
+            let { err } = await genByDBRej({}, { storage: dir, logDetail: true })
             assert.strictEqual(err.length, 1)
             assert.ok(/SQLITE_CANTOPEN: unable to open database file/.test(err[0]), err[0].slice(0, 200))
             assert.ok(err[0].indexOf('genModelsByDB tables catch ') === 0, '須帶固定標籤')
         })
 
         it('R17-7a 單次呼叫logDetail:false覆寫建構時之logDetail:true, 回到摘要', async function() {
-            let { err } = await genByDB({ logDetail: true }, { storage: dir, logDetail: false })
+            let { err } = await genByDBRej({ logDetail: true }, { storage: dir, logDetail: false })
             assert.deepStrictEqual(err, ['genModelsByDB tables catch { errType: \'SequelizeConnectionError\', errCode: \'SQLITE_CANTOPEN\' }'])
         })
 
         it('R17-7a 單次呼叫logDetail型別錯誤(非布林)者沿用建構時之設定', async function() {
-            let a = await genByDB({ logDetail: true }, { storage: dir, logDetail: 'false' })
+            let a = await genByDBRej({ logDetail: true }, { storage: dir, logDetail: 'false' })
             assert.ok(/SQLITE_CANTOPEN: unable to open database file/.test(a.err[0]) && a.err[0].indexOf('genModelsByDB tables catch ') === 0, a.err[0].slice(0, 100))
-            let b = await genByDB({}, { storage: dir, logDetail: 'true' })
+            let b = await genByDBRej({}, { storage: dir, logDetail: 'true' })
             assert.deepStrictEqual(b.err, ['genModelsByDB tables catch { errType: \'SequelizeConnectionError\', errCode: \'SQLITE_CANTOPEN\' }'])
         })
 
     })
 
 
-    describe('回傳契約不變(R17-7f)', function() {
+    describe('回傳契約(R17-7f; 成功路徑不變, 失敗路徑自w-auto-sequelize 1.0.53起reject)', function() {
 
         it('R17-7f resolve值與models檔等於直接呼叫WAutoSequelize(同設定, 不經本套件診斷轉接)', async function() {
             let viaWo = (await genByDB({ logging: true, logDetail: true })).res
@@ -365,11 +395,44 @@ describe('diaglog genModelsByDB', function() {
             assert.strictEqual(msg, 'need username')
         })
 
-        it('R17-7f 建表清單失敗仍只記錄不reject: resolve { tables: {}, foreignKeys: {} }(各診斷設定皆同)', async function() {
+        it('R17-7f 建表清單失敗reject(w-auto-sequelize 1.0.53起, 不再resolve { tables: {}, foreignKeys: {} }; 各診斷設定皆同), reject值為後端之錯誤(SQLITE_CANTOPEN), 診斷輸出照舊先寫出', async function() {
             for (let ctor of [{}, { logging: true }, { logDetail: true }, { funLog: () => {} }]) {
-                let { res } = await genByDB(ctor, { storage: dir })
-                assert.deepStrictEqual(res, { tables: {}, foreignKeys: {} }, JSON.stringify(Object.keys(ctor)))
+                let fd = `${dir}/models-list-fail`
+                let { rej, all } = await genByDBRej({ ...ctor, fdModels: fd }, { storage: dir })
+                let tag = JSON.stringify(Object.keys(ctor))
+                assert.ok(rej instanceof Error && rej.name === 'SequelizeConnectionError' && /SQLITE_CANTOPEN/.test(String(rej.message)), `${tag}: ${rej && rej.name} ${rej && rej.message}`)
+                assert.ok(!fs.existsSync(`${fd}/users.js`), `${tag}: 失敗時不應寫出models檔`)
+                if (!ctor.funLog) {
+                    assert.ok(all.some((l) => l.indexOf('genModelsByDB tables catch') === 0), `${tag}: 診斷輸出應先於reject寫出: ${all.join('|')}`)
+                }
             }
+        })
+
+        it('R17-7f 外鍵查詢失敗reject, 並於reject之前寫出診斷輸出; 單次呼叫之帳密已由w-auto-sequelize遮罩於reject值', async function() {
+            let msg = `${ERRTXT} ${CALL_USER}:${CALL_PW} ${CALL_PW}`
+            let { rej, err } = await withFkFail(() => genByDBRej({}), msg)
+            assert.ok(rej instanceof Error && String(rej.message).indexOf(ERRTXT) >= 0, String(rej && rej.message))
+            assert.ok(String(rej.message).indexOf(CALL_PW) < 0, `reject值內單次呼叫之密碼未遮罩: ${rej.message}`)
+            assert.deepStrictEqual(err, ['genModelsByDB foreign keys catch { errType: \'Error\', errCode: \'SQLITE_ERROR\' }'])
+        })
+
+        it('R17-7f 連線失敗(目標埠無服務)reject, 不再resolve空結果; 診斷輸出先寫出且不含錯誤原文與憑證', async function() {
+            let port = await getClosedPort()
+            let t0 = Date.now()
+            let { rej, out, err } = await genByDBRej({}, { dialect: 'mssql', host: 'localhost', port, username: CALL_USER, password: CALL_PW })
+            assert.ok(rej instanceof Error, String(rej))
+            assert.ok(Date.now() - t0 < 30000, 'reject不應久懸')
+            assert.deepStrictEqual(out, [])
+            assert.strictEqual(err.length, 1, err.join('|'))
+            assert.ok(/^genModelsByDB tables catch \{ errType: 'Sequelize\w*Error', errCode: '\w+' \}$/.test(err[0]) || /^genModelsByDB tables catch \{ errType: 'Sequelize\w*Error' \}$/.test(err[0]), err[0])
+            noCred(err.join('\n') + String(rej.message))
+        })
+
+        it('R17-7f 資料庫無任何資料表不是失敗: resolve { tables: {}, foreignKeys: {} }(可與失敗之reject區分), 不寫出models檔', async function() {
+            let fd = `${dir}/models-empty-db`
+            let { res } = await genByDB({ fdModels: fd }, { storage: `${dir}/empty.sqlite` })
+            assert.deepStrictEqual(res, { tables: {}, foreignKeys: {} })
+            assert.ok(!fs.existsSync(`${fd}/users.js`))
         })
 
     })
@@ -382,8 +445,8 @@ describe('diaglog genModelsByDB', function() {
             let relN = rel.replace(/^\.\//, '') //'test/_tmp/api-diaglog-gen/gen.sqlite'
             assert.ok(relN.indexOf('./') < 0 && path.resolve(rel) !== rel)
             let got = []
-            let { res } = await withFkFail(() => captureConsole(() => wo(getOpt({ storage: `${dir}/ctor-other.sqlite`, funLog: (...a) => got.push(a) })).genModelsByDB(getCall({ storage: rel }))), `${ERRTXT} open ${rel} and ${relN}`)
-            assert.deepStrictEqual(Object.keys(res.tables), ['users'])
+            let { rej } = await withFkFail(() => genByDBRej({ storage: `${dir}/ctor-other.sqlite`, funLog: (...a) => got.push(a) }, { storage: rel }), `${ERRTXT} open ${rel} and ${relN}`)
+            assert.ok(rej instanceof Error && String(rej.message).indexOf(ERRTXT) >= 0, String(rej && rej.message)) //1.0.53起外鍵查詢失敗reject(儲存路徑於reject值不遮, err.path須可用)
             let g = got.filter((x) => x[0] === 'genModelsByDB foreign keys catch')
             assert.strictEqual(g.length, 1)
             let text = String(g[0][2].message)

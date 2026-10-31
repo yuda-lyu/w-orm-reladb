@@ -270,7 +270,7 @@ What is printed by default:
 | `sqlcipher` does not support transactions | a fixed line | the same fixed line |
 | the constructor throws for an invalid `opt.url` | `…, opt.url[mssql://user:password@host]` (the password in the message) | `…, opt.url[mssql://***]` (same prefix, same `Error`; only the scheme is shown; see the breaking changes below) |
 | `genModelsByTabs` | `generate file:  <path>`, `save file catch <error>` | `generate file: { name: 'users', type: 'js' }`, `save file catch { name: 'users', type: 'js', errType: 'Error', errCode: 'EISDIR' }` |
-| `genModelsByDB` (needs `w-auto-sequelize` 1.0.52 or later) | sequelize's default logger wrote the full SQL of every table-structure query with `console.log`; when the list of tables or the foreign keys could not be read, `console.error(err)` wrote the whole error and the models were still generated | nothing on success; with `logging: true` one `genModelsByDB sql { stmt: 'SELECT' }` per statement (stdout); on failure one `genModelsByDB tables catch { errType: 'SequelizeConnectionError', errCode: 'SQLITE_CANTOPEN' }` or `genModelsByDB foreign keys catch { … }` (stderr, as before) |
+| `genModelsByDB` (needs `w-auto-sequelize` 1.0.52 or later) | sequelize's default logger wrote the full SQL of every table-structure query with `console.log`; when the list of tables or the foreign keys could not be read, `console.error(err)` wrote the whole error and the models were still generated | nothing on success; with `logging: true` one `genModelsByDB sql { stmt: 'SELECT' }` per statement (stdout); on failure one `genModelsByDB tables catch { errType: 'SequelizeConnectionError', errCode: 'SQLITE_CANTOPEN' }` or `genModelsByDB foreign keys catch { … }` (stderr, as before); since `w-auto-sequelize` 1.0.53 the promise then **rejects** (see "Breaking changes: `genModelsByDB` rejects on failure") |
 
 ```alias
 // production: only labels and summaries on the console
@@ -325,7 +325,7 @@ Only what is printed changes. The values a function resolves or rejects with, th
   ```
 - The constructor still throws an `Error` for an invalid `opt.url`, with the same message prefix as before (`no dialect in opt.url`, `invalid dialect in opt.url`, `invalid username or password in opt.url`, `invalid username in opt.url`, `invalid password in opt.url`, `invalid host in opt.url`, `invalid port in opt.url`), but the quoted `opt.url[…]` no longer carries the user name or the password (the message goes to stderr when nothing catches it). Since the shared diagnostic module (next section) it shows only the scheme: `<scheme>://***`.
 - The summary may name the table (`cl`, or the table names you pass to `genModelsByTabs`) and the error class and machine code (`errType`, `errCode`): they are schema and program identifiers that are also part of the reject messages, so do not put personal data into table names. A user name on its own is masked only when it has at least 3 characters (shorter ones would blot out unrelated text); `user:password` and the connection string are always masked.
-- `genModelsByDB` (with `w-auto-sequelize` 1.0.51 or later) no longer lets sequelize's default logger write the table-structure queries, and its failures to read the tables or the foreign keys are no longer written as a whole error object with `console.error`: both go through the exit described above (labels `genModelsByDB sql`, `genModelsByDB foreign keys catch`, `genModelsByDB tables catch`; the two failure labels still go to stderr). What it resolves or rejects with, the generated model files, and "a failure to read the tables or the foreign keys is only reported, not rejected" are the same as before.
+- `genModelsByDB` (with `w-auto-sequelize` 1.0.51 or later) no longer lets sequelize's default logger write the table-structure queries, and its failures to read the tables or the foreign keys are no longer written as a whole error object with `console.error`: both go through the exit described above (labels `genModelsByDB sql`, `genModelsByDB foreign keys catch`, `genModelsByDB tables catch`; the two failure labels still go to stderr). What it resolves with on success and the generated model files are the same as before. What happens on a failure to read the tables or the foreign keys changed later, with `w-auto-sequelize` 1.0.53: it rejects now instead of being "only reported" (see "Breaking changes: `genModelsByDB` rejects on failure" below).
 - Not covered: sequelize prints a few fixed warnings itself (for example about `UNSIGNED` columns on sqlite).
 
 ### Breaking changes: shared diagnostic module (wsemi)
@@ -339,6 +339,33 @@ The masking and the diagnostic exit written for this package are replaced by the
 - **`safe` is not text-masked any more and keeps only the keys `stmt`, `mode`, `cl`, `name`, `type`, `errType`, `errCode`**; its values are fixed identifiers of the package (statement kind, operation, table name, file type, error class and code).
 - **`detail` is copied by `wsemi`'s `maskDiagCopy`**: `Map` and `Set` stay `Map` and `Set` (with masked content) instead of the marker `'[Object]'`, limits and markers follow its JSDoc. For sqlite the path of the database file (as given and resolved) is masked in `detail`, and so is the `path` an error carries itself (for example the file of a failed `genModelsByTabs` write: `save file catch Error: EISDIR: …, open '***'`).
 - **`genModelsByTabs.mjs` used directly**: its 4th argument must be a diagnostic instance made by `wsemi`'s `getDiag` (a function with a `brief` method; the caller's `safeKeys` must include `name` and `type` to keep them). It is called only with the fixed labels `generate file:`, `save file catch` and the TEXT primary key notice. Anything else falls back to the module's own exit (labels and summaries on the console).
+
+### Breaking changes: `genModelsByDB` rejects on failure
+
+`genModelsByDB` returns the promise of `w-auto-sequelize` as it is. From `w-auto-sequelize` 1.0.53 (this package depends on `^1.0.53` now) **every failure rejects**; none is only logged any more (the "before" column of the last three rows is as documented by `w-auto-sequelize`; the first row is covered by `test/api-diaglog-gen.test.mjs`, which fails against 1.0.52):
+
+| Failure | Before (`w-auto-sequelize` 1.0.52 and earlier) | Now (1.0.53 and later) |
+|---|---|---|
+| the list of tables cannot be read, a table cannot be described, the foreign keys cannot be read, the connection fails (wrong host or login, unreachable file, no permission, port without service, …) | the diagnostic output was written (`genModelsByDB tables catch …` or `genModelsByDB foreign keys catch …`) and the promise **resolved** with an empty or partial result: `{ tables: {}, foreignKeys: {} }` for a failed table list; when only the foreign key query failed the model files were still written, without `references` | the same diagnostic output is written first, then the promise **rejects** with the error of the back end (the call's credentials masked by `w-auto-sequelize`, the user name on its own and the storage path not masked); **no model file is written** and the connection is closed |
+| `opt.fdModels` (the output directory) cannot be created (an existing file at that path, a parent that is a file, no permission) | the promise never settled and Node.js reported an `unhandledRejection` | rejects with the file system error (`code`, `path` kept) |
+| a model file cannot be written | not specified | rejects with the file system error |
+| the database has no table at all | resolves `{ tables: {}, foreignKeys: {} }` | unchanged: resolves `{ tables: {}, foreignKeys: {} }` — the only way to tell it from a failure is that a failure rejects |
+
+What did **not** change: the resolved value and the generated files on success, the fixed rejections for missing options (`need username`, …), the diagnostic labels, streams and masking (see "Diagnostic output"). There is no option to restore the old behavior: a caller that did not handle the rejection of `genModelsByDB` now gets an `unhandledRejection`, so add a `catch`:
+
+```alias
+try {
+    let models = await w.genModelsByDB({ dialect: 'mssql', host, port, username, password })
+}
+catch (err) {
+    // reading the tables or the foreign keys failed, the directory could not be created,
+    // a model file could not be written, or an option is missing
+}
+```
+
+### Connections dropped by the server
+
+A connection can be closed by the server or the network while it is idle (server restart, `KILL`, an idle timeout, a cable pulled): between two operations of an instance made by `init()`, or after `genTransaction()` while the transaction waits for its next statement. The driver reports it as an `error` event of the connection object, and an `error` event nobody listens to terminates a Node.js process. **This package is not exposed to that**: it never creates a driver connection itself, and `sequelize` 6 listens to the `error` event of every connection of `mssql`, `mysql`, `mariadb` and `postgres` as soon as it is established and removes the dead connection from its pool. So the process keeps running and prints no error text of the back end (nothing from this package; `sequelize` itself writes `Rolling back transaction … failed with error "…"` with `console.warn` when you roll back a transaction whose connection is gone). The operation that used the connection rejects (an operation with a dead `transaction`, and its `rollback`, reject too), and the next operation takes a fresh connection from the pool. `sqlite` has no such connection. Nothing changed in this package for this; it is a statement of what is guaranteed and tested (`test/api-connerr.mjs` on mssql with a real server, `test/unit-connerr.test.mjs` for the other dialects: the dependency on `sequelize` 6 is checked, so an upgrade to another major version has to be re-verified).
 
 ## Before Installation
 > If you need to use encrypted sqlite, you need to manually install `@journeyapps/sqlcipher`, as follows:
