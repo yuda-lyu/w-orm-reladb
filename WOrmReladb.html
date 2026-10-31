@@ -83,13 +83,15 @@
 註: mssql預設排序規則(如SQL_Latin1_General_CP1_CI_AS)下字串相等由排序規則決定，良構字串亦可能相等('a'、'a'+emoji、'a'+U+FFFD)，屬資料庫語意不在檢核範圍，
 需精確比對時請以二進位排序規則(如Latin1_General_100_BIN2)建表</p>
 <p>注意: 各函數reject之值、error事件之錯誤訊息與逐筆結果之err，凡來自後端、驅動、model檔或呼叫端數據之getter(外來值)者，其中之憑證(密碼至少4字元、帳號:密碼、連線字串之帳密、PRAGMA key之值)以***遮罩：
-含憑證者為遮罩後之副本(instanceof同類、其餘屬性保留)，無憑證者為原物件；單獨帳號與儲存路徑不遮(dspec〈診斷輸出與遮罩〉Q3)。本套件以固定詞彙自行產生之訊息(如invalid find: …、can not import model: …)原樣交出</p></li></ul></dd>
+含憑證者為遮罩後之副本(instanceof同類、其餘屬性保留)，無憑證者為原物件；單獨帳號與儲存路徑不遮(dspec〈診斷輸出與遮罩〉Q3)。本套件以固定詞彙自行產生之訊息(如invalid find: …、can not import model: …)原樣交出</p>
+<p>注意: 連線被後端或網路於空檔(無進行中語句，如伺服器重啟、連線被KILL、閒置逾時、網路斷線)中斷時，驅動於連線物件發出之'error'事件由sequelize之連線管理接手(連線建立後即永久掛監聽並自連線池移除該連線)，不使行程終止、不輸出後端錯誤原文；
+以該連線進行之操作(含以失效之transaction進行者)以其既有之失敗通道回報(reject)，其後之操作自連線池取得新連線。本套件不自建驅動連線、亦不掛驅動之監聽(R18)；此行為依賴sequelize 6於mssql、mysql、mariadb、postgres之連線管理(sqlite為本機檔案，無此種連線)</p></li></ul></dd>
     
 
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line89">line 89</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line92">line 92</a>
     </li></ul></dd>
     
 
@@ -838,7 +840,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line670">line 670</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line673">line 673</a>
     </li></ul></dd>
     
 
@@ -946,7 +948,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1991">line 1991</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1994">line 1994</a>
     </li></ul></dd>
     
 
@@ -1062,7 +1064,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1666">line 1666</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1669">line 1669</a>
     </li></ul></dd>
     
 
@@ -1408,7 +1410,7 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1886">line 1886</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1889">line 1889</a>
     </li></ul></dd>
     
 
@@ -1733,6 +1735,7 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
     <dd class="tag-description"><ul class="dummy"><li><p>由指定資料庫生成各資料表的models資料</p>
 <p>目前僅能產生js檔格式，且mssql欄位為nvarchar(MAX)無法自動轉成TEXT格式</p>
 <p>include from: <a href="https://github.com/yuda-lyu/w-auto-sequelize">w-auto-sequelize</a></p>
+<p>失敗一律reject(w-auto-sequelize 1.0.53起，本函數直接回傳其promise)：建表清單、描述表、外鍵查詢、連線、建立輸出資料夾與寫出models檔失敗皆reject，不再只記錄診斷輸出而以空或部分結果resolve(亦不再有永不settle者)，失敗時不寫出任何models檔；診斷輸出照舊先於reject寫出。資料庫沒有任何資料表不是失敗，resolve空結果{ tables: {}, foreignKeys: {} }</p>
 <p>診斷輸出(sql紀錄與建表、外鍵查詢失敗)經本套件單一出口：預設承接建構時之opt.logging、opt.logDetail、opt.funLog，標籤加前綴'genModelsByDB '(如'genModelsByDB sql'、'genModelsByDB tables catch')，option內給予者(型別正確)覆寫單次呼叫；連線字串、帳號、密碼與sqlite檔案路徑(含opt.url、option.username、option.password、option.storage)於細節皆以***遮罩</p>
 <p>reject與同步拋出之值為w-auto-sequelize所給(其固定詞彙如need username原樣；後端錯誤中單次呼叫之憑證已由w-auto-sequelize遮罩)</p></li></ul></dd>
     
@@ -1740,7 +1743,7 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line2040">line 2040</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line2045">line 2045</a>
     </li></ul></dd>
     
 
@@ -2339,7 +2342,7 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
 
         
 <div class="param-desc">
-    <p>回傳Promise，resolve回傳產生的models資料，reject回傳錯誤訊息</p>
+    <p>回傳Promise，resolve回傳產生的models資料{ tables, foreignKeys }，reject回傳錯誤(缺必填等w-auto-sequelize自身之檢查為固定字串如need username；建表清單、描述表、外鍵查詢、連線、建立資料夾與寫檔失敗為後端或fs之錯誤，其中單次呼叫之憑證已遮罩)</p>
 </div>
 
 
@@ -2383,7 +2386,7 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line2116">line 2116</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line2121">line 2121</a>
     </li></ul></dd>
     
 
@@ -2688,7 +2691,7 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line691">line 691</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line694">line 694</a>
     </li></ul></dd>
     
 
@@ -2796,7 +2799,7 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line586">line 586</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line589">line 589</a>
     </li></ul></dd>
     
 
@@ -2991,7 +2994,7 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line985">line 985</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line988">line 988</a>
     </li></ul></dd>
     
 
@@ -3373,7 +3376,7 @@ mssql因綁定參數數量上限會由驅動層自動拆為多語句送出，實
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1176">line 1176</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1179">line 1179</a>
     </li></ul></dd>
     
 
@@ -3711,7 +3714,7 @@ mssql因綁定參數數量上限會由驅動層自動拆為多語句送出，實
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1526">line 1526</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1529">line 1529</a>
     </li></ul></dd>
     
 
@@ -4095,7 +4098,7 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line738">line 738</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line741">line 741</a>
     </li></ul></dd>
     
 
@@ -4429,7 +4432,7 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line844">line 844</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line847">line 847</a>
     </li></ul></dd>
     
 
@@ -4755,7 +4758,7 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Fri Oct 30 2026 00:52:19 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Sat Oct 31 2026 08:40:50 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
 </footer>
 
 <script>prettyPrint();</script>
