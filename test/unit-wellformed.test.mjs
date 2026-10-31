@@ -280,8 +280,9 @@ describe('建構設定: opt.db、opt.cl、opt.url、opt.storage含孤立代理�
 
 describe('單一出處與接線站點掃描(盤點指令見R13)', function() {
 
-    //src, 讀原始碼並去除註解(區塊與行尾註解), 掃描對象為程式碼而非說明文字
-    let src = (fn) => fs.readFileSync(`./src/${fn}`, 'utf8').replace(/\r\n/g, '\n').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+    //src, 讀原始碼並去除註解(行首起算之區塊註解與行尾註解), 掃描對象為程式碼而非說明文字
+    //註: 區塊註解只認行首者; 不限位置之 /\/\*[\s\S]*?\*\// 會被行註解內之 `<scheme>://***`(含 `/*`)誤觸發, 把其後至下一個 `*/` 之程式碼整段吃掉(第 213 項實測)
+    let src = (fn) => fs.readFileSync(`./src/${fn}`, 'utf8').replace(/\r\n/g, '\n').replace(/^[ \t]*\/\*[\s\S]*?\*\//gm, '').replace(/\/\/.*$/gm, '')
     let count = (s, re) => (s.match(re) || []).length
 
     it('src內不自寫孤立代理判定(單一擁有者為wsemi之chkOrmStr、chkOrmData)', function() {
@@ -300,7 +301,7 @@ describe('單一出處與接線站點掃描(盤點指令見R13)', function() {
         assert.strictEqual(count(c, /chkOrmData\(/g), 1, 'chkWf')
         let w = src('WOrmReladb.mjs')
         assert.strictEqual(count(w, /import chkOrmStr from 'wsemi\/src\/chkOrmStr\.mjs'/g), 1)
-        assert.strictEqual(count(w, /chkOrmStr\(/g), 1, '建構時opt名稱')
+        assert.strictEqual(count(w, /chkOrmStr\(/g), 2, '建構時opt名稱(迴圈)與sqlite之opt.storage之NUL(R20, 第213項)各一')
         assert.strictEqual(count(w, /chkOrmData/g), 0)
     })
 

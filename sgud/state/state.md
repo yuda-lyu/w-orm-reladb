@@ -2,7 +2,7 @@
 
 本檔記當前已開發功能之最新狀態(各功能做到哪裡、對應之規則帳本條目與測試檔、已知缺口與待辦、最近一次驗證或發布之版本),只記現況、不寫過程(過程見 `sgud/exp/experience.md`)。藍圖(規則)見 `sgud/rule/rulebook.md`。
 
-- 套件版本:`package.json` 1.1.19(第 208/209/210 項〔2026-10-31〕未動 `version`;發布由使用者/主控負責)。依賴 `wsemi` `^1.9.33`、`w-auto-sequelize` `^1.0.53`、devDependency `w-package-tools` `^1.1.21`(第 210 項查證:自有相依皆已最新,`npm-check-updates` 僅列非自有之 `tedious` 19→20 major,不動)。
+- 套件版本:`package.json` 1.1.20(第 208/209/210/213 項〔2026-10-31〕未動 `version`;發布由使用者/主控負責)。依賴 `wsemi` `^1.9.33`、`w-auto-sequelize` `^1.0.53`、devDependency `w-package-tools` `^1.1.21`(第 213 項再查證:自有相依皆已最新,`npm-check-updates` 僅列非自有之 `tedious` 19→20 major,不動)。
 - 本檔於 2026-10-28(reladb-run01)首次建立;更早之功能現況請以 `sgud/rule/rulebook.md` 之 R1–R16 與〈破壞性變更紀錄〉為準。
 
 ## 功能現況
@@ -12,17 +12,33 @@
 | 條件(find)系列白名單、值檢核、主鍵正規化、scope 合併 | R1–R11、R16 | `unit-cvfind`、`api-find-whitelist`、`api-suite`、`api-scope`、`api-lower-cases` | 完成 |
 | 寫入側 DATE 範圍、字串良構、浮動時間 | R12–R14 | `unit-date-write`、`api-date-write`、`unit-wellformed`、`api-wellformed`、`unit-float`、`api-float` | 完成 |
 | model 檔載入與發布產物 | R9、R10 | `api-models`、`api-dist`、`api-init` | 完成 |
-| **診斷輸出之單一出口與預設安全(reladb-run01)、建構函式 opt.url 例外不回顯帳密(reladb-run02)、`genModelsByDB` 診斷輸出接上單一出口(reladb-run03)、遷移至 wsemi 共用模組(mig-reladb)** | R17(含 R17-6、R17-7、R17-8) | `unit-diaglog`、`api-diaglog`、`api-diaglog-gen`、`api-diaglog-wire`、`unit-urlerr` | 完成(見下;驗證結果見 R17-8 段) |
+| **診斷輸出之單一出口與預設安全(reladb-run01)、建構函式 opt.url 例外不回顯帳密(reladb-run02)、`genModelsByDB` 診斷輸出接上單一出口(reladb-run03)、遷移至 wsemi 共用模組(mig-reladb)** | R17(含 R17-6、R17-7、R17-8、R17-9) | `unit-diaglog`、`api-diaglog`、`api-diaglog-gen`、`api-diaglog-wire`、`unit-urlerr` | 完成(見下;驗證結果見 R17-8 段;R17-9 見〈reladb2〉段) |
 | **連線空檔被中斷不使行程終止(第 209 項,2026-10-31)** | R18 | `api-connerr`(經 `api-mssql.test.mjs`)、`unit-connerr`;情境 `test/tools/connErrScenario.mjs` | 完成:查證不屬實(sequelize 6 於四個網路方言之連線已永久掛 `error` 監聽),未改 `src` 行為;守則測試入庫(見下) |
 | **`genModelsByDB` 失敗改 reject(第 208 項,2026-10-31)** | R17-7f(更正) | `api-diaglog-gen`、`api-diaglog-wire` | 完成:README/JSDoc/帳本已更正,測試已改並補 reject 案(見下) |
-| **sqlite storage 無法開啟時各函數須 settle(第 210 項,2026-10-31)** | R19 | `api-sqlite-open`(73 案)、`unit-sqlite-open`(11 案);情境 `test/tools/sqliteOpenScenario.mjs` | 完成:屬實並已修(`src/dropUnopenedConn.mjs`、`closeSequelize` 呼叫);見下 |
+| **sqlite storage 無法開啟時各函數須 settle(第 210 項,2026-10-31)** | R19 | `api-sqlite-open`(104 案,含第 213 項增 31 案)、`unit-sqlite-open`(11 案);情境 `test/tools/sqliteOpenScenario.mjs` | 完成:屬實並已修(`src/dropUnopenedConn.mjs`、`closeSequelize` 呼叫);見下 |
+| **sqlite 之 opt.storage 含 NUL 或恰為 `:memory:` 於建構時拒收(第 213 項,2026-10-31)** | R20(R13、R19 相關句已更正) | `unit-storage`(51 案)、`api-sqlite-open`(R20-9、R20-10;104 案)、`unit-wellformed`(盤點案)、`unit-diaglog`(站點全集案) | 完成:屬實並已修(`src/WOrmReladb.mjs` 建構段);見下 |
+
+### reladb2:api-diaglog R17-1 註解去除之盲點(2026-10-31;R17-9;只動測試與文件,`src/` 未動)
+
+- 結論:**屬實,已修**。`test/api-diaglog.test.mjs` R17-1 之註解去除正則原為不限位置之 `/\/\*[\s\S]*?\*\//g`,被 `src/WOrmReladb.mjs` 第 161 行**行註解**內之 `<scheme>://***`(含 `/*`)誤當區塊註解起點,吃到第 268 行 JSDoc 之 `*/`,第 162–256 行(68 行程式碼:`throwUrlErr`、dialect 與帳密/host/port 解析、R20 之 sqlite 拒收、`optLog`/`cfg`/`diag`/`logSql`)對 `console` 掃描隱形。改為與 `unit-diaglog.test.mjs` 之 `src()` 同一寫法(只認行首之區塊註解),並於該案加 canary:去註解後之文字須仍含 `let throwUrlErr = (msg) =>` 與 `let diag = getDiag(optLog, cfg)`,否則以「掃描已失明」失敗。
+- 同型站點全表(4 處程式碼,`rg -nF "[\s\S]*?\*\/" test/`):`api-diaglog.test.mjs:108`(本輪修)、`unit-diaglog.test.mjs:19`(本即行首錨定)、`unit-wellformed.test.mjs:285`(第 213 項修)、`unit-storage.test.mjs:240`(第 213 項新增,行首錨定);已無不限位置者。
+- 變異(src 暫植 `console.log(1)`,還原後驗雜湊):修前 R17-1 於隱形區段 8 個位置全數存活(可見區段對照位置被擊殺);修後 8 個位置全數擊殺且各標出所植之行號;測試端變異(把正則改回不限位置)由 canary 擊殺。受影響 4 檔(`api-diaglog`、`unit-diaglog`、`unit-wellformed`、`unit-storage`)539 passing / 0 failing;eslint `api-diaglog.test.mjs` 0 error。全套由主控跑(本輪未跑)。
+- 已知缺口/待辦:無新增。canary 所指之兩段程式碼若被重構改名,須更新(見 R17-9)。
+
+### 第 213 項:sqlite 之 opt.storage 含 NUL 或恰為 `:memory:`(2026-10-31;R20)
+
+- 結論:**屬實,已修**(主控依專案原則 3 裁定收嚴)。①`a\0b.sqlite`、`a\0c.sqlite` 兩實例建構皆成功,sqlite3 於 NUL 截斷而皆開出檔 `a`,經前者寫入、後者讀得(別名);②`:memory:` 經 `path.resolve` 後為 `<cwd>/:memory:`(POSIX 為該名之檔、win32 為非法路徑),各函數每次 init+close,記憶體庫語意上不可行。修正:`src/WOrmReladb.mjs` 於 dialect 驗證之後對 sqlite 檢 `chkOrmStr(storageRaw)`(NUL)與 `storageRaw === ':memory:'`,throw `invalid opt.storage: string contains NUL`、`invalid opt.storage: must be a file path, an in-memory database is not supported`(固定詞彙、不回顯值);`path.resolve(opt.storage)` 移到判斷之後;其他方言與形似名稱(`./:memory:`、`x:memory:`、`:MEMORY:`、`file::memory:` 等)不拒。
+- 文件:README〈Breaking changes: `opt.storage` of sqlite: a `NUL` or the literal `':memory:'` is refused by the constructor〉、〈Well formed strings〉表增列、移除〈…cannot be opened…〉內之 `:memory:` 說明;JSDoc 類別註與 `opt.storage` 之 `@param`;帳本 R20、〈破壞性變更紀錄(第 213 項)〉、R13/R19 相關句更正。
+- 測試:`unit-storage`(51 案:NUL 9 形態 + 別名、`:memory:`、固定詞彙與 useEncryption、邊界 19 形態、他方言 8、順序、不改動不建檔、接線站點掃描);`api-sqlite-open` 之 `memory` 形態改為建構拒收、增 `nul` 形態、R20-9 無副作用(各 10 函數)、R20-10 回歸守則(`path.resolve` 仍於建構時定位);`unit-wellformed` 盤點案 `chkOrmStr(` 改 2 處且註解去除正則改為只認行首區塊註解;`unit-diaglog` 站點全集案之建構期 `throw new Error` 由 2 處改 4 處。修前紅 51(`unit-storage` 20、`api-sqlite-open` 30、`unit-wellformed` 1);變異 15 個全數殺死(`tmp/reladb/mutate.mjs`,結案時隨 `./tmp/` 清除,結果記於報告)。
+- 驗證(2026-10-31,`quiet-run --lock`):全套 `npm test` **6893 passing / 1280 pending / 0 failing,exit 0**(6m58s;較第 210 項之 6811 增 82 案 = `unit-storage` 51 + `api-sqlite-open` 31);eslint 改動 5 檔 0 error。首輪全套 1 紅(`unit-diaglog` 站點全集案之建構期 `throw new Error` 計數,見上),修測試後重跑全綠。
+- 已知缺口/待辦:①POSIX 平台實跑未做(本機 win32;判斷為純字串比對與平台無關);②(已修,reladb2,見上段與 R17-9)`test/api-diaglog.test.mjs` 之註解去除正則為不限位置之區塊註解寫法,會被 `WOrmReladb.mjs` 第 161 行行註解內之 `://***` 誤觸發而略過其後 68 行程式碼;③`@journeyapps/sqlcipher` 之 `useEncryption` 路徑僅測建構拒收(不載入該套件)。
 
 ### 第 210 項:sqlite storage 無法開啟時各函數永不 settle(2026-10-31;R19)
 
 - 結論:**屬實,已修**。sequelize 6.37.1 之 sqlite connection-manager 把開啟失敗之 `Database` 留在 `connectionManager.connections`,`sequelize.close()` 對它呼叫 `close(callback)` 永不回呼(sqlite3 於未開啟之 Database 把 close 排入佇列),本套件各函數於 `finally` 之 `closeSequelize` 卡住;模組層級 `pmq` 全域共用,一個懸置另使同行程其他實例之 `useStable` 操作全部懸置。修正:`src/dropUnopenedConn.mjs`(新,純函數)於 `closeSequelize`(`WOrmReladb.mjs:681-685`)對 sqlite 在 `sequelize.close()` 前移除 `open` 嚴格為 `false` 之 Database;不採逾時、不採預先檢查(理由見 R19)。
 - 文件:README〈Breaking changes: an sqlite storage that cannot be opened rejects instead of never settling〉;JSDoc 類別註與 `closeSequelize`;帳本 R19、〈破壞性變更紀錄(第 210 項)〉、已知限制首條改「已修」。
 - 測試:`api-sqlite-open`(7 形態〔資料夾、檔名超長、無權限、父路徑為檔案、`:memory:`、正常檔、父資料夾可建立〕× 10 函數、R19-2 不擋同行程他實例、R19-2b 同實例再呼叫、R19-4 不含帳密)、`unit-sqlite-open`(`dropUnopenedConn` 嚴格判準、依賴盤點、真實 sequelize)。修前紅 41(72 案時);變異 13 個全數殺死(`tmp/reladb/mutate.mjs`,結案時隨 `./tmp/` 清除,結果記於報告)。
-- 已知缺口/待辦:①`@journeyapps/sqlcipher` 未測(假設為 sqlite3 分叉而有同一 `open` 存取器;缺該屬性者不動);②(範圍外,待裁示)路徑含 NUL 字元之 `opt.storage` 被 sqlite3 截斷(實測 `a\0b.sqlite` 得檔名 `a`),`chkOrmStr` 對 storage 刻意 `nul:false`;③其他方言之連線失敗未重測。
+- 已知缺口/待辦:①`@journeyapps/sqlcipher` 未測(假設為 sqlite3 分叉而有同一 `open` 存取器;缺該屬性者不動);②(已修,第 213 項,見 R20)路徑含 NUL 字元之 `opt.storage` 被 sqlite3 截斷(實測 `a\0b.sqlite` 得檔名 `a`),現於建構時拒收;`:memory:` 亦同(原為依平台之形態,現不屬開啟失敗,`api-sqlite-open` 之 `memory` 形態改為建構拒收);③其他方言之連線失敗未重測。
 
 ### 第 209 項:連線於空檔被中斷(2026-10-31;R18)
 
@@ -70,4 +86,4 @@
   3. `genModelsByTabs.mjs` 之 TEXT 主鍵提示(`getField` 內 `o.type === 'TEXT'`)現況不可達(既有死碼,未動)。
   4. mssql 之 `insert`/`save` 綁定形式與 SQL 全文是否含值,未實測(診斷邏輯與資料庫種類無關;sqlite 已測)。
   5. `CLAUDE.md`〈除錯要點〉補句(`can not import model` 之原錯誤需 `logDetail:true` 才見)**由主控補**(主控裁示 4;本套件不改 `CLAUDE.md`)。
-- 最近一次驗證:**2026-10-31 第 208/209 項,全套 `npm test`(`quiet-run --lock`)6727 passing / 1280 pending / 0 failing,exit 0**(見上〈第 208 項〉段;未發布)。前次:2026-10-29 mig-reladb,6712 passing / 1280 pending / 0 failing,exit 0(見 R17-8 段)。更前:2026-10-28 reladb-run03,全套 `npm test`(`quiet-run --lock`)6695 passing / 1280 pending / 0 failing,exit 0(= reladb-run02 之 6662 + 當時新增 33 案);其後僅於 `test/api-diaglog-gen.test.mjs` 補 1 案(無 src 改動),相關 4 檔(`unit-diaglog`、`api-diaglog-gen`、`api-diaglog`、`unit-urlerr`)重跑 125 passing / 0 failing(未發布;發布版本由主控決定)。
+- 最近一次驗證:**2026-10-31 第 213 項,全套 `npm test`(`quiet-run --lock`)6893 passing / 1280 pending / 0 failing,exit 0**(見上〈第 213 項〉段;未發布;其後 reladb2 只動測試與文件,跑受影響 4 檔 539 passing / 0 failing,全套待主控)。前次:2026-10-31 第 210 項,6811 passing / 1280 pending / 0 failing(見〈第 210 項〉段);更前:2026-10-31 第 208/209 項,6727 passing / 1280 pending / 0 failing(見〈第 208 項〉段)。再前:2026-10-29 mig-reladb,6712 passing / 1280 pending / 0 failing,exit 0(見 R17-8 段)。更前:2026-10-28 reladb-run03,全套 `npm test`(`quiet-run --lock`)6695 passing / 1280 pending / 0 failing,exit 0(= reladb-run02 之 6662 + 當時新增 33 案);其後僅於 `test/api-diaglog-gen.test.mjs` 補 1 案(無 src 改動),相關 4 檔(`unit-diaglog`、`api-diaglog-gen`、`api-diaglog`、`unit-urlerr`)重跑 125 passing / 0 failing(未發布;發布版本由主控決定)。

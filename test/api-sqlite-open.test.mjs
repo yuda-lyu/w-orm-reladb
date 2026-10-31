@@ -3,18 +3,22 @@ import os from 'os'
 import path from 'path'
 import assert from 'assert'
 import { spawn, execFileSync } from 'child_process'
+import wo from '../src/WOrmReladb.mjs'
 
 
 //rulebook R19(第 210 項): sqlite 之 storage 無法開啟時, 本套件各函數須 settle 且以既有失敗通道回報, 不得永不 settle
-//  R19-1 storage 為資料夾、檔名超長(兩平台皆開啟失敗)、無權限、父路徑為檔案、:memory:(win32 為非法路徑)時, 各函數 reject(或逐筆 ok 為 0), 不得懸置
+//  R19-1 storage 為資料夾、檔名超長(兩平台皆開啟失敗)、無權限、父路徑為檔案時, 各函數 reject(或逐筆 ok 為 0), 不得懸置
 //  R19-2 一次懸置不得擋住同行程之其他實例(模組層級 pmq 佇列為全域共用: 缺陷版之懸置會使其後所有 useStable 操作皆懸置)
 //  R19-2b 同一實例開啟失敗後再呼叫(select、insert、init 之 close), 仍 settle
 //  R19-3 對照組: 正常 sqlite 檔、父資料夾不存在而可建立者, 各函數照常 resolve
 //  R19-4 reject 之訊息不帶連線憑證(url 之帳密)
+//  R20(第 213 項, 與本檔共用子行程情境) opt.storage 含 NUL 或恰為 ':memory:' 者於建構時即拒收(unit-storage 驗訊息與邊界):
+//  R20-9 各函數之呼叫皆 reject 為建構之固定詞彙(不 settle 為 resolve、不懸置、兩平台一致), 且不建立任何檔案或資料夾(sqlite3 於 NUL 截斷檔名而開出名為截斷後之檔; ':memory:' 於 POSIX 開出名為 :memory: 之檔)
+//  R20-10 回歸守則: opt.storage 仍於建構時以 path.resolve 定為絕對路徑(R20 之判斷須用原值, 故 path.resolve 移到判斷之後, 位置改變不得使其消失)
 //
 //方法: 每個(形態 × 函數)各自以子行程執行(test/tools/sqliteOpenScenario.mjs): 缺陷版之懸置會使該子行程之事件迴圈排空而觸發 beforeExit,
 //子行程據此回報 pending(事件判定, 不用牆鐘看門狗); 父行程之外層逾時只防「迴圈被他物撐住」之懸置, 不表達規格
-//註: 本套件之 storage 經 path.resolve, 故 ':memory:' 不是記憶體資料庫: win32 為非法路徑(開啟失敗), POSIX 為 cwd 下名為 ':memory:' 之檔案
+//註: 本套件之 storage 經 path.resolve, 故 ':memory:' 不是記憶體資料庫(win32 為非法路徑, POSIX 為 cwd 下名為 ':memory:' 之檔案), 第 213 項起建構時拒收, 不再屬「開啟失敗」形態
 
 
 let dir = './test/_tmp/api-sqlite-open'
@@ -133,7 +137,7 @@ function addShapes() {
     fs.writeFileSync(afile, 'x')
     shapes.push({ name: 'parentIsFile', storage: path.join(afile, 'x.sqlite'), kind: 'fail', item: true })
 
-    //:memory:, 於子行程 cwd(root/memcwd-<op>)下解析(POSIX 下為該夾內名為':memory:'之檔案, 各函數各用一夾以免共用同一檔)
+    //:memory:(R20): 建構時拒收; 子行程 cwd 為 root/memcwd-<op>(修前 POSIX 下會於該夾內開出名為':memory:'之檔案, 各函數各用一夾以免共用), 拒收後該夾須仍為空
     shapes.push({
         name: 'memory',
         storage: ':memory:',
@@ -142,7 +146,19 @@ function addShapes() {
             fs.mkdirSync(d, { recursive: true })
             return d
         },
-        kind: isWin ? 'fail' : 'ok',
+        kind: 'ctor',
+        why: 'invalid opt.storage: must be a file path, an in-memory database is not supported',
+        sideDirOf: (op) => path.join(root, `memcwd-${op}`),
+    })
+
+    //含 NUL(R20): 建構時拒收; 修前 sqlite3 於 NUL 截斷而開出名為 a 之檔(其上層資料夾亦被建立), 拒收後上層資料夾 root/nul-<op> 須不存在
+    shapes.push({
+        name: 'nul',
+        storageOf: (op) => path.join(root, `nul-${op}`, 'a\u0000b.sqlite'),
+        kind: 'ctor',
+        why: 'invalid opt.storage: string contains NUL',
+        sideDirOf: (op) => path.join(root, `nul-${op}`),
+        sideDirCreated: false,
     })
 
     //對照組(各函數各用獨立之 storage, 因各子行程並行執行)
@@ -166,6 +182,13 @@ function check(shape, op, R) {
     let last = R.rs.filter((o) => o.op === op).pop()
     assert.ok(last, `缺本步驟結果 ${msg}`)
     assert.notStrictEqual(last.state, 'pending', `pending(懸置: 永不settle) ${msg}`)
+
+    //建構時拒收(R20-9): 本步驟(含 initClose、txClose, 其實例建構即失敗)reject 為固定詞彙, 不得 resolve
+    if (shape.kind === 'ctor') {
+        assert.strictEqual(last.state, 'reject', `建構時拒收之 storage 不得 resolve ${msg}`)
+        assert.strictEqual(last.message, shape.why, `應為建構之固定詞彙 ${msg}`)
+        return
+    }
 
     if (shape.kind === 'ok') {
         for (let o of R.rs) {
@@ -263,10 +286,10 @@ describe('sqlite-open', function() {
     })
 
 
-    describe('R19-1/R19-3 各形態 × 各函數(失敗者不得懸置; 對照組照常)', function() {
+    describe('R19-1/R19-3/R20-9 各形態 × 各函數(失敗者不得懸置; 建構時拒收者 reject 為固定詞彙; 對照組照常)', function() {
 
         //noPermission: root(POSIX)不受檔案權限拘束, 無法造成開啟失敗, 略過
-        let names = ['dir', 'longName', !isRoot ? 'noPermission' : null, 'parentIsFile', 'memory', 'normalFile', 'parentCreatable'].filter((v) => v !== null)
+        let names = ['dir', 'longName', !isRoot ? 'noPermission' : null, 'parentIsFile', 'memory', 'nul', 'normalFile', 'parentCreatable'].filter((v) => v !== null)
 
         for (let nm of names) {
             for (let op of OPS) {
@@ -277,6 +300,51 @@ describe('sqlite-open', function() {
                 })
             }
         }
+
+    })
+
+
+    describe('R20-9 建構時拒收者不建立任何檔案或資料夾', function() {
+
+        for (let nm of ['memory', 'nul']) {
+            for (let op of OPS) {
+                it(`${nm} ${op}`, function() {
+                    let shape = shapes.find((s) => s.name === nm)
+                    assert.ok(results[`${nm}/${op}`].rs.length >= 1, '子行程須有結果')
+                    let d = shape.sideDirOf(op)
+                    if (shape.sideDirCreated === false) {
+                        assert.strictEqual(fs.existsSync(d), false, `不得建立上層資料夾 ${d}`)
+                    }
+                    else {
+                        assert.deepStrictEqual(fs.readdirSync(d), [], `子行程 cwd 須仍為空(不得開出名為 :memory: 之檔) ${d}`)
+                    }
+                })
+            }
+        }
+
+    })
+
+
+    describe('R20-10 opt.storage 於建構時即定為絕對路徑(path.resolve 之位置不因 R20 之判斷而改變)', function() {
+
+        it('相對路徑之 storage 於建構時依當時之 cwd 定位: 建構後再改變 cwd, createStorage 之檔案仍落在建構時之 cwd', async function() {
+            let a = path.join(root, 'pin-a')
+            let b = path.join(root, 'pin-b')
+            fs.mkdirSync(a, { recursive: true })
+            fs.mkdirSync(b, { recursive: true })
+            let cwd0 = process.cwd()
+            try {
+                process.chdir(a)
+                let w = wo({ url: 'sqlite://:', db: 'worm', cl: 'users', fdModels, storage: './pin.sqlite' })
+                process.chdir(b)
+                assert.strictEqual(await w.createStorage(), 'created')
+            }
+            finally {
+                process.chdir(cwd0)
+            }
+            assert.deepStrictEqual(fs.readdirSync(a), ['pin.sqlite'], '檔案落在建構時之 cwd')
+            assert.deepStrictEqual(fs.readdirSync(b), [], '其後之 cwd 不得出現檔案')
+        })
 
     })
 

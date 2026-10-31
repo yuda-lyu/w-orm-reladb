@@ -166,8 +166,8 @@ describe('原始碼盤點(R17、R-DIAG-01)', function() {
             'throw diag.err(err)',
             'throw diag.err(err)',
         ].sort())
-        //throw new Error只留建構期之同步檢查(opt之孤立代理碼元、throwUrlErr), 其餘本套件錯誤以ownErr登記; 其他throw為重拋(err、si.err)或diag.err
-        assert.deepStrictEqual(thr.filter((v) => v === 'new Error(').length, 2)
+        //throw new Error只留建構期之同步檢查(opt之孤立代理碼元、throwUrlErr、sqlite之opt.storage之NUL與:memory:〔R20, 第213項〕共4處), 其餘本套件錯誤以ownErr登記; 其他throw為重拋(err、si.err)或diag.err
+        assert.deepStrictEqual(thr.filter((v) => v === 'new Error(').length, 4)
         assert.ok(thr.every((v) => ['new Error(', 'ownErr(', 'diag.err(', 'err', 'si.err'].indexOf(v) >= 0), thr.join('|'))
         let cv = src('cvFind.mjs')
         assert.strictEqual(cv.filter((v) => /throw new Error\(/.test(v)).length, 0, 'cvFind之錯誤須以ownErr登記')

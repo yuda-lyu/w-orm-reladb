@@ -215,11 +215,28 @@
 - **懸置之偵測用事件,不用牆鐘**:懸置之 Promise 不持有事件迴圈,其後迴圈排空而觸發 `beforeExit`(結束碼 13);子行程情境於 `beforeExit` 仍有未 settle 之步驟即回報 `pending`(`test/tools/sqliteOpenScenario.mjs`),修前每案約 0.5 秒即得結果。與第 209 項之探測法相反(那裡以保活計時器加 `Promise.race` 逾時才看得出懸置):二者不衝突,但**含保活計時器者看不到 `beforeExit`**,擇一即可;父行程另設 90 秒外層逾時只防「迴圈被他物撐住」之懸置,不表達規格。
 - **一個懸置會拖垮同行程所有實例**:模組層級 `pmq = pmQueue(1)`(`WOrmReladb.mjs:54`)全域共用,第一個永不 settle 之 `select` 占住佇列,其後**任何實例**(含正常檔)之 `useStable` 操作都排在其後而永不執行(`createStorage`、`init` 不經佇列,故不受影響)。同一探測於同一行程連跑各形態會得到「正常檔也 PENDING」之假象,**探測須每形態、每函數各自獨立行程**(測試亦然),否則前一個懸置污染後一個。驗 R19-2 須以 `bg`(只啟動不等待)啟動開啟失敗者,否則依序 `await` 之情境在第一步即停,看不出擋住後續。
 - **探測對照組共用同一 storage 檔會互相污染**:首版對照組(正常檔、父資料夾可建立)各函數共用同一檔,並行之子行程之 `insert` 與 `insertBulk` 撞唯一鍵(`Validation error`),誤判為修正無效;各函數各用獨立 storage 路徑(並行子行程之通則)。
-- **`:memory:` 在本套件不是記憶體資料庫**:`opt.storage` 經 `path.resolve`(`WOrmReladb.mjs` 建構段),win32 得 `C:\…\:memory:`(非法路徑,`SQLITE_CANTOPEN`,修前懸置),POSIX 得 cwd 下名為 `:memory:` 之檔案。測試之 `:memory:` 案依平台斷言(win32 reject、POSIX resolve),子行程 cwd 設在 `test/_tmp/…` 內以免在 repo 根留下 `:memory:` 檔。
+- **`:memory:` 在本套件不是記憶體資料庫**:`opt.storage` 經 `path.resolve`(`WOrmReladb.mjs` 建構段),win32 得 `C:\…\:memory:`(非法路徑,`SQLITE_CANTOPEN`,修前懸置),POSIX 得 cwd 下名為 `:memory:` 之檔案。測試之 `:memory:` 案依平台斷言(win32 reject、POSIX resolve),子行程 cwd 設在 `test/_tmp/…` 內以免在 repo 根留下 `:memory:` 檔。**(第 213 項起已改:建構時拒收,兩平台一致,見該節與 R20。)**
 - **無權限之造法**:win32 以 `icacls <檔> /deny <網域\使用者>:(R,W)`(`execFileSync`,不經 shell),測試之 `after` 以 `/remove:d` 還原再刪檔(否則含 deny 之檔刪不掉);POSIX 非 root 以 `chmod 000`,root 略過(root 不受檔案權限拘束)。探測腳本若因懸置而未走到 `finally`(結束碼 13)會**遺留 deny 之檔**,須手動 `icacls /remove:d` 再刪(本輪探測 `probe-perm.mjs` 即遇,已還原並回驗)。**寫探測時還原動作須放在父行程或另一道指令,不可只放在可能懸置之同一行程之 `finally`**。
 - **修正之判準選 `Database.open === false`,不選逾時、不選預先檢查**:逾時會把慢速之合法關閉當失敗,對寫入函數更會在已提交後 reject;預先檢查(`stat`/`access`)只涵蓋已知形態,`CANTOPEN` 之成因(超長檔名、路徑非法、權限、裝置)無法窮盡(探測 `probe-odd.mjs` 之 10 種古怪形態修後皆 settle,其中含 `<>`、深路徑兩種 `CANTOPEN` 為預先檢查不易預料者)。sqlite3 之 `open` 為 `InstanceAccessor`(`database.cc:28`),缺該屬性時不動(`unit-sqlite-open` R19-5 鎖定);sequelize 之 `connections` 為其連線管理物件之公開欄位(無文件),故以 `unit-sqlite-open` R19-6 盤點為升級哨。
 - **CRLF**:`src/WOrmReladb.mjs` 與 `README.md` 之工作樹為 CRLF(索引為 LF,`core.autocrlf=true`),`Edit` 工具保留之;以腳本批次替換時須先正規化為 LF 再套用、寫回時還原 CRLF(變異腳本首版因 `from` 含 `\n` 而 4 個「未套用」,即此)。新檔(LF)與既有 `src/getSqlStmt.mjs`、`test/*` 一致。
-- **`path` 含 NUL 之 storage**(範圍外,未修):`chkOrmStr(..., { nul: false })` 刻意不檢 NUL,sqlite3 把 `a\0b.sqlite` 截為檔名 `a`(探測 `probe-nul.mjs` 實測於工作夾得 `["a"]`),與 R13 同類之別名風險,待裁示。
+- **`path` 含 NUL 之 storage**(範圍外,未修):`chkOrmStr(..., { nul: false })` 刻意不檢 NUL,sqlite3 把 `a\0b.sqlite` 截為檔名 `a`(探測 `probe-nul.mjs` 實測於工作夾得 `["a"]`),與 R13 同類之別名風險,待裁示。**(第 213 項已裁示並修:建構時拒收,見 R20。)**
+
+## 第 213 項(2026-10-31,sqlite 之 opt.storage 含 NUL 或恰為 `:memory:` 於建構時拒收 R20;探測與變異腳本在 `./tmp/reladb/` 結案時清除,證據在 `C:\opensrcOper\dnow\20261031112322\agent-out\`)
+
+- **同一標準分兩段檢**:建構迴圈(db、cl、url、storage)在 dialect 未知時執行,只能檢孤立代理(`nul:false`);sqlite 專用之 NUL 與 `:memory:` 須等 dialect 確定後(`throwUrlErr('invalid dialect …')` 之後)才檢,故 `chkOrmStr` 在 `WOrmReladb.mjs` 有兩處呼叫(`unit-wellformed` 盤點案已改 2)。若把 NUL 併入第一道迴圈,他方言之 `opt.storage`(不使用)會被誤拒,違反「其他方言不受影響」。
+- **`:memory:` 判斷必須在 `path.resolve` 之前、且用呼叫端原值**:`opt.storage = path.resolve(...)` 原在建構段最前,判斷放其後即永不命中(`:memory:` 已變成 `<cwd>/:memory:`)。故把 `path.resolve` 搬到判斷之後(同時使拒收時呼叫端之 `opt` 不被改寫);變異 M4(比對 `path.resolve` 後)與 M13(`path.resolve` 移回判斷之前)由此二案殺死。
+- **註解去除正則之盲區(測試工具之陷阱)**:`unit-wellformed` 之 `src()` 以不限位置之 `/\/\*[\s\S]*?\*\//g` 去區塊註解,但 `WOrmReladb.mjs` 約第 161 行之**行註解**含 `<scheme>://***`(其中 `//*` 含 `/*`),正則自該處起吃到下一個 `*/`(約第 259 行 JSDoc 尾),其間之程式碼對掃描**全部隱形**:新增之判斷區塊落在此區間,掃描案回報 `chkOrmStr(` 只有 1 處、`:memory:` 0 處,看似「接線遺失」實為掃描器之盲區。**判別法**:掃描結果與預期不符時,先印出去註解後之文字或逐一列 `/*`、`*/` 位置(`tmp/reladb/scan.mjs`)。修法:只認行首之區塊註解 `/^[ \t]*\/\*[\s\S]*?\*\//gm`,再去行尾註解(`unit-diaglog.test.mjs:19` 本即如此)。`api-diaglog.test.mjs:104` 有同型寫法,盲區涵蓋建構段與 `diag` 定義附近約 100 行,當輪未改,**已由 reladb2 修正**(見下節)。
+- **平台無關之測試優於平台分支**:第 210 項之 `memory` 形態依平台斷言(win32 reject、POSIX resolve,POSIX 分支未能實跑);改為建構拒收後兩平台同結果,斷言與平台無關(唯「cwd 仍空」之無副作用案於 POSIX 才有鑑別力)。
+- **拒收之 NUL 路徑經 argv 傳子行程**:`JSON.stringify` 把 `\u0000` 寫成六字元跳脫,經 `spawn` 之 argv 不被 NUL 截斷,子行程 `JSON.parse` 還原成含 NUL 之字串(`api-sqlite-open` 之 `nul` 形態);若直接把含 NUL 之字串當 argv 傳,Node 會拒絕(`ERR_INVALID_ARG_VALUE`)。
+- **同一支變異腳本包在單一 `quiet-run --lock` 內**:腳本自己 `spawnSync` 跑 mocha(直接呼叫 `node_modules/mocha/bin/mocha.js`,不再經 quiet-run),一次取鎖、一次釋放;15 個變異約 1 分 47 秒(關鍵者另跑 `api-sqlite-open` 約 25 秒)。`from` 含換行者以 `fx()` 依檔案之 CRLF 轉換,並要求恰好比對 1 處,否則記 NOT-APPLIED。
+
+## reladb2(2026-10-31,api-diaglog R17-1 註解去除之盲點 R17-9;只動測試與文件;探測與變異腳本在 `./tmp/reladb2/` 結案時清除,證據在 `C:\opensrcOper\dnow\20261031112322\agent-out\reladb2-evidence\`)
+
+- **盲區要量,不要憑印象**:以兩種正則各自把註解換成空白,比對「程式碼行在其一為空白、在另一不為空白」之行,得被誤吃者為第 162–256 行共 68 行程式碼(誤配區塊為第 161 行行註解之 `/*` 至第 268 行 JSDoc 之 `*/`);原報告寫「約 161–259」係上一輪新增 R20 區塊前之估計,數字隨 src 改動漂移。腳本 `hidden.mjs`(列出每一被誤吃之行)。
+- **變異驗證之設計**:①必含「可見區段」對照位置(CTRL):修前亦須被擊殺,證明偵測機制本身可用;只植隱形位置而全數存活,分不出「測試盲」與「測試根本偵測不到」。②**擊殺以『R17-1 之標題出現在 failing 段』判定,不用整檔離開碼**:修前於隱形位置植入 `console.log(1)`,整檔仍紅 2 案(實測為 `genModelsByTabs` 之兩案:〈檔案路徑預設不輸出…〉與〈寫檔失敗: 預設只列錯誤類別與代碼…〉,它們捕捉 console 輸出,被建構時多出之 `1` 打破;屬附帶擊殺,與 R17-1 無關),若以離開碼判定會把修前誤判為擊殺。③基準(未變異)非全綠即中止(上一輪無基準之變異曾誤判)。④植入點取「函數本體內縮排固定之陳述式之前」並以錨點整行比對恰 1 處,避免植在樣板字串或物件字面值內造成語法錯誤之假擊殺。
+- **canary**(R17-1 內):去註解後之 `WOrmReladb.mjs` 須仍含 `let throwUrlErr = (msg) =>` 與 `let diag = getDiag(optLog, cfg)`(皆位於舊盲區內);把正則改回不限位置者即以「掃描已失明」紅(測試端變異實測)。代價是此二片段被重構改名時須更新;較通用之做法(逐檔核對去註解前後行數)未採——複雜度高於本題之價值。
+- **為何修掃描端而非 src 端**:盲區之觸發條件是 src 之行註解含 `/*`(此處為遮罩說明之 `<scheme>://***`);任何遮罩樣式說明(`://***`、`*/*`)都可能再現,故掃描端必須行首錨定,不能要求 src 不寫。
+- **整批同型盤點之結果**:Grep `[\s\S]*?\*\/` 於 `test/` 得 4 處程式碼,僅 `api-diaglog` 一處不限位置;`unit-diaglog` 本即行首錨定,其餘兩處為前一輪新改/新增。`unit-diaglog` 其餘對 `WOrmReladb.mjs` 之 `readFileSync` 為原文 `indexOf`/正則比對,不去註解,無此問題(其風險方向相反:註解文字可能湊出匹配,但其標的字串皆為程式碼專有)。
 
 ## mig-reladb(2026-10-29,遷移至 wsemi 共用診斷模組 R17-8;排程第 161 項第 2 波;腳本與輸出之證據在 `C:\opensrcOper\dnow\20261029002013\agent-out\mig-reladb-evidence\`)
 

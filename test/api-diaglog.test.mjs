@@ -96,12 +96,19 @@ describe('diaglog', function() {
         it('R17-1 src內不得直接呼叫console或寫process.stdout/stderr(所有診斷輸出經wsemi之getDiag單一出口)', function() {
             let bads = []
             let n = 0
+            let main = null //WOrmReladb.mjs 去註解後之文字, 供下方之「掃描未盲」檢查
             for (let f of fs.readdirSync('./src')) {
                 if (!/\.(mjs|js)$/.test(f)) {
                     continue
                 }
                 n++
-                let s = fs.readFileSync(`./src/${f}`, 'utf8').replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
+                //註解以空白取代(保留行號): 區塊註解只認行首之/*(JSDoc), 與 unit-diaglog.test.mjs 之 src 同一寫法;
+                //不可用不限位置之 /\/\*[\s\S]*?\*\//g: 行註解內之 `<scheme>://***`(WOrmReladb.mjs 約第 161 行)含 `/*`, 會被當成區塊註解起點,
+                //把其後至下一個 `*/` 之程式碼(約第 161–268 行, 68 行程式碼)整段吃掉, 該段內之 console 呼叫不被掃描(reladb2 實測: 植入 console.log(1) 時本案仍綠)
+                let s = fs.readFileSync(`./src/${f}`, 'utf8').replace(/^[ \t]*\/\*[\s\S]*?\*\//gm, (m) => m.replace(/[^\n]/g, ' '))
+                if (f === 'WOrmReladb.mjs') {
+                    main = s
+                }
                 s.split(/\r?\n/).forEach((line, k) => {
                     let code = line.replace(/\/\/.*$/, '')
                     if (/\bconsole\s*[.[]/.test(code) || /process\s*\.\s*(stdout|stderr)/.test(code)) {
@@ -110,6 +117,9 @@ describe('diaglog', function() {
                 })
             }
             assert.ok(n >= 4, `掃描檔數過少: ${n}`)
+            //掃描未盲(canary): 行註解內 `://***` 之前後(建構段之 throwUrlErr 定義與 diag 定義, 皆在舊正則之隱形區段內)之程式碼須仍在去註解後之文字內;
+            //若此二處被重構改名, 請更新此二標記為同區段內其他程式碼(目的: 掃描須涵蓋整個建構段, 不因註解去除失誤而漏看)
+            assert.ok(main !== null && main.indexOf('let throwUrlErr = (msg) =>') >= 0 && main.indexOf('let diag = getDiag(optLog, cfg)') >= 0, '掃描已失明: WOrmReladb.mjs 去註解後缺建構段之程式碼(註解去除之正則誤吃程式碼)')
             assert.deepStrictEqual(bads, [], `下列站點未經單一出口:\n${bads.join('\n')}`)
         })
 

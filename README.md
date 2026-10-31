@@ -181,6 +181,7 @@ A string with a **lone surrogate** (half of a UTF-16 surrogate pair; `s.isWellFo
 | the primary key value (also a `new String(…)` wrapper) | a lone surrogate, and also `NUL` (`\u0000`), the same standard as a `find` |
 | every string value and key name inside the data of `insert`, `insertBulk` and `save` (nested objects, array items, `Map` / `Set` content, `Error` / `RegExp` text …), **whether or not the model has that column** | a lone surrogate (a `NUL` inside a value is not refused by this check) |
 | `opt.url`, `opt.db`, `opt.cl`, `opt.storage` | a lone surrogate: **the constructor throws** `invalid opt.<name>: string contains lone surrogate` (two different names would otherwise point to the same storage, for example two sqlite files) |
+| `opt.storage` of `sqlite` (only there) | a `NUL` (`\u0000`) and the literal `':memory:'`: the constructor throws `invalid opt.storage: …` (see *Breaking changes: `opt.storage` of sqlite*); a `NUL` in `opt.db`, `opt.cl` or in `opt.storage` of another dialect is not checked |
 
 | Function | What happens with a bad primary key or bad data |
 |---|---|
@@ -198,6 +199,8 @@ invalid id: string contains NUL at [data[1].id]
 invalid data: string contains lone surrogate at [data[1].meta.tags[0]]
 invalid data: string contains lone surrogate at [data[1].<invalid key>]
 invalid opt.cl: string contains lone surrogate
+invalid opt.storage: string contains NUL
+invalid opt.storage: must be a file path, an in-memory database is not supported
 ```
 
 Per row the primary key comes before the data and a key name before its value; for `insert` / `insertBulk` the row with the smallest index is reported. The other error messages that used to quote the primary key do not any more (`invalid id[…]` and `type does not match pk column` now read `invalid data[<index>].<pk>…`; the `save` message after three failed tries names the position instead of the key).
@@ -369,7 +372,7 @@ A connection can be closed by the server or the network while it is idle (server
 
 ### Breaking changes: an sqlite storage that cannot be opened rejects instead of never settling
 
-When the database file of an `sqlite` instance (`opt.storage`) **cannot be opened** (`SQLITE_CANTOPEN`: the path is a directory, a file name longer than the file system allows, no permission on the file, a path that is not valid on the platform such as the literal `':memory:'` on Windows), every operation that connects (`select`, `selectByPk`, `insert`, `insertBulk`, `save`, `del`, `delAll`, `createStorage`, `genTransaction`, and the `close` returned by `init()`) **never settled**: neither a resolve nor a reject. The cause is in `sequelize` 6 (it can be reproduced with plain `sequelize`, without this package): it keeps the `Database` whose opening failed in its connection table, and `close()` then waits for a callback of that never opened `Database` that never comes. The package closes the instance in the `finally` of every operation, so the rejection could not be delivered. Because the queue of `useStable` is shared by all instances of the process, one such call also blocked **every later `useStable` operation of every instance in the same process**, including those on healthy files.
+When the database file of an `sqlite` instance (`opt.storage`) **cannot be opened** (`SQLITE_CANTOPEN`: the path is a directory, a file name longer than the file system allows, no permission on the file, a path that is not valid on the platform, for example one with a character the file system does not allow), every operation that connects (`select`, `selectByPk`, `insert`, `insertBulk`, `save`, `del`, `delAll`, `createStorage`, `genTransaction`, and the `close` returned by `init()`) **never settled**: neither a resolve nor a reject. The cause is in `sequelize` 6 (it can be reproduced with plain `sequelize`, without this package): it keeps the `Database` whose opening failed in its connection table, and `close()` then waits for a callback of that never opened `Database` that never comes. The package closes the instance in the `finally` of every operation, so the rejection could not be delivered. Because the queue of `useStable` is shared by all instances of the process, one such call also blocked **every later `useStable` operation of every instance in the same process**, including those on healthy files.
 
 Now the package drops the `Database` that is not open (`Database.open` strictly `false`) from the connection table before it closes the instance, so the error is delivered through the channel each function already has:
 
@@ -383,9 +386,30 @@ Now the package drops the `Database` that is not open (`Database.open` strictly 
 
 The messages carry no credential of `opt.url`; the storage path is not masked in a rejected value (as before, `dspec` Q3).
 
-- **Who is affected**: only code that relied on a call on an unopenable storage staying pending (for example one that raced it against its own timer, or that logged "still pending"). Such code now gets a rejection. Code that used `':memory:'` as `opt.storage` on Windows now gets a rejection instead of a hang. Note that `':memory:'` is **not** an in-memory database here: `opt.storage` goes through `path.resolve`, so on POSIX it is a file named `:memory:` in the working directory and on Windows an invalid path.
+- **Who is affected**: only code that relied on a call on an unopenable storage staying pending (for example one that raced it against its own timer, or that logged "still pending"). Such code now gets a rejection. (`':memory:'` as `opt.storage` is a different case: the constructor refuses it, see the next section.)
 - **Not changed**: the resolved values and the errors of a storage that opens, and the failures that were already delivered (a parent path that is a file, a missing parent directory that cannot be created: `EEXIST`, `EPERM`, … from `mkdir`, which happen before any `Database` exists).
 - **Scope of the guarantee**: the check is `Database.open === false` of `sqlite3`. `@journeyapps/sqlcipher` (the encrypted variant, not installed by default) is a fork of `sqlite3` and is expected to expose the same `open`, but it is **not tested here**; a `Database` without the `open` property is never dropped. `test/unit-sqlite-open.test.mjs` checks the dependency (`sequelize` 6, the `open` accessor of `sqlite3`, the shape of the connection manager of `sequelize`) so that an upgrade has to be re-verified.
+
+### Breaking changes: `opt.storage` of sqlite: a `NUL` or the literal `':memory:'` is refused by the constructor
+
+With the `sqlite` dialect `opt.storage` has to name a **file**. The constructor now throws, with a fixed message that does not quote the value, when `opt.storage`
+
+- contains a `NUL` character (`\u0000`): `invalid opt.storage: string contains NUL`;
+- is exactly the string `':memory:'`: `invalid opt.storage: must be a file path, an in-memory database is not supported`.
+
+Why a `NUL`: sqlite3 cuts the file name at the `NUL`. Before this change `'a\u0000b.sqlite'` and `'a\u0000c.sqlite'` both opened the file `a` (checked: an `insert` through the first instance was returned by a `select` through the second), so two different names shared one file, the same kind of alias as with a lone surrogate (see *Well formed strings*). Why `':memory:'`: `opt.storage` goes through `path.resolve`, so `':memory:'` was never an in-memory database in this package: it becomes `<working directory>/:memory:` (on POSIX a file with that name; on Windows an invalid path, where every call failed). And every function of this package opens and closes its own connection, so an in-memory database could not keep the data from one call to the next; it cannot be supported.
+
+| Input (dialect `sqlite`) | before | now |
+|---|---|---|
+| `opt.storage` with a `NUL` (anywhere in the string) | accepted; the file named by the text before the `NUL` was opened (and its folders created) | the constructor throws `invalid opt.storage: string contains NUL` |
+| `opt.storage: ':memory:'` | accepted; POSIX: the file `<working directory>/:memory:`; Windows: `SQLITE_CANTOPEN` on every call | the constructor throws `invalid opt.storage: must be a file path, an in-memory database is not supported` |
+| `./:memory:`, `x:memory:`, `:MEMORY:`, ` :memory:`, `file::memory:` | ordinary file names | unchanged: **only the exact string** `':memory:'` is refused (a path you write out as a path is a path) |
+| any other dialect (`mssql`, `mysql`, `mariadb`, `postgres`) | `opt.storage` is not used | unchanged: not checked |
+
+A lone surrogate in `opt.storage` and in `opt.db` / `opt.cl` is still reported first (`invalid opt.<name>: string contains lone surrogate`), and an `opt.url` with an invalid dialect is reported as before. A refused constructor call changes nothing on disk and leaves your `opt.storage` as you gave it.
+
+- **Who is affected**: code that passes `':memory:'` (it never got an in-memory database) or a name with a `NUL`. Use a real file path; for throwaway data use a file under `os.tmpdir()` and delete it afterwards. No option restores the old behavior.
+- **Not changed**: every other `opt.storage`, including the ones that cannot be opened (see the previous section).
 
 ## Before Installation
 > If you need to use encrypted sqlite, you need to manually install `@journeyapps/sqlcipher`, as follows:

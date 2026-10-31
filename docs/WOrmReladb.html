@@ -86,15 +86,16 @@
 含憑證者為遮罩後之副本(instanceof同類、其餘屬性保留)，無憑證者為原物件；單獨帳號與儲存路徑不遮(dspec〈診斷輸出與遮罩〉Q3)。本套件以固定詞彙自行產生之訊息(如invalid find: …、can not import model: …)原樣交出</p>
 <p>注意: 連線被後端或網路於空檔(無進行中語句，如伺服器重啟、連線被KILL、閒置逾時、網路斷線)中斷時，驅動於連線物件發出之'error'事件由sequelize之連線管理接手(連線建立後即永久掛監聽並自連線池移除該連線)，不使行程終止、不輸出後端錯誤原文；
 以該連線進行之操作(含以失效之transaction進行者)以其既有之失敗通道回報(reject)，其後之操作自連線池取得新連線。本套件不自建驅動連線、亦不掛驅動之監聽(R18)；此行為依賴sequelize 6於mssql、mysql、mariadb、postgres之連線管理(sqlite為本機檔案，無此種連線)</p>
-<p>注意: sqlite之opt.storage無法開啟(SQLITE_CANTOPEN: 路徑為資料夾、檔名超長、無權限、路徑非法如win32之':memory:'等)時，需連線之各函數(select、selectByPk、insert、insertBulk、save、del、delAll、createStorage、genTransaction與init回傳之close)以既有失敗通道回報(reject；createStorage為can not import model訊息)，不會永不settle(第210項, R19)：
-sequelize 6把開啟失敗之Database留在連線表，其close()永不回呼，本套件於關閉前先移除未開啟(Database.open嚴格為false)者(dropUnopenedConn)。reject之訊息不帶連線憑證。
-註: opt.storage經path.resolve，故':memory:'不是記憶體資料庫(POSIX為cwd下名為:memory:之檔案，win32為非法路徑)</p></li></ul></dd>
+<p>注意: sqlite之opt.storage含NUL字元、或恰為':memory:'者，建構時即拋出invalid opt.storage: &lt;原因&gt;(不回顯值；第213項, R20)：sqlite3於NUL截斷檔名，不同名稱(如a\0b、a\0c)會指向同一檔；
+opt.storage經path.resolve，故':memory:'不是記憶體資料庫(POSIX為cwd下名為:memory:之檔案，win32為非法路徑)，且各函數每次初始化與關閉，記憶體資料庫無法跨呼叫保留，故不支援。僅sqlite檢查，其他方言不使用opt.storage</p>
+<p>注意: sqlite之opt.storage無法開啟(SQLITE_CANTOPEN: 路徑為資料夾、檔名超長、無權限、路徑非法等)時，需連線之各函數(select、selectByPk、insert、insertBulk、save、del、delAll、createStorage、genTransaction與init回傳之close)以既有失敗通道回報(reject；createStorage為can not import model訊息)，不會永不settle(第210項, R19)：
+sequelize 6把開啟失敗之Database留在連線表，其close()永不回呼，本套件於關閉前先移除未開啟(Database.open嚴格為false)者(dropUnopenedConn)。reject之訊息不帶連線憑證。</p></li></ul></dd>
     
 
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line97">line 97</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line99">line 99</a>
     </li></ul></dd>
     
 
@@ -306,7 +307,7 @@ sequelize 6把開啟失敗之Database留在連線表，其close()永不回呼，
                 </td>
             
 
-            <td class="description last"><p>輸入為sqlite時，資料庫檔案所在位置字串，預設'./worm.db'</p></td>
+            <td class="description last"><p>輸入為sqlite時，資料庫檔案所在位置字串，預設'./worm.db'。須為檔案路徑：含NUL字元(\0)、或恰為':memory:'者建構時拋出Error(訊息invalid opt.storage: string contains NUL、invalid opt.storage: must be a file path, an in-memory database is not supported，不回顯值)；含孤立代理碼元者亦拋出(invalid opt.storage: string contains lone surrogate)</p></td>
         </tr>
 
     
@@ -845,7 +846,7 @@ sequelize 6把開啟失敗之Database留在連線表，其close()永不回呼，
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line681">line 681</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line700">line 700</a>
     </li></ul></dd>
     
 
@@ -953,7 +954,7 @@ sequelize 6把開啟失敗之Database留在連線表，其close()永不回呼，
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line2005">line 2005</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line2024">line 2024</a>
     </li></ul></dd>
     
 
@@ -1069,7 +1070,7 @@ sequelize 6把開啟失敗之Database留在連線表，其close()永不回呼，
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1680">line 1680</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1699">line 1699</a>
     </li></ul></dd>
     
 
@@ -1415,7 +1416,7 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1900">line 1900</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1919">line 1919</a>
     </li></ul></dd>
     
 
@@ -1748,7 +1749,7 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line2056">line 2056</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line2075">line 2075</a>
     </li></ul></dd>
     
 
@@ -2391,7 +2392,7 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line2132">line 2132</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line2151">line 2151</a>
     </li></ul></dd>
     
 
@@ -2696,7 +2697,7 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line705">line 705</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line724">line 724</a>
     </li></ul></dd>
     
 
@@ -2804,7 +2805,7 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line594">line 594</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line613">line 613</a>
     </li></ul></dd>
     
 
@@ -2999,7 +3000,7 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line999">line 999</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1018">line 1018</a>
     </li></ul></dd>
     
 
@@ -3381,7 +3382,7 @@ mssql因綁定參數數量上限會由驅動層自動拆為多語句送出，實
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1190">line 1190</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1209">line 1209</a>
     </li></ul></dd>
     
 
@@ -3719,7 +3720,7 @@ mssql因綁定參數數量上限會由驅動層自動拆為多語句送出，實
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1540">line 1540</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1559">line 1559</a>
     </li></ul></dd>
     
 
@@ -4103,7 +4104,7 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line752">line 752</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line771">line 771</a>
     </li></ul></dd>
     
 
@@ -4437,7 +4438,7 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line858">line 858</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line877">line 877</a>
     </li></ul></dd>
     
 
@@ -4763,7 +4764,7 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Sat Oct 31 2026 11:17:25 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Sat Oct 31 2026 12:16:27 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
 </footer>
 
 <script>prettyPrint();</script>

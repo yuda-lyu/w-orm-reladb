@@ -73,14 +73,16 @@ let pmq = pmQueue(1)
  * 注意: 連線被後端或網路於空檔(無進行中語句，如伺服器重啟、連線被KILL、閒置逾時、網路斷線)中斷時，驅動於連線物件發出之'error'事件由sequelize之連線管理接手(連線建立後即永久掛監聽並自連線池移除該連線)，不使行程終止、不輸出後端錯誤原文；
  * 以該連線進行之操作(含以失效之transaction進行者)以其既有之失敗通道回報(reject)，其後之操作自連線池取得新連線。本套件不自建驅動連線、亦不掛驅動之監聽(R18)；此行為依賴sequelize 6於mssql、mysql、mariadb、postgres之連線管理(sqlite為本機檔案，無此種連線)
  *
- * 注意: sqlite之opt.storage無法開啟(SQLITE_CANTOPEN: 路徑為資料夾、檔名超長、無權限、路徑非法如win32之':memory:'等)時，需連線之各函數(select、selectByPk、insert、insertBulk、save、del、delAll、createStorage、genTransaction與init回傳之close)以既有失敗通道回報(reject；createStorage為can not import model訊息)，不會永不settle(第210項, R19)：
+ * 注意: sqlite之opt.storage含NUL字元、或恰為':memory:'者，建構時即拋出invalid opt.storage: <原因>(不回顯值；第213項, R20)：sqlite3於NUL截斷檔名，不同名稱(如a\0b、a\0c)會指向同一檔；
+ * opt.storage經path.resolve，故':memory:'不是記憶體資料庫(POSIX為cwd下名為:memory:之檔案，win32為非法路徑)，且各函數每次初始化與關閉，記憶體資料庫無法跨呼叫保留，故不支援。僅sqlite檢查，其他方言不使用opt.storage
+ *
+ * 注意: sqlite之opt.storage無法開啟(SQLITE_CANTOPEN: 路徑為資料夾、檔名超長、無權限、路徑非法等)時，需連線之各函數(select、selectByPk、insert、insertBulk、save、del、delAll、createStorage、genTransaction與init回傳之close)以既有失敗通道回報(reject；createStorage為can not import model訊息)，不會永不settle(第210項, R19)：
  * sequelize 6把開啟失敗之Database留在連線表，其close()永不回呼，本套件於關閉前先移除未開啟(Database.open嚴格為false)者(dropUnopenedConn)。reject之訊息不帶連線憑證。
- * 註: opt.storage經path.resolve，故':memory:'不是記憶體資料庫(POSIX為cwd下名為:memory:之檔案，win32為非法路徑)
  *
  * @class
  * @param {Object} [opt={}] 輸入設定物件，預設{}
  * @param {String} [opt.url='mssql://username:password@localhost:1433'] 輸入連接資料庫字串，資料庫可選'mssql'、'sqlite'、'mysql'、'mariadb'、'postgres'，預設'mssql://username:password@localhost:1433'。格式不合者建構時拋出Error(訊息前綴如invalid host in opt.url)，訊息內回顯之url只含scheme：scheme為上列五者之一時為'<scheme>://***'，其餘(含無://者)整段為***，不回顯主機、帳號與密碼(wsemi之maskDiagUrl)
- * @param {String} [opt.storage='./worm.db'] 輸入為sqlite時，資料庫檔案所在位置字串，預設'./worm.db'
+ * @param {String} [opt.storage='./worm.db'] 輸入為sqlite時，資料庫檔案所在位置字串，預設'./worm.db'。須為檔案路徑：含NUL字元(\0)、或恰為':memory:'者建構時拋出Error(訊息invalid opt.storage: string contains NUL、invalid opt.storage: must be a file path, an in-memory database is not supported，不回顯值)；含孤立代理碼元者亦拋出(invalid opt.storage: string contains lone surrogate)
  * @param {Boolean} [opt.useEncryption=false] 輸入為sqlite時是否使用加密套件[@journeyapps/sqlcipher]，型別為布林值，預設false，若是的話因依賴預設不安裝，得自行人工安裝
  * @param {String} [opt.db='worm'] 輸入使用資料庫名稱字串，預設'worm'
  * @param {String} [opt.cl='test'] 輸入使用資料表名稱字串，預設'test'
@@ -133,7 +135,7 @@ function WOrmReladb(opt = {}) {
 
     //儲存位址名稱(opt.db、opt.cl、opt.url、opt.storage)含孤立代理碼元者建構時即拋出(第66項, R13):
     //路徑與名稱經UTF-8轉換後孤立代理碼元被改寫為U+FFFD, 不同名稱會指向同一儲存(如兩個不同之storage路徑共用同一個sqlite檔);
-    //須先於opt.url之解析(其錯誤訊息會回顯opt.url); 訊息為固定詞彙且不回顯值, 此處不檢NUL(不屬本規則)
+    //須先於opt.url之解析(其錯誤訊息會回顯opt.url); 訊息為固定詞彙且不回顯值, 此處不檢NUL(名稱之NUL不屬本規則; sqlite之opt.storage之NUL另於dialect確定後檢, 見R20)
     for (let k of ['db', 'cl', 'url', 'storage']) {
         let why = chkOrmStr(opt[k], { nul: false })
         if (why !== null) {
@@ -141,8 +143,7 @@ function WOrmReladb(opt = {}) {
         }
     }
 
-    let storageRaw = opt.storage //呼叫端所給之形式(相對路徑等), 供診斷輸出之秘密(儲存路徑)使用
-    opt.storage = path.resolve(opt.storage)
+    let storageRaw = opt.storage //呼叫端所給之形式(相對路徑等), 供診斷輸出之秘密(儲存路徑)使用與sqlite之拒收判斷(R20); opt.storage於dialect確定後才path.resolve
     if (!isbol(opt.useEncryption)) {
         opt.useEncryption = false
     }
@@ -173,6 +174,24 @@ function WOrmReladb(opt = {}) {
     if (!arrHas(dialect, DIALECTS)) {
         throwUrlErr('invalid dialect in opt.url')
     }
+
+
+    //sqlite之opt.storage須為可指向實體檔案之路徑, 含NUL者與恰為':memory:'者建構時即拋出(第213項, R20; 僅sqlite, 其他方言不用opt.storage):
+    //①含NUL: sqlite3於NUL截斷檔名(a\0b.sqlite開出名為a之檔), 不同名稱(a\0b、a\0c)會指向同一檔, 與孤立代理碼元(R13)同型之別名; 原因取wsemi之chkOrmStr(孤立代理已於上方迴圈檢出, 此處只會是NUL)
+    //②':memory:'為sqlite之記憶體資料庫哨兵值, 但本套件各函數每次init+close, 記憶體庫無法跨呼叫保留, 且opt.storage經path.resolve後已非哨兵值(POSIX為cwd下名為:memory:之檔, win32為非法路徑), 故判斷用呼叫端所給之原值(storageRaw), 須於path.resolve之前
+    //訊息為固定詞彙, 不回顯值(dspec輸入參數之檢測機制V20); 明確之檔案路徑寫法(如./:memory:)、形似者(:memory:x、:MEMORY:)為一般檔名, 不拒
+    if (dialect === 'sqlite') {
+        let whyStorage = chkOrmStr(storageRaw)
+        if (whyStorage !== null) {
+            throw new Error(`invalid opt.storage: ${whyStorage}`)
+        }
+        if (storageRaw === ':memory:') {
+            throw new Error('invalid opt.storage: must be a file path, an in-memory database is not supported')
+        }
+    }
+    opt.storage = path.resolve(opt.storage)
+
+
     u = get(ss, 1, '') //另存給後面使用
 
 
