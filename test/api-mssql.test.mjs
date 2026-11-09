@@ -9,6 +9,7 @@ import { defineLowerCaseSuites } from './api-lower-cases.mjs'
 import { defineScopeSuites } from './api-scope.mjs'
 import { defineFloatSuites } from './api-float.mjs'
 import { defineConnErrSuites } from './api-connerr.mjs'
+import { defineTdsEncryptRealSuites } from './api-tdsencrypt-real.mjs'
 
 
 //測試自行創建docker容器供MSSQL服務, 測試結束即銷毀, 故僅需環境已安裝docker
@@ -153,6 +154,16 @@ let killSessions = async ({ pid, scenario }) => {
 }
 
 
+//encInfo, 該行程(tedious登入時回報之host_process_id)之各連線之program_name與encrypt_option(api-tdsencrypt-real之hook, R21-7)
+let encInfo = async ({ pid }) => {
+    let r = await sqlcmd(['-h', '-1', '-W', '-s', ',', '-Q', `SET NOCOUNT ON; SELECT s.program_name, c.encrypt_option FROM sys.dm_exec_sessions s JOIN sys.dm_exec_connections c ON c.session_id = s.session_id WHERE s.login_name = 'username' AND s.is_user_process = 1 AND s.host_process_id = ${Number(pid)}`])
+    return String(r.stdout).split(/\r?\n/).map((l) => l.trim()).filter((l) => l !== '').map((l) => {
+        let [app, enc] = l.split(',')
+        return { app, enc }
+    })
+}
+
+
 let getOpt = (ex = {}) => {
     return {
         url: `mssql://username:password@localhost:${ctPort}`,
@@ -183,3 +194,4 @@ defineLowerCaseSuites('mssql', getOpt)
 defineScopeSuites('mssql', getOpt)
 defineFloatSuites('mssql', getOpt)
 defineConnErrSuites('mssql', getOpt, { kill: killSessions, sleepSql: `WAITFOR DELAY '00:00:30'` })
+defineTdsEncryptRealSuites('mssql', getOpt, { encInfo, getDirect: () => ({ host: 'localhost', port: ctPort, username: 'username', password: 'password', database: 'worm' }) })

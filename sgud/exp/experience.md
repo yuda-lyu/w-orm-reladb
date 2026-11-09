@@ -244,6 +244,15 @@
 - **驗固定詞彙原樣的方式**:以密碼恰為訊息子字串建實例(`invalid`、`import`、`closed`,皆 ≥4 字元才進 reject 清單),並在同一實例上放一個含該字的外來錯誤作對照(仍被遮),才能證明原樣是分流所致而非遮罩沒作用。
 - **外來錯誤之注入**:sqlite 測試用 model 檔之 hook(`beforeFind`、`beforeCreate`、`beforeBulkCreate`、`beforeBulkDestroy`)經 `globalThis.__wormWire` 拋出任意值——hook 於取連線前執行,不留 sqlite 檔案控制代碼;save/del 要觸發整批 reject 須拋 `Sequelize.ConnectionError`(`isBatchLevelError`),其他錯誤會變逐筆 err。`initSequelize` 之加密設定路徑:sqlcipher 未安裝,以 `Module._resolveFilename` 把 `@journeyapps/sqlcipher` 暫解析為 sqlite3,並在 `Sequelize.prototype.query` 層讓 `PRAGMA` 失敗(不開連線);`closeSequelize` 以先呼叫原 `close` 再拋錯之方式注入,避免檔案鎖使 `after` 刪不掉 `test/_tmp`。
 - **wsemi 之動態秘密**:`maskDiagCopy`/`maskDiagErr` 把錯誤自帶之 `path` 併入該次細節清單,故 `genModelsByTabs` 寫檔失敗之 `logDetail` 輸出不再見到檔名(`open '***'`);舊測試斷言「logDetail 還原路徑」者須改。
+
+## td01(2026-11-09,tedious 升 20.3.8,MSSQL 連線預設加密 R21;探測與修前對照腳本在 `./tmp/td01/` 結案時清除,證據在主控任務夾之 `agent-out/td01-evidence/`)
+
+- **本套件之連線加密預設其實來自兩個依賴**:sequelize 6 之 mssql connection-manager 只設 `trustServerCertificate: true`、不設 `encrypt`,故 `encrypt` 取 tedious 預設 `true`;本套件與 w-auto-sequelize 皆不傳 `dialectOptions`,呼叫端無從設定。讀碼要讀到 `sequelize/lib/dialects/mssql/connection-manager.js:33-47`,不能只看本套件 `optSeq`。
+- **「伺服器不協商加密」可用二十行假 TDS 伺服器造出**(`test/tools/fakeTds.mjs`):只回應 PRELOGIN(type 0x12 → 回 0x04,ENCRYPTION 選項填 NOT_SUP/OFF 或省略),以「是否收到 LOGIN7(0x10)與編碼後密碼位元組(UTF-16LE,每位元組高低半互換再 XOR 0xA5)」判定是否明文登入;收到 LOGIN7 即斷線,令舊驅動即時失敗而非等 15 秒逾時。必配**對照案**(驅動顯式 `encrypt:false` → 伺服器確收到 LOGIN7),否則「沒收到」之綠分不出偵測器失效。真 SQL Server 2022 容器支援加密(`sys.dm_exec_connections.encrypt_option = TRUE`;對照直連 `encrypt:false` 為 `FALSE`),故測試設定不需 `encrypt:false`;容器之 `sqlcmd` 加 `-C` 只是 sqlcmd 自身信任憑證。
+- **修前對照不必動 `node_modules`**:`npm i tedious@19.2.2 --prefix ./tmp/td01/old` 另裝一份,以 `node --require ./tmp/td01/redirect.cjs`(覆寫 `Module._resolveFilename`,把 `'tedious'` 導向該副本)跑同一測試檔;測試檔以 `createRequire` 載入 tedious(ESM 之 `import` 不經 `Module._resolveFilename`,導向不生效)。
+- **斷言順序**:核心性質(伺服器未收到 LOGIN7)置於錯誤碼斷言之前,修前紅之訊息才指向「明文登入」而非 `ESOCKET`(舊驅動送出 LOGIN7 後因假伺服器斷線而得 ESOCKET)。
+- **`npm i tedious@20.3.8` 之連動**:`package-lock.json` 之 `@azure/*`、`agent-base` 等為 tedious 自身依賴樹更新;`sqlite3` 之 `install-scripts blocked` 警告為既有之 allowScripts 設定,其原生檔未被動到(裝後仍可載入),**不要為此跑 `npm ci`**(會清空 `node_modules` 而不執行被擋之腳本)。
+- **診斷摘要缺 `errCode`**:wsemi 之 mssql 錯誤碼清單無 `EENCRYPT`,`createStorage` 等之 `funLog` 摘要只見 `errType`;已列回饋(`sgud/feedback/feedback.md`)。
 - **原始碼盤點測試之註解剝除**:行內 `//` 註解裡出現 `://***` 會含 `/*`,若先以 `/\*[\s\S]*?\*/` 剝區塊註解會從該處吃到下一個 JSDoc 結尾,把中間的程式碼(如 `throwUrlErr`)整段當註解;改為只認行首之 `/*`。
 - **變異時原始碼盤點不計**:`unit-diaglog` 讀 cwd 之 `./src`,變異副本在 `./tmp/mig-reladb/mut/src`,故變異結果之「殺死」皆來自行為測試(`api-diaglog-wire` 等),盤點測試另行鎖站點。
 - **測試鎖**:同時有 2 套件跑全套且佇列 4～6 筆時,排隊可超過 20 分;背景指令(10 分鐘後即被收)會失去佇列位置,改以 `nohup node quiet-run --lock -- node tmp/<輪>/run-all.mjs` 啟動,一次取鎖內依序跑「受影響測試 → 全綠才跑修前紅與變異」。

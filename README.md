@@ -411,6 +411,31 @@ A lone surrogate in `opt.storage` and in `opt.db` / `opt.cl` is still reported f
 - **Who is affected**: code that passes `':memory:'` (it never got an in-memory database) or a name with a `NUL`. Use a real file path; for throwaway data use a file under `os.tmpdir()` and delete it afterwards. No option restores the old behavior.
 - **Not changed**: every other `opt.storage`, including the ones that cannot be opened (see the previous section).
 
+### Connection encryption of `mssql`
+
+Every `mssql` connection of this package is opened by `sequelize` 6 with the `tedious` driver: the functions of an instance (`select`, `selectByPk`, `insert`, `insertBulk`, `save`, `del`, `delAll`, `createStorage`, and `genTransaction()`, which takes its connection when it is called; `init()` itself does not connect) and `genModelsByDB()` (through `w-auto-sequelize`, which builds its own `sequelize`). **None of them passes a connection-encryption option, and this package has no option to set one** (`opt` and the `option` of `genModelsByDB` have no `dialectOptions`, `encrypt` or `trustServerCertificate`), so the defaults of the dependencies apply:
+
+| Setting | Value | Set by | Meaning |
+|---|---|---|---|
+| `encrypt` | `true` | default of `tedious` | the connection must be encrypted with TLS; the login (with the credentials) is sent only after the TLS handshake |
+| `trustServerCertificate` | `true` | `sequelize` 6 (`mssql` connection manager) | the certificate of the server is **not validated** (a self-signed certificate, such as the one SQL Server creates by itself, is accepted). The traffic is encrypted against eavesdropping, but a man-in-the-middle who presents a certificate of his own is not detected |
+
+Checked against a real SQL Server 2022 (`test/api-tdsencrypt-real.mjs`): the connections made by this package report `encrypt_option = TRUE` in `sys.dm_exec_connections`.
+
+### Breaking changes: `tedious` 20, a server that does not negotiate encryption fails the connection
+
+`tedious` is now `^20.3.8` (it requires **Node.js >= 22**). Up to `tedious` 20.3.6 (GHSA-wj7m-ffj3-574h) the default `encrypt: true` was not enforced: when the server answered the pre-login handshake with "encryption not supported" or "off", or left the encryption field out, the driver **silently continued without TLS and sent the login packet, with the user name and the password, unencrypted** (`trustServerCertificate: false` did not help). From 20.3.7 the connection fails instead: the connection error is `EENCRYPT` (`Server did not negotiate encryption, but the 'encrypt' config option is set to \`true\`…`).
+
+| Function | When the server does not negotiate encryption |
+|---|---|
+| `select`, `selectByPk`, `insert`, `insertBulk`, `save`, `del`, `delAll`, `genTransaction`, `genModelsByDB` | rejects with a `SequelizeConnectionError` whose `original` / `parent` is the driver error with `code: 'EENCRYPT'` (`save` and `del` reject, as they do for any connection error) |
+| `createStorage` | rejects with the fixed message `can not import model: <cl>, need to use genModelsByDB, genModelsByTabs or create <cl>.js` (a failed connection during the model sync gives this message; the original text is in the diagnostic output with `opt.logDetail` or `opt.funLog`) |
+
+- **Who is affected**: code that connects to a SQL Server (or something in front of it) that does not negotiate encryption. Before, it worked, with the login in clear text; now it fails. Nothing else changes: a server that negotiates encryption (the usual case, including the SQL Server 2022 container image) is connected exactly as before.
+- **What to do**: make the server negotiate encryption (a certificate, or at least a server that supports encryption). **This package has no option to switch encryption off** and the default is not changed to unencrypted; an unencrypted `mssql` connection is not supported.
+- **Not changed**: `sqlite`, `mysql`, `mariadb` and `postgres` (the drivers of these dialects are not dependencies of this package).
+- Verified without a real server by a minimal TDS server that answers only the pre-login handshake (`test/api-tdsencrypt.test.mjs`): with "not supported", "off" and a missing field, the server receives only the pre-login packet — no login packet, no password bytes — for each function above; the same test run against `tedious` 19.2.2 shows the login packet (and the password bytes) arriving.
+
 ## Before Installation
 > If you need to use encrypted sqlite, you need to manually install `@journeyapps/sqlcipher`, as follows:
 >1. Open visual studio code by system administrator.

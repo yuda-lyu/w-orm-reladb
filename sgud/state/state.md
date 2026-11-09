@@ -2,7 +2,7 @@
 
 本檔記當前已開發功能之最新狀態(各功能做到哪裡、對應之規則帳本條目與測試檔、已知缺口與待辦、最近一次驗證或發布之版本),只記現況、不寫過程(過程見 `sgud/exp/experience.md`)。藍圖(規則)見 `sgud/rule/rulebook.md`。
 
-- 套件版本:`package.json` 1.1.20(第 208/209/210/213 項〔2026-10-31〕未動 `version`;發布由使用者/主控負責)。依賴 `wsemi` `^1.9.33`、`w-auto-sequelize` `^1.0.53`、devDependency `w-package-tools` `^1.1.21`(第 213 項再查證:自有相依皆已最新,`npm-check-updates` 僅列非自有之 `tedious` 19→20 major,不動)。
+- 套件版本:`package.json` 1.1.29(td01〔2026-11-09〕未動 `version`;發布由使用者/主控負責)。依賴 `wsemi` `^1.9.52`、`w-auto-sequelize` `^1.0.62`、`tedious` `^20.3.8`(td01 由 `^19.2.2` 升;tedious 20 要求 Node >= 22)、devDependency `w-package-tools` `^1.1.23`。
 - 本檔於 2026-10-28(reladb-run01)首次建立;更早之功能現況請以 `sgud/rule/rulebook.md` 之 R1–R16 與〈破壞性變更紀錄〉為準。
 
 ## 功能現況
@@ -16,7 +16,16 @@
 | **連線空檔被中斷不使行程終止(第 209 項,2026-10-31)** | R18 | `api-connerr`(經 `api-mssql.test.mjs`)、`unit-connerr`;情境 `test/tools/connErrScenario.mjs` | 完成:查證不屬實(sequelize 6 於四個網路方言之連線已永久掛 `error` 監聽),未改 `src` 行為;守則測試入庫(見下) |
 | **`genModelsByDB` 失敗改 reject(第 208 項,2026-10-31)** | R17-7f(更正) | `api-diaglog-gen`、`api-diaglog-wire` | 完成:README/JSDoc/帳本已更正,測試已改並補 reject 案(見下) |
 | **sqlite storage 無法開啟時各函數須 settle(第 210 項,2026-10-31)** | R19 | `api-sqlite-open`(104 案,含第 213 項增 31 案)、`unit-sqlite-open`(11 案);情境 `test/tools/sqliteOpenScenario.mjs` | 完成:屬實並已修(`src/dropUnopenedConn.mjs`、`closeSequelize` 呼叫);見下 |
+| **MSSQL 連線預設加密;tedious 20.3.8,伺服器不協商加密時連線失敗而非明文登入(td01,2026-11-09)** | R21 | `api-tdsencrypt`(36 案,假 TDS 伺服器,不需 docker)、`api-tdsencrypt-real`(經 `api-mssql.test.mjs`,真 SQL Server 2022 容器 1 案)、`unit-tdsencrypt`(14 案);工具 `test/tools/fakeTds.mjs` | 完成(見〈td01〉段);未外露加密選項(呼叫端無法連至不支援加密之 MSSQL),需否新增選項待主控裁示 |
 | **sqlite 之 opt.storage 含 NUL 或恰為 `:memory:` 於建構時拒收(第 213 項,2026-10-31)** | R20(R13、R19 相關句已更正) | `unit-storage`(51 案)、`api-sqlite-open`(R20-9、R20-10;104 案)、`unit-wellformed`(盤點案)、`unit-diaglog`(站點全集案) | 完成:屬實並已修(`src/WOrmReladb.mjs` 建構段);見下 |
+
+### td01:`tedious` 升至 20.3.8,MSSQL 連線預設加密(2026-11-09;R21;只動依賴、測試與文件,`src/` 未動)
+
+- 結論:`package.json` `tedious` `^19.2.2` → `^20.3.8`(安全公告 GHSA-wj7m-ffj3-574h:伺服器不協商加密時驅動靜默以明文送出登入封包;20.3.7 起報錯)。本套件所有 MSSQL 連線(`WOrmReladb.mjs:652` 一處 `new Sequelize`;`genModelsByDB` 經 `w-auto-sequelize` `auto-sequelize.js:29` 一處)皆不傳加密選項,`encrypt` 取 tedious 預設 `true`、`trustServerCertificate` 為 sequelize 6 設之 `true`;**預設未改、未新增關閉加密之選項**。連至不協商加密之伺服器者,原明文登入而可運作,現連線失敗(`EENCRYPT`)。各連線處之選項表見 R21。
+- 實測:①真 SQL Server 2022 容器(`api-mssql.test.mjs` 自建)**支援加密**,本套件之連線 `encrypt_option = TRUE`,故測試設定不需 `encrypt:false`;②假 TDS 伺服器(只回 PRELOGIN)令伺服器回報 NOT_SUP/OFF/省略加密欄:修後 10 個連線函數(含 `genTransaction`、`genModelsByDB`)皆 reject、伺服器只收到 PRELOGIN;修前(19.2.2 導向)36 案中 33 紅(收到 LOGIN7 與密碼位元組)、3 綠(對照案)。`init()` 本身不連線(探測 conns 0)。
+- 測試:`api-tdsencrypt`(36 案,不需 docker)、`api-tdsencrypt-real`(R21-7,1 案,經 `api-mssql.test.mjs`)、`unit-tdsencrypt`(14 案);工具 `test/tools/fakeTds.mjs`。變異 4 個全數殺死(M1 src 設 `encrypt:false` 28 紅〔`genModelsByDB` 3 案不經 src 故存活,由 w-auto-sequelize 站點盤點案守住〕、M3 下限 `^20.3.6` 1 紅、M4 偵測器失效 3 紅、M5 註明標記缺失 1 紅;四者之 src/測試/package.json 皆已還原並驗雜湊一致)。
+- 驗證(2026-11-09,`quiet-run --lock`):全套 `npm test` **6944 passing / 1280 pending / 0 failing,exit 0**(7m27s;較第 213 項之 6893 增 51 案 = 36 + 14 + 1);連到 MSSQL 容器者為 `api-mssql.test.mjs`(單檔實測 2900 passing / 642 pending,含 R21-7)。eslint 新增/改動 5 檔 0 error。首輪全套 1 紅:mssql「巢狀 × 清單長度: `$and` 4層 × 每層999項」之 15 秒請求逾時,**與升版無關之既有不穩定**(該案單獨即約 20 秒,select 與 delAll 各約 10 秒,逼近驅動之 15 秒請求上限;未改碼隔離重跑:修後 0/5 失敗、修前 19.2.2 為 2/5 失敗;全套負載下 1/3 輪失敗〔首輪紅、其後兩輪未改該案皆綠〕),未改碼、未放寬逾時;**僅確認非升版所致,未證實根除**。
+- 已知缺口/待辦:①呼叫端無法連至不支援加密之 MSSQL(未外露 `dialectOptions`);使用端若有此需求須另案新增明確選項(預設仍加密),待主控裁示;②`trustServerCertificate: true` 為 sequelize 6 預設,連線加密但不驗伺服器憑證(R21 已知限制①);③wsemi 之 mssql 錯誤碼清單缺 `EENCRYPT`,診斷摘要無 `errCode`(已列 `sgud/feedback/feedback.md`);④`ENCRYPT_REQ` 之假伺服器案與 TDS 8.0 strict 未涵蓋;⑤上述 4×999 逾時案為既有不穩定,是否調整該案之負載(如降項數)或逾時由主控裁示;⑥`mssql-worm` 容器依任務限制未連線(手動腳本 `g-mssql*.mjs` 未實跑)。
 
 ### reladb2:api-diaglog R17-1 註解去除之盲點(2026-10-31;R17-9;只動測試與文件,`src/` 未動)
 
@@ -86,4 +95,4 @@
   3. `genModelsByTabs.mjs` 之 TEXT 主鍵提示(`getField` 內 `o.type === 'TEXT'`)現況不可達(既有死碼,未動)。
   4. mssql 之 `insert`/`save` 綁定形式與 SQL 全文是否含值,未實測(診斷邏輯與資料庫種類無關;sqlite 已測)。
   5. `CLAUDE.md`〈除錯要點〉補句(`can not import model` 之原錯誤需 `logDetail:true` 才見)**由主控補**(主控裁示 4;本套件不改 `CLAUDE.md`)。
-- 最近一次驗證:**2026-10-31 第 213 項,全套 `npm test`(`quiet-run --lock`)6893 passing / 1280 pending / 0 failing,exit 0**(見上〈第 213 項〉段;未發布;其後 reladb2 只動測試與文件,跑受影響 4 檔 539 passing / 0 failing,全套待主控)。前次:2026-10-31 第 210 項,6811 passing / 1280 pending / 0 failing(見〈第 210 項〉段);更前:2026-10-31 第 208/209 項,6727 passing / 1280 pending / 0 failing(見〈第 208 項〉段)。再前:2026-10-29 mig-reladb,6712 passing / 1280 pending / 0 failing,exit 0(見 R17-8 段)。更前:2026-10-28 reladb-run03,全套 `npm test`(`quiet-run --lock`)6695 passing / 1280 pending / 0 failing,exit 0(= reladb-run02 之 6662 + 當時新增 33 案);其後僅於 `test/api-diaglog-gen.test.mjs` 補 1 案(無 src 改動),相關 4 檔(`unit-diaglog`、`api-diaglog-gen`、`api-diaglog`、`unit-urlerr`)重跑 125 passing / 0 failing(未發布;發布版本由主控決定)。
+- 最近一次驗證:**2026-11-09 td01,全套 `npm test`(`quiet-run --lock`)6944 passing / 1280 pending / 0 failing,exit 0**(見上〈td01〉段;未發布)。前次:2026-10-31 第 213 項,6893 passing / 1280 pending / 0 failing(見〈第 213 項〉段;其後 reladb2 只動測試與文件,跑受影響 4 檔 539 passing / 0 failing)。再前:2026-10-31 第 210 項,6811 passing / 1280 pending / 0 failing(見〈第 210 項〉段);更前:2026-10-31 第 208/209 項,6727 passing / 1280 pending / 0 failing(見〈第 208 項〉段)。再前:2026-10-29 mig-reladb,6712 passing / 1280 pending / 0 failing,exit 0(見 R17-8 段)。更前:2026-10-28 reladb-run03,全套 `npm test`(`quiet-run --lock`)6695 passing / 1280 pending / 0 failing,exit 0(= reladb-run02 之 6662 + 當時新增 33 案);其後僅於 `test/api-diaglog-gen.test.mjs` 補 1 案(無 src 改動),相關 4 檔(`unit-diaglog`、`api-diaglog-gen`、`api-diaglog`、`unit-urlerr`)重跑 125 passing / 0 failing(未發布;發布版本由主控決定)。
