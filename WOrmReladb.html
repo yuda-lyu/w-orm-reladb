@@ -89,13 +89,22 @@
 <p>注意: sqlite之opt.storage含NUL字元、或恰為':memory:'者，建構時即拋出invalid opt.storage: &lt;原因&gt;(不回顯值；第213項, R20)：sqlite3於NUL截斷檔名，不同名稱(如a\0b、a\0c)會指向同一檔；
 opt.storage經path.resolve，故':memory:'不是記憶體資料庫(POSIX為cwd下名為:memory:之檔案，win32為非法路徑)，且各函數每次初始化與關閉，記憶體資料庫無法跨呼叫保留，故不支援。僅sqlite檢查，其他方言不使用opt.storage</p>
 <p>注意: sqlite之opt.storage無法開啟(SQLITE_CANTOPEN: 路徑為資料夾、檔名超長、無權限、路徑非法等)時，需連線之各函數(select、selectByPk、insert、insertBulk、save、del、delAll、createStorage、genTransaction與init回傳之close)以既有失敗通道回報(reject；createStorage為can not import model訊息)，不會永不settle(第210項, R19)：
-sequelize 6把開啟失敗之Database留在連線表，其close()永不回呼，本套件於關閉前先移除未開啟(Database.open嚴格為false)者(dropUnopenedConn)。reject之訊息不帶連線憑證。</p></li></ul></dd>
+sequelize 6把開啟失敗之Database留在連線表，其close()永不回呼，本套件於關閉前先移除未開啟(Database.open嚴格為false)者(dropUnopenedConn)。reject之訊息不帶連線憑證。</p>
+<p>注意: 主鍵[給了而非字串或有限數字](第557項, R22): insert、insertBulk、save對主鍵之[未帶]只有undefined、null、空字串(含鍵不存在)，opt.autoGenPk為true時自動產生、為false時整批reject(invalid data[索引].主鍵欄, autoGenPk is false)；
+給了而非字串或有限數字者(布林、物件、陣列、NaN、±Infinity、BigInt、Symbol、Date、函數、new String、new Number、new Boolean等包裝物件，及讀取主鍵時拋錯之值)一律拒絕，不得靜默換成自動產生之主鍵，不隨opt.autoGenPk改變：
+insert與insertBulk整批reject(同批皆不寫入)、save該筆ok為0附err，訊息invalid id: not a string or finite number at [data[索引].主鍵欄]，不回顯值。有限數字為有效主鍵(R8, 依主鍵欄型別正規化，與僅收字串主鍵之同系列套件不同)；new String與new Number為物件，不拆包裝(只收原始值)而拒絕；del該筆ok為0、selectByPk回傳null</p>
+<p>注意: 讀取即拋錯之輸入(第557項, R23): 已撤銷之Proxy、Symbol.toStringTag或ownKeys陷阱拋錯之物件、成員為存取器而拋錯者，經wsemi之chkReadable分辨後依原失敗通道拒絕，訊息為固定詞彙invalid &lt;名稱&gt;: must be a readable value(不含原例外文字)：
+建構之opt與其成員(opt.url、db、cl、fdModels、modelType、pk、storage、autoGenPk、useStable、useEncryption、logging)同步throw(invalid opt、invalid opt.&lt;成員&gt;)，不被當成未給而改用預設；
+七函數之option(invalid option、invalid option.&lt;成員&gt;)、data(invalid data)、selectByPk之pk(invalid pk)為reject，error事件恰一次且data為null，不連線、不寫入；genModelsByDB之option與genModelsByTabs之fd、tabs、opt同步throw。
+可讀而型別不符者行為不變(建構用預設、data為5/字串/null/{}/[]回空結果、selectByPk回null)；data內之id屬性、列之成員或陣列元素本身為不可讀之值(或無法複製者，如原型為null之Date、過深之巢狀)於複製階段即失敗，
+與data本身不可讀同一通道與詞彙(invalid data: must be a readable value，reject且error事件恰一次、data為null，資料庫不變；複製處不分辨頂層或巢狀、不可讀或無法複製)。
+複製之後才讀取之原型存取器與繼承之存取器等所拋之外來錯誤，屬診斷出口(經遮罩之外來錯誤)而不轉為上述固定詞彙(已知限制，見R23)</p></li></ul></dd>
     
 
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line99">line 99</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line146">line 146</a>
     </li></ul></dd>
     
 
@@ -707,7 +716,7 @@ sequelize 6把開啟失敗之Database留在連線表，其close()永不回呼，
                 </td>
             
 
-            <td class="description last"><p>輸入若數據pk(id)欄位沒給時則自動給予隨機uuid，型別為布林值，預設true</p></td>
+            <td class="description last"><p>輸入若數據pk(id)欄位沒給時則自動給予隨機uuid，型別為布林值，預設true。[沒給]只有undefined、null、空字串(含鍵不存在)；給了而非字串或有限數字之主鍵一律拒絕而不自動產生(R22)</p></td>
         </tr>
 
     
@@ -846,7 +855,7 @@ sequelize 6把開啟失敗之Database留在連線表，其close()永不回呼，
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line700">line 700</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line845">line 845</a>
     </li></ul></dd>
     
 
@@ -954,7 +963,7 @@ sequelize 6把開啟失敗之Database留在連線表，其close()永不回呼，
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line2024">line 2024</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line2240">line 2240</a>
     </li></ul></dd>
     
 
@@ -1062,15 +1071,17 @@ sequelize 6把開啟失敗之Database留在連線表，其close()永不回呼，
 註: 未帶有效主鍵者為該筆之輸入問題，回ok為0與err且不送查詢條件(以免無效值被轉為null而誤中其他數據)，
 不中斷其餘筆數，以此與[主鍵未命中]之ok為1區辨；主鍵值與主鍵欄型別不符者(整數類主鍵欄給'012'等)亦同
 註: 主鍵值依主鍵欄型別正規化後刪除(字串類主鍵欄之123即'123')，正規化值寫回該筆數據
+註: 給了而非字串或有限數字之主鍵(布林、物件、陣列等)本即為該筆失敗(ok為0並附invalid data[索引].主鍵欄)，第557項核實不變；data或option不可讀者整批reject(invalid data: must be a readable value、invalid option…)，error事件恰一次且data為null(R23)
 註: 本函數不受opt.autoGenPk影響，於任一設定下皆不補值
-註: 主鍵含孤立代理碼元或NUL者(含new String包裝者；UTF-8存放之資料庫會把孤立代理碼元改寫為U+FFFD而刪到他筆)為該筆失敗，ok為0並附err(invalid id: 原因 at [data[索引].主鍵欄]，不回顯值)，
+註: new String與new Number為物件，不拆包裝(只收原始值)而為無效主鍵，該筆ok為0並附err(invalid data[索引].主鍵欄…；第557項全族對齊輪)
+註: 主鍵含孤立代理碼元或NUL者(UTF-8存放之資料庫會把孤立代理碼元改寫為U+FFFD而刪到他筆)為該筆失敗，ok為0並附err(invalid id: 原因 at [data[索引].主鍵欄]，不回顯值)，
 不送查詢，同批其他筆照常；只檢主鍵，其他欄位不檢(第66項, R13)；全部筆數皆不合格時不連線。其他無效主鍵之err亦不回顯主鍵值(invalid data[索引].主鍵欄…)</p></li></ul></dd>
     
 
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1699">line 1699</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1901">line 1901</a>
     </li></ul></dd>
     
 
@@ -1410,13 +1421,14 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
 排除NULL為{$and:[{f:{$ne:null}},{f:{$ne:x}}]}, 含NULL為{$or:[{f:null},{f:{$ne:x}}]}; 字串比對之大小寫依資料庫定序。</li>
 </ol>
 <p>註: n與nDeleted皆為實際刪除筆數，兩者恆相等，n不得取全表筆數
-註: 條件無命中時回{n:0,nDeleted:0,ok:1}，不視為錯誤</p></li></ul></dd>
+註: 條件無命中時回{n:0,nDeleted:0,ok:1}，不視為錯誤
+註: option不可讀或其成員instance、transaction為存取器而拋錯者，於入口階段整批reject(invalid option…)，error事件恰一次且data為null，不刪除任何數據(第557項, R23)</p></li></ul></dd>
     
 
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1919">line 1919</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line2130">line 2130</a>
     </li></ul></dd>
     
 
@@ -1743,13 +1755,14 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
 <p>include from: <a href="https://github.com/yuda-lyu/w-auto-sequelize">w-auto-sequelize</a></p>
 <p>失敗一律reject(w-auto-sequelize 1.0.53起，本函數直接回傳其promise)：建表清單、描述表、外鍵查詢、連線、建立輸出資料夾與寫出models檔失敗皆reject，不再只記錄診斷輸出而以空或部分結果resolve(亦不再有永不settle者)，失敗時不寫出任何models檔；診斷輸出照舊先於reject寫出。資料庫沒有任何資料表不是失敗，resolve空結果{ tables: {}, foreignKeys: {} }</p>
 <p>診斷輸出(sql紀錄與建表、外鍵查詢失敗)經本套件單一出口：預設承接建構時之opt.logging、opt.logDetail、opt.funLog，標籤加前綴'genModelsByDB '(如'genModelsByDB sql'、'genModelsByDB tables catch')，option內給予者(型別正確)覆寫單次呼叫；連線字串、帳號、密碼與sqlite檔案路徑(含opt.url、option.username、option.password、option.storage)於細節皆以***遮罩</p>
+<p>option不可讀(已撤銷之Proxy、ownKeys陷阱或Symbol.toStringTag拋錯之物件)或其成員為存取器而拋錯者，展開時即同步throw固定詞彙invalid option: must be a readable value(不含原例外文字，不連線；第557項, R23)</p>
 <p>reject與同步拋出之值為w-auto-sequelize所給(其固定詞彙如need username原樣；後端錯誤中單次呼叫之憑證已由w-auto-sequelize遮罩)</p></li></ul></dd>
     
 
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line2075">line 2075</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line2293">line 2293</a>
     </li></ul></dd>
     
 
@@ -2386,13 +2399,14 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
     
     <dt class="tag-description">Description:</dt>
     <dd class="tag-description"><ul class="dummy"><li><p>由資料表物件生成各資料表的models資料</p>
-<p>診斷輸出(產生之檔案路徑、寫檔失敗之錯誤)經本實例之單一出口(遵守opt.logDetail、opt.funLog)：標籤為'generate file:'、'save file catch'，預設只輸出{ name, type }與錯誤類別、代碼，路徑與錯誤原文為細節；寫檔失敗只記錄、不拋錯</p></li></ul></dd>
+<p>診斷輸出(產生之檔案路徑、寫檔失敗之錯誤)經本實例之單一出口(遵守opt.logDetail、opt.funLog)：標籤為'generate file:'、'save file catch'，預設只輸出{ name, type }與錯誤類別、代碼，路徑與錯誤原文為細節；寫檔失敗只記錄、不拋錯</p>
+<p>fd、tabs、tabs內之欄位型別與opt不可讀(已撤銷之Proxy、Symbol.toStringTag或ownKeys陷阱拋錯之物件，或成員為存取器而拋錯者)時，於建立資料夾與寫出任何檔案之前同步throw固定詞彙invalid fd、invalid tabs、invalid opt、invalid opt.type: must be a readable value(不含原例外文字；第557項, R23)，不被當成未給而寫入預設資料夾，亦不把不可讀之值當型別字串寫入models檔</p></li></ul></dd>
     
 
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line2151">line 2151</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line2377">line 2377</a>
     </li></ul></dd>
     
 
@@ -2697,7 +2711,7 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line724">line 724</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line869">line 869</a>
     </li></ul></dd>
     
 
@@ -2805,7 +2819,7 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line613">line 613</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line758">line 758</a>
     </li></ul></dd>
     
 
@@ -2991,6 +3005,9 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
 數據之字串值與鍵名(含巢狀物件、陣列元素、Map/Set等，不論欄位是否在model內)不得含孤立代理碼元(值之NUL不拒)；U+FFFD本身與成對代理(emoji等)為良構，照常接受。
 任一筆不合格即reject且同批皆不寫入，訊息為invalid id: 原因 at [data[索引].主鍵欄]或invalid data: 原因 at [data[索引].路徑]，不回顯值；
 不隨opt.autoGenPk改變(autoGenPk為true時亦不以自動產生之主鍵取代呼叫端所給之不合格主鍵)，檢核先於連線與model載入，作用於複本
+註: 主鍵[給了而非字串或有限數字](布林、物件、陣列、NaN、±Infinity、BigInt、Symbol、Date、函數、new String、new Number、new Boolean等包裝物件，及讀取時拋錯之值)整批reject且同批皆不寫入，不被當成[未帶]而以自動產生之主鍵取代，不隨opt.autoGenPk改變，
+訊息為invalid id: not a string or finite number at [data[索引].主鍵欄]，不回顯值(第557項, R22); [未帶]只有undefined、null、空字串(含鍵不存在)
+註: data不可讀(已撤銷之Proxy等)或option不可讀/其成員為存取器而拋錯者，整批reject(invalid data: must be a readable value、invalid option…)，error事件恰一次且data為null，不連線(第557項, R23); data為可讀而型別不符之值(5、字串、null、{}、[]等)維持回傳空結果
 註: option.returnList開啟時改回與輸入等長且保序之逐筆結果陣列[{n,nInserted,ok}]，
 聚合計數只答得出[有幾筆是新的]而答不出[是哪幾筆]，而後者正是去重之產出物；
 逐筆元素之n與ok恆為1，資訊由nInserted承載，不變式為
@@ -3000,7 +3017,7 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1018">line 1018</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1184">line 1184</a>
     </li></ul></dd>
     
 
@@ -3373,6 +3390,7 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
 註: DATE、DATEONLY欄之值換算後年份須在1–9999，範圍外或無效者(如new Date(8.64e15)、new Date(NaN))即reject且同批皆不寫入，訊息為invalid data: date is not a valid time in years 1-9999 at [data[索引].欄名]，
 不回顯值，兩方言一致於送出前拒收，規則同insert
 註: 主鍵與數據之字串須良構(孤立代理碼元、主鍵之NUL)，不合格者整批reject且同批皆不寫入，規則同insert(第66項, R13)
+註: 主鍵[給了而非字串或有限數字]者整批reject且同批皆不寫入(規則同insert，第557項, R22)；data或option不可讀者整批reject(規則同insert，R23)
 註: [全有全無]為獨立於T7之額外要求——T7僅保證每筆之[檢查主鍵不存在]與[寫入]為原子，不保證整批。
 mssql因綁定參數數量上限會由驅動層自動拆為多語句送出，實測1000筆之批次於末筆撞主鍵時已有946筆落盤，
 故一律以交易包覆並於失敗時回滾；呼叫端已給transaction時改以巢狀交易(SAVEPOINT)包覆，
@@ -3382,7 +3400,7 @@ mssql因綁定參數數量上限會由驅動層自動拆為多語句送出，實
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1209">line 1209</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1392">line 1392</a>
     </li></ul></dd>
     
 
@@ -3713,6 +3731,8 @@ mssql因綁定參數數量上限會由驅動層自動拆為多語句送出，實
 註: 主鍵值依主鍵欄型別正規化(字串類主鍵欄之123即'123')；型別不符(整數類主鍵欄給'012'等)屬呼叫端未履行契約，整批reject且同批皆不寫入
 註: DATE、DATEONLY欄之值換算後年份須在1–9999，範圍外或無效者(如new Date(8.64e15)、new Date(NaN))屬呼叫端未履行契約，整批reject且同批皆不寫入(含autoInsert為false而不會寫入者；不降為該筆ok為0)，
 訊息為invalid data: date is not a valid time in years 1-9999 at [data[索引].欄名]，不回顯值，兩方言一致於送出前拒收，規則同insert
+註: 主鍵[給了而非字串或有限數字]者(規則同insert，第557項, R22)為該筆失敗，ok為0並附err(invalid id: not a string or finite number at [data[索引].主鍵欄]，不回顯值)，同批其他筆照常，不隨opt.autoGenPk改變(修前autoGenPk為false時整批reject)；
+data或option不可讀者整批reject(invalid data: must be a readable value、invalid option…)，error事件恰一次且data為null(R23)
 註: 主鍵與數據之字串須良構(孤立代理碼元、主鍵之NUL；規則同insert, 第66項, R13)，但不合格者為該筆失敗而非整批reject：該筆ok為0並附err(invalid id: 原因 at [data[索引].主鍵欄]或invalid data: 原因 at [data[索引].路徑]，不回顯值)，
 不讀取資料庫、不寫入(含autoInsert為false)，同批其他筆照常處理；不隨opt.autoGenPk改變。全部筆數皆不合格時不連線</p></li></ul></dd>
     
@@ -3720,7 +3740,7 @@ mssql因綁定參數數量上限會由驅動層自動拆為多語句送出，實
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1559">line 1559</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1752">line 1752</a>
     </li></ul></dd>
     
 
@@ -4098,13 +4118,14 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
 <li>語意差異(SQL式): $ne/$nin不命中欄位為NULL之數據(三值邏輯)。需明確表達時可用可攜寫法:
 排除NULL為{$and:[{f:{$ne:null}},{f:{$ne:x}}]}, 含NULL為{$or:[{f:null},{f:{$ne:x}}]}; 字串比對之大小寫依資料庫定序。</li>
 </ol>
-<p>註: 恆回傳陣列, 無符合數據回傳空陣列</p></li></ul></dd>
+<p>註: 恆回傳陣列, 無符合數據回傳空陣列
+註: option不可讀(已撤銷之Proxy等)或其成員instance、transaction為存取器而拋錯者，於入口階段整批reject(invalid option: must be a readable value、invalid option.&lt;成員&gt;: must be a readable value)，error事件恰一次且data為null，不連線(第557項, R23)</p></li></ul></dd>
     
 
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line771">line 771</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line917">line 917</a>
     </li></ul></dd>
     
 
@@ -4429,16 +4450,18 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
     <dd class="tag-description"><ul class="dummy"><li><p>由主鍵查詢單筆數據，因由資料庫依主鍵索引取值且僅回傳單筆，不需如select提取全部符合數據再處理，故數據量大時效能較佳</p>
 <p>註: 主鍵欄位取自opt.pk，預設為id，支援由呼叫端指定
 註: 主鍵未命中或主鍵值無效皆回傳null而不reject，[命中]之判定基準與insert、save、del內對既有數據之認定一致
-註: 含孤立代理碼元或NUL之字串主鍵(含new String包裝者)為無效而回傳null，不連線、不送查詢(第66項, R13): UTF-8存放之資料庫會把孤立代理碼元改寫為U+FFFD，若照送會命中他筆
+註: 含孤立代理碼元或NUL之字串主鍵為無效而回傳null，不連線、不送查詢(第66項, R13): UTF-8存放之資料庫會把孤立代理碼元改寫為U+FFFD，若照送會命中他筆
+註: new String與new Number為物件，不拆包裝(只收原始值)而為無效，回傳null(第557項全族對齊輪)
 註: 主鍵值依主鍵欄型別正規化後查詢: 字串類主鍵欄之有限數字以String(v)處置(selectByPk(123)即查'123'), 整數類主鍵欄之標準整數寫法字串轉為數值;
 型別不符(整數類主鍵欄給'012'、12.4、'abc'等)亦屬主鍵值無效而回傳null
+註: 不可讀之pk(已撤銷之Proxy、Symbol.toStringTag拋錯者等，經wsemi之chkReadable判定)與不可讀之option(同select)為整批性錯誤: reject(invalid pk: must be a readable value、invalid option…)，error事件恰一次且data為null；可讀而非字串、非數字者(含new String、new Number)仍回傳null(第557項, R23)
 註: 本函數不得有副作用，故不創建資料表</p></li></ul></dd>
     
 
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line877">line 877</a>
+        <a href="WOrmReladb.mjs.html">WOrmReladb.mjs</a>, <a href="WOrmReladb.mjs.html#line1030">line 1030</a>
     </li></ul></dd>
     
 
@@ -4764,7 +4787,7 @@ sequelize之Op Symbol、RegExp值、陣列值(請改用$in)、欄位層$and/$or�
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Fri Nov 20 2026 01:35:01 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Fri Nov 20 2026 11:06:46 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
 </footer>
 
 <script>prettyPrint();</script>

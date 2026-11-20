@@ -140,15 +140,15 @@
 <dl class="details">
     
     <dt class="tag-description">Description:</dt>
-    <dd class="tag-description"><ul class="dummy"><li><p>檢核主鍵值之字串良構: 字串(含new String之原始值)不得含孤立代理碼元或NUL(第66項, R13)</p>
+    <dd class="tag-description"><ul class="dummy"><li><p>檢核主鍵值之字串良構: 字串不得含孤立代理碼元或NUL(第66項, R13)</p>
 <p>註: 判定單一出處為wsemi之chkOrmStr(預設連NUL一併檢查, 主鍵與條件側同標準); 非字串回傳null(其有效性由normPk判定)
-註: 先依normPk同一規則拆包裝物件(new String), 令其與原始字串同處置</p></li></ul></dd>
+註: 只收原始值(第557項全族對齊輪): new String等包裝物件非字串, 不拆包裝, 回傳null(其無效由normPk與chkWf之strictPk判定)</p></li></ul></dd>
     
 
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="cvFind.mjs.html">cvFind.mjs</a>, <a href="cvFind.mjs.html#line722">line 722</a>
+        <a href="cvFind.mjs.html">cvFind.mjs</a>, <a href="cvFind.mjs.html#line706">line 706</a>
     </li></ul></dd>
     
 
@@ -293,7 +293,7 @@
 
     
 
-    <h4 class="name" id="chkWf"><span class="type-signature"></span>chkWf<span class="signature">(data, pk, withData)</span><span class="type-signature"> &rarr; {Array}</span></h4>
+    <h4 class="name" id="chkWf"><span class="type-signature"></span>chkWf<span class="signature">(data, pk, withData, strictPk<span class="signature-attributes">opt</span>)</span><span class="type-signature"> &rarr; {Array}</span></h4>
 
     
 
@@ -307,14 +307,18 @@
 <p>註: 輸入須為呼叫端數據之cloneDeep複本(檢查之值即使用之值): 本函數對各筆先檢主鍵再(withData為true時)檢資料, 同筆內主鍵先於資料,
 資料由wsemi之chkOrmData走訪(鍵名先於值, 含巢狀物件、陣列元素、Map/Set等實存內容; 不論欄位是否在model內, 檢核先於欄位過濾)
 註: 訊息為固定詞彙且不回顯值: invalid id: &lt;原因&gt; at [data[&lt;索引&gt;].&lt;主鍵欄&gt;]、invalid data: &lt;原因&gt; at [&lt;路徑&gt;]; 合格者為null
-註: 主鍵值為包裝物件(new String、new Number)且合格者, 將原始值(字串或數值)寫回複本, 令其後之正規化讀到的即本函數所檢查者(包裝物件之valueOf只求值一次)
-註: 資料之NUL不檢查(值之NUL不拒, 僅主鍵拒NUL)</p></li></ul></dd>
+註: 資料之NUL不檢查(值之NUL不拒, 僅主鍵拒NUL)
+註: 主鍵值只收原始值, 不拆包裝(第557項全族對齊輪, 共同規則一第6點): new String、new Number為物件, 非字串亦非數值, 於strictPk時拒絕, 於del(非strictPk)由逐筆迴圈依normPk判無效而該筆ok為0</p>
+<p>註: strictPk為true時(供insert、insertBulk、save, 第557項, R22)另拒絕[給了而非字串或有限數字]之主鍵: 非字串、非有限數字, 且不是<a href="undefined%E3%80%81null%E3%80%81%E7%A9%BA%E5%AD%97%E4%B8%B2">未帶</a>者(含包裝物件),
+訊息為固定詞彙invalid id: not a string or finite number at [data[&lt;索引&gt;].&lt;主鍵欄&gt;], 不回顯值; 令autoGenPk為true時此類主鍵不被當成[未帶]而以自動產生之主鍵取代;
+讀取主鍵(原型存取器)而拋錯之值亦屬此類, 訊息同上, 不含原例外文字(R23, 共同規則四.2; 先讀取、拋錯後才歸類, 有效輸入不多讀)。
+strictPk為false(預設)時行為與第557項以前相同(del不使用, 其無效主鍵另於逐筆迴圈處置; 讀取拋錯維持原錯誤)</p></li></ul></dd>
     
 
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="cvFind.mjs.html">cvFind.mjs</a>, <a href="cvFind.mjs.html#line745">line 745</a>
+        <a href="cvFind.mjs.html">cvFind.mjs</a>, <a href="cvFind.mjs.html#line759">line 759</a>
     </li></ul></dd>
     
 
@@ -374,7 +378,11 @@
         <th>Type</th>
 
         
+        <th>Attributes</th>
+        
 
+        
+        <th>Default</th>
         
 
         <th class="last">Description</th>
@@ -400,7 +408,19 @@
             </td>
 
             
+                <td class="attributes">
+                
 
+                
+
+                
+                </td>
+            
+
+            
+                <td class="default">
+                
+                </td>
             
 
             <td class="description last"><p>輸入數據陣列(已cloneDeep)</p></td>
@@ -424,7 +444,19 @@
             </td>
 
             
+                <td class="attributes">
+                
 
+                
+
+                
+                </td>
+            
+
+            
+                <td class="default">
+                
+                </td>
             
 
             <td class="description last"><p>輸入主鍵欄位名</p></td>
@@ -448,10 +480,62 @@
             </td>
 
             
+                <td class="attributes">
+                
 
+                
+
+                
+                </td>
+            
+
+            
+                <td class="default">
+                
+                </td>
             
 
             <td class="description last"><p>輸入是否一併檢核資料(false只檢主鍵, 供del)</p></td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>strictPk</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">Boolean</span>
+
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+                <td class="default">
+                
+                    <code>false</code>
+                
+                </td>
+            
+
+            <td class="description last"><p>輸入是否拒絕[給了而非字串或有限數字]之主鍵布林值，預設false</p></td>
         </tr>
 
     
@@ -524,7 +608,7 @@ $eq $ne $gt $gte $lt $lte(純量)、$in $nin(純量陣列)、$and $or(條件物�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="cvFind.mjs.html">cvFind.mjs</a>, <a href="cvFind.mjs.html#line1024">line 1024</a>
+        <a href="cvFind.mjs.html">cvFind.mjs</a>, <a href="cvFind.mjs.html#line1051">line 1051</a>
     </li></ul></dd>
     
 
@@ -909,7 +993,7 @@ $eq $ne $gt $gte $lt $lte(純量)、$in $nin(純量陣列)、$and $or(條件物�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="cvFind.mjs.html">cvFind.mjs</a>, <a href="cvFind.mjs.html#line504">line 504</a>
+        <a href="cvFind.mjs.html">cvFind.mjs</a>, <a href="cvFind.mjs.html#line505">line 505</a>
     </li></ul></dd>
     
 
@@ -1066,13 +1150,15 @@ $eq $ne $gt $gte $lt $lte(純量)、$in $nin(純量陣列)、$and $or(條件物�
 本函數只以下列固定標籤呼叫diag(label, safe, getDetail)與diag.brief(err)，不以呼叫端之值組成label：
 'generate file:'(safe為{ name, type }，細節為檔案路徑)、'save file catch'(safe為{ name, type, errType, errCode }，細節為寫檔之錯誤)、
 'Can not use TEXT type for primary key. It will change type to STRING automatically.'(無safe)；safe之name為表名、type為'js'或'json'，呼叫端之safeKeys須含'name'、'type'方能保留之(白名單外之鍵由wsemi丟棄)
-未給或不合契約者(非函數或無brief)改用本模組之預設出口(wsemi之getDiag，console只輸出固定標籤與摘要，不輸出細節)；寫檔失敗只記錄、不拋錯</p></li></ul></dd>
+未給或不合契約者(非函數或無brief)改用本模組之預設出口(wsemi之getDiag，console只輸出固定標籤與摘要，不輸出細節)；寫檔失敗只記錄、不拋錯</p>
+<p>fd、tabs、tabs內之欄位型別與opt不可讀(已撤銷之Proxy、Symbol.toStringTag或ownKeys陷阱拋錯之物件，或成員為存取器而拋錯者)時，於建立資料夾與寫出任何檔案之前同步throw固定詞彙invalid fd、invalid tabs、invalid opt、invalid opt.type: must be a readable value(不含原例外文字；第557項, R23)，
+不被當成未給而寫入預設資料夾，亦不把不可讀之值當型別字串寫入models檔；可讀而型別不符者照既有行為</p></li></ul></dd>
     
 
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="genModelsByTabs.mjs.html">genModelsByTabs.mjs</a>, <a href="genModelsByTabs.mjs.html#line126">line 126</a>
+        <a href="genModelsByTabs.mjs.html">genModelsByTabs.mjs</a>, <a href="genModelsByTabs.mjs.html#line174">line 174</a>
     </li></ul></dd>
     
 
@@ -1438,7 +1524,7 @@ $eq $ne $gt $gte $lt $lte(純量)、$in $nin(純量陣列)、$and $or(條件物�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="cvFind.mjs.html">cvFind.mjs</a>, <a href="cvFind.mjs.html#line248">line 248</a>
+        <a href="cvFind.mjs.html">cvFind.mjs</a>, <a href="cvFind.mjs.html#line249">line 249</a>
     </li></ul></dd>
     
 
@@ -1620,7 +1706,7 @@ $eq $ne $gt $gte $lt $lte(純量)、$in $nin(純量陣列)、$and $or(條件物�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="cvFind.mjs.html">cvFind.mjs</a>, <a href="cvFind.mjs.html#line543">line 543</a>
+        <a href="cvFind.mjs.html">cvFind.mjs</a>, <a href="cvFind.mjs.html#line544">line 544</a>
     </li></ul></dd>
     
 
@@ -2202,7 +2288,7 @@ $eq $ne $gt $gte $lt $lte(純量)、$in $nin(純量陣列)、$and $or(條件物�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="cvFind.mjs.html">cvFind.mjs</a>, <a href="cvFind.mjs.html#line430">line 430</a>
+        <a href="cvFind.mjs.html">cvFind.mjs</a>, <a href="cvFind.mjs.html#line431">line 431</a>
     </li></ul></dd>
     
 
@@ -2363,7 +2449,7 @@ $eq $ne $gt $gte $lt $lte(純量)、$in $nin(純量陣列)、$and $or(條件物�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="cvFind.mjs.html">cvFind.mjs</a>, <a href="cvFind.mjs.html#line565">line 565</a>
+        <a href="cvFind.mjs.html">cvFind.mjs</a>, <a href="cvFind.mjs.html#line566">line 566</a>
     </li></ul></dd>
     
 
@@ -2539,8 +2625,10 @@ $eq $ne $gt $gte $lt $lte(純量)、$in $nin(純量陣列)、$and $or(條件物�
 <dl class="details">
     
     <dt class="tag-description">Description:</dt>
-    <dd class="tag-description"><ul class="dummy"><li><p>依主鍵欄型別分類正規化主鍵值, 與w-orm-mdb之normPk同一規則(見CLAUDE_rulebook.md之R8)</p>
-<p>註: kind為'ok'(v為正規化後之值)、'invalid'(未給或非有效值, 依規格T6處置)、'mismatch'(與主鍵欄型別不符)
+    <dd class="tag-description"><ul class="dummy"><li><p>依主鍵欄型別分類正規化主鍵值, 與w-orm-mdb之normPk同一規則(見rulebook.md之R8)</p>
+<p>註: 只收原始值(第557項全族對齊輪, 共同規則一第6點): new String、new Number為物件而非字串或數值, 不拆包裝, 一律為無效(wsemi判斷函數只收原始值, 同一原則);
+故本函數不讀物件之任何成員、標籤與valueOf, 物件值亦不會拋錯
+註: kind為'ok'(v為正規化後之值)、'invalid'(未給或非有效值, 依規格T6處置)、'mismatch'(與主鍵欄型別不符)
 註: 字串類主鍵欄之有限數字以String(v)處置, 與w-serv-orm、w-orm-mdb一致
 註: 整數類主鍵欄收安全整數, 以及標準整數寫法之字串(String(Number(s))===s)而轉為數值;
 超出安全整數之標準整數寫法字串保留為字串(精確值, 供BIGINT), 超出安全整數之數值已失精度而會命中相鄰主鍵, 視為型別不符;
@@ -2548,7 +2636,7 @@ $eq $ne $gt $gte $lt $lte(純量)、$in $nin(純量陣列)、$and $or(條件物�
 註: 其他數值類主鍵欄收有限數值與標準數字字串(轉為數值), 其他字串視為型別不符;
 DECIMAL主鍵欄之值小數位多於scale者寫入時會被四捨五入而改變鍵(mssql之DECIMAL(10,2)存1.254為1.25, insert回報已存在而selectByPk(1.254)回null), 視為型別不符
 註: 其他型別之主鍵欄不檢型別, 收非空字串與有限數值
-註: NaN、±Infinity、空字串、布林、物件、陣列、Date、BigInt、null、undefined為無效
+註: NaN、±Infinity、空字串、布林、物件(含new String、new Number)、陣列、Date、BigInt、null、undefined為無效
 註: 含孤立代理碼元或NUL之字串為無效(第66項, R13; 與條件側同標準): UTF-8存放之資料庫會把孤立代理碼元改寫為U+FFFD而使不同主鍵寫成同一鍵,
 回傳形狀不變({kind:'invalid'}), 故沿用各呼叫端對無效主鍵之既有處置; 需區辨[未給]與[不合格字串]者(autoGenPk不得以自動產生之主鍵取代呼叫端所給之不合格字串)用chkPkWf</p></li></ul></dd>
     
@@ -2556,7 +2644,7 @@ DECIMAL主鍵欄之值小數位多於scale者寫入時會被四捨五入而改�
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="cvFind.mjs.html">cvFind.mjs</a>, <a href="cvFind.mjs.html#line660">line 660</a>
+        <a href="cvFind.mjs.html">cvFind.mjs</a>, <a href="cvFind.mjs.html#line647">line 647</a>
     </li></ul></dd>
     
 
@@ -2815,7 +2903,7 @@ Date、epoch與帶時區之ISO字串先得瞬間, 再取其於主機時區之本
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="cvFind.mjs.html">cvFind.mjs</a>, <a href="cvFind.mjs.html#line193">line 193</a>
+        <a href="cvFind.mjs.html">cvFind.mjs</a>, <a href="cvFind.mjs.html#line194">line 194</a>
     </li></ul></dd>
     
 
@@ -2981,7 +3069,7 @@ Date、epoch與帶時區之ISO字串先得瞬間, 再取其於主機時區之本
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Fri Nov 20 2026 01:35:01 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Fri Nov 20 2026 11:06:46 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
 </footer>
 
 <script>prettyPrint();</script>
