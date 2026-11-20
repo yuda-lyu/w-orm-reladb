@@ -260,6 +260,41 @@ export function defineWhitelistSuites(label, getOpt) {
             }
             return f
         }
+        //withRequestTimeout, 於mssql暫時放寬tedious之requestTimeout(預設15000ms)後執行fn, 結束即復原並汰換連線池內之連線(第528項, rulebook R24)
+        //why: mssql編譯同一語句內同欄AND連鎖之<>條件, 耗時隨條件總數超線性增長(約1000項以下0.25秒內; 1500項2.4秒; 3000項約10秒; 3992項約25秒; 實測見R24),
+        //與生成之SQL形式無關(同欄$ne改寫為NOT IN亦同, 見R24), 屬SQL Server之編譯成本而非本套件之轉譯成本; $and 4層 × 每層999項(共3992個<>)單次請求約25秒, 逾預設15秒即逾時;
+        //$and 32層 × 每層99項(共3136個<>)閒置約11秒, 負載下(多套件並行)亦逾15秒(2026-11-20全套實測逾時一次).
+        //此為重案(同欄<>總數 >= HEAVY_NE)專屬之放寬(requestTimeout只對該案之連線生效), 不改src、不外露連線選項, 亦不用以掩蓋他案之逾時
+        //手法: tedious之requestTimeout於建立連線時由sequelize連線管理員之config.dialectOptions帶入; 改config後汰換連線池, 其後新連線即採用
+        let withRequestTimeout = async (ms, fn) => {
+            let cm = Object.values(ins.mds)[0].sequelize.connectionManager
+            let old = cm.config.dialectOptions
+            cm.config.dialectOptions = { ...(old || {}), options: { ...((old && old.options) || {}), requestTimeout: ms } }
+            await cm.pool.destroyAllNow()
+            try {
+                return await fn()
+            }
+            finally {
+                cm.config.dialectOptions = old
+                await cm.pool.destroyAllNow()
+            }
+        }
+
+        //countNe, 該案之同欄<>(填充之{g:{$ne}})總數: $and每層width - 1個, mix於偶數層為$or、奇數層為$and(每層另1個內層), $or無
+        let countNe = (op, levels, width) => {
+            if (op === '$and') {
+                return levels * (width - 1)
+            }
+            if (op === 'mix') {
+                return Math.floor(levels / 2) * (width - 1)
+            }
+            return 0
+        }
+        //HEAVY_NE, mssql編譯同欄<>連鎖之耗時於約1000項以上陡升(R24: 3000項約10秒、3992項約25秒, 閒置), 達此數之案於mssql須放寬requestTimeout與mocha逾時(第528項);
+        //2000為取自量測之門檻: 低於者(如1024項以下)閒置不足0.3秒, 不需放寬
+        let HEAVY_NE = 2000
+
+        //[op, levels, width, nestedFirst, extra]; 同欄<>總數達HEAVY_NE者(mssql: $and 32層 × 每層99項共3136個、$and 4層 × 每層999項共3992個)為重案
         for (let [op, levels, width, nestedFirst, extra] of [
             ['$or', 32, 33, true, false],
             ['$or', 32, 33, false, false],
@@ -273,14 +308,26 @@ export function defineWhitelistSuites(label, getOpt) {
             ['$or', 32, 4, true, true],
             ['mix', 32, 33, false, true],
         ]) {
-            it(`巢狀 × 清單長度: ${op} ${levels}層 × 每層${width}項${extra ? ' × 每層並列5欄(隱含AND)' : ''}(內層在${nestedFirst ? '首' : '末'}): select與delAll皆可執行且命中一致(樹深不隨巢狀 × 項數線性累加)`, async function() {
-                await reset()
-                let rs = await settle(w.select(nest(op, levels, width, nestedFirst, extra), cs))
-                assert.ok(rs.err === undefined, `select: ${rs.err && msgOf(rs.err)}`)
-                assert.deepStrictEqual(ids(rs.v), ['a1'])
-                let rd = await settle(w.delAll(nest(op, levels, width, nestedFirst, extra), cs))
-                assert.ok(rd.err === undefined, `delAll: ${rd.err && msgOf(rd.err)}`)
-                assert.deepStrictEqual(rd.v, { n: 1, nDeleted: 1, ok: 1 })
+            let slow = ci && !extra && countNe(op, levels, width) >= HEAVY_NE
+            it(`巢狀 × 清單長度: ${op} ${levels}層 × 每層${width}項${extra ? ' × 每層並列5欄(隱含AND)' : ''}(內層在${nestedFirst ? '首' : '末'}): select與delAll皆可執行且命中一致(樹深不隨巢狀 × 項數線性累加)${slow ? `; mssql編譯${countNe(op, levels, width)}個同欄<>耗時超線性(約10至25秒/次), 本案放寬requestTimeout(第528項, R24)` : ''}`, async function() {
+                if (slow) {
+                    this.timeout(900000) //select與delAll各約25秒(閒置)至數倍(負載下), 給足餘裕
+                }
+                let run = async () => {
+                    await reset()
+                    let rs = await settle(w.select(nest(op, levels, width, nestedFirst, extra), cs))
+                    assert.ok(rs.err === undefined, `select: ${rs.err && msgOf(rs.err)}`)
+                    assert.deepStrictEqual(ids(rs.v), ['a1'])
+                    let rd = await settle(w.delAll(nest(op, levels, width, nestedFirst, extra), cs))
+                    assert.ok(rd.err === undefined, `delAll: ${rd.err && msgOf(rd.err)}`)
+                    assert.deepStrictEqual(rd.v, { n: 1, nDeleted: 1, ok: 1 })
+                }
+                if (slow) {
+                    await withRequestTimeout(300000, run)
+                }
+                else {
+                    await run()
+                }
             })
         }
 

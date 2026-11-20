@@ -135,7 +135,7 @@ describe('原始碼盤點(R17、R-DIAG-01)', function() {
         /* eslint-enable no-template-curly-in-string */
     })
 
-    it('reject與throw之站點全集: 外來值經diag.err(5處), 固定詞彙不包; 可經catch站點交出之本套件錯誤皆以ownErr/markOwnErr登記', function() {
+    it('reject與throw之站點全集: 外來值經diag.err(4處), 固定詞彙不包; 可經catch站點交出之本套件錯誤皆以ownErr/markOwnErr登記', function() {
         let lines = src('WOrmReladb.mjs')
         let rej = []
         let err = []
@@ -154,20 +154,18 @@ describe('原始碼盤點(R17、R-DIAG-01)', function() {
         })
         assert.deepStrictEqual(rej.sort(), [
             'Promise.reject(\'invalid sequelize\')', //固定詞彙
-            'Promise.reject(diag.err(err))', //snap: 呼叫端數據之getter拋錯
-            'Promise.reject(err)', //selectByPk: procClosed之固定詞彙
-            ...Array(7).fill('Promise.reject(res)'), //整批: res已經outErr
+            'Promise.reject(err)', //selectByPk: procClosed之固定詞彙(snap之複製拋錯已於第557項全族對齊輪改為固定詞彙invalid data: must be a readable value, 經rejectIn, 不再經diag.err)
+            ...Array(8).fill('Promise.reject(res)'), //整批: res已經outErr(7個主catch站點之結果, 加rejectIn之入口階段拒絕〔第557項, R23〕)
             'pm.reject(si.err)', //createStorage: model載入失敗之固定詞彙
         ].sort())
         assert.deepStrictEqual(err.sort(), [
-            'return Promise.reject(diag.err(err))',
             'return own ? err : diag.err(err)',
             'throw diag.err(errSeq)',
             'throw diag.err(err)',
             'throw diag.err(err)',
         ].sort())
-        //throw new Error只留建構期之同步檢查(opt之孤立代理碼元、throwUrlErr、sqlite之opt.storage之NUL與:memory:〔R20, 第213項〕共4處), 其餘本套件錯誤以ownErr登記; 其他throw為重拋(err、si.err)或diag.err
-        assert.deepStrictEqual(thr.filter((v) => v === 'new Error(').length, 4)
+        //throw new Error只留建構期之同步檢查(opt之孤立代理碼元、throwUrlErr、sqlite之opt.storage之NUL與:memory:〔R20, 第213項〕共4處, 加opt容器與成員不可讀之3處〔readOpt之2、chkOptReadable之1, 第557項, R23〕), 其餘本套件錯誤以ownErr登記; 其他throw為重拋(err、si.err)或diag.err
+        assert.deepStrictEqual(thr.filter((v) => v === 'new Error(').length, 7)
         assert.ok(thr.every((v) => ['new Error(', 'ownErr(', 'diag.err(', 'err', 'si.err'].indexOf(v) >= 0), thr.join('|'))
         let cv = src('cvFind.mjs')
         assert.strictEqual(cv.filter((v) => /throw new Error\(/.test(v)).length, 0, 'cvFind之錯誤須以ownErr登記')

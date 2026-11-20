@@ -18,6 +18,7 @@ import { ownErr, markOwnErr } from './ownErr.mjs'
 //RegExp值、陣列值即$in、非物件視為{}等形狀層(破壞性變更見CLAUDE_rulebook.md與README)
 //主鍵值之正規化(normPk)亦屬本模組, 供主鍵函數與主鍵欄條件共用, 規則見R8
 //寫入側之字串良構檢核(chkPkWf、chkWf, 規則見R13)亦屬本模組: 字串之判定單一出處為wsemi之chkOrmStr、chkOrmData, 本模組只負責接線與訊息組裝
+//寫入側之主鍵[給了而非字串或有限數字]之拒絕(chkWf之strictPk, 規則見R22)亦屬本模組; 讀取即拋錯之主鍵值一併歸入, 見R23
 
 
 //Op
@@ -622,24 +623,10 @@ function isKindOk(v, kind, scale = null) {
 
 
 /**
- * 拆包裝物件: new String(x)與new Number(x)取原始值, 令其與原始值同處置(同w-orm-mdb)
+ * 依主鍵欄型別分類正規化主鍵值, 與w-orm-mdb之normPk同一規則(見rulebook.md之R8)
  *
- * @ignore
- */
-function unwrap(v) {
-    if (v !== null && typeof v === 'object') {
-        let c = Object.prototype.toString.call(v)
-        if (c === '[object String]' || c === '[object Number]') {
-            return v.valueOf()
-        }
-    }
-    return v
-}
-
-
-/**
- * 依主鍵欄型別分類正規化主鍵值, 與w-orm-mdb之normPk同一規則(見CLAUDE_rulebook.md之R8)
- *
+ * 註: 只收原始值(第557項全族對齊輪, 共同規則一第6點): new String、new Number為物件而非字串或數值, 不拆包裝, 一律為無效(wsemi判斷函數只收原始值, 同一原則);
+ * 故本函數不讀物件之任何成員、標籤與valueOf, 物件值亦不會拋錯
  * 註: kind為'ok'(v為正規化後之值)、'invalid'(未給或非有效值, 依規格T6處置)、'mismatch'(與主鍵欄型別不符)
  * 註: 字串類主鍵欄之有限數字以String(v)處置, 與w-serv-orm、w-orm-mdb一致
  * 註: 整數類主鍵欄收安全整數, 以及標準整數寫法之字串(String(Number(s))===s)而轉為數值;
@@ -648,7 +635,7 @@ function unwrap(v) {
  * 註: 其他數值類主鍵欄收有限數值與標準數字字串(轉為數值), 其他字串視為型別不符;
  * DECIMAL主鍵欄之值小數位多於scale者寫入時會被四捨五入而改變鍵(mssql之DECIMAL(10,2)存1.254為1.25, insert回報已存在而selectByPk(1.254)回null), 視為型別不符
  * 註: 其他型別之主鍵欄不檢型別, 收非空字串與有限數值
- * 註: NaN、±Infinity、空字串、布林、物件、陣列、Date、BigInt、null、undefined為無效
+ * 註: NaN、±Infinity、空字串、布林、物件(含new String、new Number)、陣列、Date、BigInt、null、undefined為無效
  * 註: 含孤立代理碼元或NUL之字串為無效(第66項, R13; 與條件側同標準): UTF-8存放之資料庫會把孤立代理碼元改寫為U+FFFD而使不同主鍵寫成同一鍵,
  * 回傳形狀不變({kind:'invalid'}), 故沿用各呼叫端對無效主鍵之既有處置; 需區辨[未給]與[不合格字串]者(autoGenPk不得以自動產生之主鍵取代呼叫端所給之不合格字串)用chkPkWf
  *
@@ -658,9 +645,6 @@ function unwrap(v) {
  * @returns {Object} 回傳{kind,v}
  */
 function normPk(v, kind, scale = null) {
-
-    //unwrap
-    v = unwrap(v)
 
     //string
     if (typeof v === 'string') {
@@ -711,20 +695,44 @@ function normPk(v, kind, scale = null) {
 
 
 /**
- * 檢核主鍵值之字串良構: 字串(含new String之原始值)不得含孤立代理碼元或NUL(第66項, R13)
+ * 檢核主鍵值之字串良構: 字串不得含孤立代理碼元或NUL(第66項, R13)
  *
  * 註: 判定單一出處為wsemi之chkOrmStr(預設連NUL一併檢查, 主鍵與條件側同標準); 非字串回傳null(其有效性由normPk判定)
- * 註: 先依normPk同一規則拆包裝物件(new String), 令其與原始字串同處置
+ * 註: 只收原始值(第557項全族對齊輪): new String等包裝物件非字串, 不拆包裝, 回傳null(其無效由normPk與chkWf之strictPk判定)
  *
  * @param {*} v 輸入主鍵值
  * @returns {String|null} 回傳null(非字串或合格)，或固定原因字串'string contains lone surrogate'、'string contains NUL'
  */
 function chkPkWf(v) {
-    v = unwrap(v)
     if (typeof v !== 'string') {
         return null
     }
     return chkOrmStr(v)
+}
+
+
+//WHY_PK_TYPE, 寫入側主鍵[給了而非字串或有限數字]之固定原因詞彙(第557項, R22; 全族之共同詞彙為not a string, 本套件之主鍵欄可為整數類或DECIMAL類故有限數字亦屬有效, 見R8, 詞彙以not a string起首)
+const WHY_PK_TYPE = 'not a string or finite number'
+
+
+/**
+ * 判定主鍵值是否為[給了而非字串或有限數字]: 即不是[未帶](undefined、null、空字串), 且不是字串、不是有限數字(包裝物件為物件, 屬之)
+ *
+ * @ignore
+ * @param {*} u 輸入主鍵值(原始值或物件, 不拆包裝)
+ * @returns {Boolean} 回傳是否為給了而非字串或有限數字布林值
+ */
+function isGivenNotPk(u) {
+    if (u === undefined || u === null || u === '') {
+        return false
+    }
+    if (typeof u === 'string') {
+        return false
+    }
+    if (typeof u === 'number' && Number.isFinite(u)) {
+        return false
+    }
+    return true
 }
 
 
@@ -734,29 +742,48 @@ function chkPkWf(v) {
  * 註: 輸入須為呼叫端數據之cloneDeep複本(檢查之值即使用之值): 本函數對各筆先檢主鍵再(withData為true時)檢資料, 同筆內主鍵先於資料,
  * 資料由wsemi之chkOrmData走訪(鍵名先於值, 含巢狀物件、陣列元素、Map/Set等實存內容; 不論欄位是否在model內, 檢核先於欄位過濾)
  * 註: 訊息為固定詞彙且不回顯值: invalid id: <原因> at [data[<索引>].<主鍵欄>]、invalid data: <原因> at [<路徑>]; 合格者為null
- * 註: 主鍵值為包裝物件(new String、new Number)且合格者, 將原始值(字串或數值)寫回複本, 令其後之正規化讀到的即本函數所檢查者(包裝物件之valueOf只求值一次)
  * 註: 資料之NUL不檢查(值之NUL不拒, 僅主鍵拒NUL)
+ * 註: 主鍵值只收原始值, 不拆包裝(第557項全族對齊輪, 共同規則一第6點): new String、new Number為物件, 非字串亦非數值, 於strictPk時拒絕, 於del(非strictPk)由逐筆迴圈依normPk判無效而該筆ok為0
+ *
+ * 註: strictPk為true時(供insert、insertBulk、save, 第557項, R22)另拒絕[給了而非字串或有限數字]之主鍵: 非字串、非有限數字, 且不是[未帶](undefined、null、空字串)者(含包裝物件),
+ * 訊息為固定詞彙invalid id: not a string or finite number at [data[<索引>].<主鍵欄>], 不回顯值; 令autoGenPk為true時此類主鍵不被當成[未帶]而以自動產生之主鍵取代;
+ * 讀取主鍵(原型存取器)而拋錯之值亦屬此類, 訊息同上, 不含原例外文字(R23, 共同規則四.2; 先讀取、拋錯後才歸類, 有效輸入不多讀)。
+ * strictPk為false(預設)時行為與第557項以前相同(del不使用, 其無效主鍵另於逐筆迴圈處置; 讀取拋錯維持原錯誤)
  *
  * @param {Array} data 輸入數據陣列(已cloneDeep)
  * @param {String} pk 輸入主鍵欄位名
  * @param {Boolean} withData 輸入是否一併檢核資料(false只檢主鍵, 供del)
+ * @param {Boolean} [strictPk=false] 輸入是否拒絕[給了而非字串或有限數字]之主鍵布林值，預設false
  * @returns {Array} 回傳訊息陣列，合格者為null
  */
-function chkWf(data, pk, withData) {
+function chkWf(data, pk, withData, strictPk = false) {
     let msgs = []
     for (let k = 0; k < data.length; k++) {
         let v = data[k]
         let msg = null
 
-        //pk, 主鍵先於資料; 包裝物件之valueOf只讀取一次(u為原始值), 合格者寫回複本
-        let pv = get(v, pk)
-        let u = unwrap(pv)
-        let why = chkPkWf(u)
+        //pk, 主鍵先於資料; 主鍵值只收原始值(不拆包裝, new String、new Number為物件而於strictPk時歸入[給了而非字串或有限數字])
+        //strictPk時讀取主鍵(原型存取器)而拋錯者, 於此讀取處捕捉而歸入[給了而非字串或有限數字](共同規則一.2、四.2; 拋出之文字由呼叫端決定, 不外帶);
+        //非strictPk(del)維持原拋錯
+        let pv
+        let why = null
+        let unreadable = false
+        try {
+            pv = get(v, pk)
+            why = chkPkWf(pv)
+        }
+        catch (err) {
+            if (!strictPk) {
+                throw err
+            }
+            unreadable = true
+            why = null
+        }
         if (why !== null) {
             msg = `invalid id: ${why} at [data[${k}].${pk}]`
         }
-        else if (u !== pv && (typeof u === 'string' || typeof u === 'number') && v !== null && typeof v === 'object') {
-            v[pk] = u
+        else if (strictPk && (unreadable || isGivenNotPk(pv))) {
+            msg = `invalid id: ${WHY_PK_TYPE} at [data[${k}].${pk}]`
         }
 
         //data

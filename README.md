@@ -106,6 +106,8 @@ The condition syntax was cut down to the whitelist above (series wide, issue "co
 | a column name outside `^[\p{L}_][\p{L}\p{M}\p{N}_]*$` (for example `p$x`) | accepted when the model listed that column | rejects: `unsupported column name` |
 | the same object repeated so that the condition expands exponentially | database error or the process ran out of memory | rejects: `condition is too large` |
 
+Known limit of `mssql`: SQL Server compiles a long chain of `<>` conditions on the same column in more than linear time (measured on SQL Server 2022: 998 conditions in a statement take well under a second, 1500 take about 2.4 s, 3000 about 10 s, 3992 about 25 s). The translation does not change this (a `$nin` list is expanded by SQL Server into the same chain), and the default `requestTimeout` of 15 s of the driver is reached at about 2800 conditions of that kind in one statement. Split such a condition into several calls of at most about a thousand conditions per statement.
+
 `select(null, connState)` and `delAll(null)` style calls must become `select({}, connState)` / `delAll({})` (or no argument). The options `ctx.escape` and `ctx.dialect` of `cvFind` are no longer used (they were only needed by `$regex`) and are ignored.
 
 ### Dates on write: years 1 to 9999
@@ -178,7 +180,7 @@ A string with a **lone surrogate** (half of a UTF-16 surrogate pair; `s.isWellFo
 
 | What | Refused |
 |---|---|
-| the primary key value (also a `new String(…)` wrapper) | a lone surrogate, and also `NUL` (`\u0000`), the same standard as a `find` |
+| the primary key value (a string; a `new String(…)` wrapper is not a string, it is refused as a key, see *Primary keys you supply*) | a lone surrogate, and also `NUL` (`\u0000`), the same standard as a `find` |
 | every string value and key name inside the data of `insert`, `insertBulk` and `save` (nested objects, array items, `Map` / `Set` content, `Error` / `RegExp` text …), **whether or not the model has that column** | a lone surrogate (a `NUL` inside a value is not refused by this check) |
 | `opt.url`, `opt.db`, `opt.cl`, `opt.storage` | a lone surrogate: **the constructor throws** `invalid opt.<name>: string contains lone surrogate` (two different names would otherwise point to the same storage, for example two sqlite files) |
 | `opt.storage` of `sqlite` (only there) | a `NUL` (`\u0000`) and the literal `':memory:'`: the constructor throws `invalid opt.storage: …` (see *Breaking changes: `opt.storage` of sqlite*); a `NUL` in `opt.db`, `opt.cl` or in `opt.storage` of another dialect is not checked |
@@ -435,6 +437,87 @@ Checked against a real SQL Server 2022 (`test/api-tdsencrypt-real.mjs`): the con
 - **What to do**: make the server negotiate encryption (a certificate, or at least a server that supports encryption). **This package has no option to switch encryption off** and the default is not changed to unencrypted; an unencrypted `mssql` connection is not supported.
 - **Not changed**: `sqlite`, `mysql`, `mariadb` and `postgres` (the drivers of these dialects are not dependencies of this package).
 - Verified without a real server by a minimal TDS server that answers only the pre-login handshake (`test/api-tdsencrypt.test.mjs`): with "not supported", "off" and a missing field, the server receives only the pre-login packet — no login packet, no password bytes — for each function above; the same test run against `tedious` 19.2.2 shows the login packet (and the password bytes) arriving.
+
+### Primary keys you supply: a key that is neither a string nor a finite number is refused
+
+`insert`, `insertBulk` and `save` tell **"no key given"** from **"a key was given"**:
+
+| | values |
+|---|---|
+| no primary key given | `undefined`, `null`, `''` (also a missing property): with `opt.autoGenPk: true` (default) a new key is generated, with `opt.autoGenPk: false` the call rejects with `invalid data[<i>].<pk>, autoGenPk is false` (as before) |
+| a key was given, valid | a non-empty string or a finite number, **as primitive values** (a string column stores a number as text, an integer or decimal column as a number, see the rules of the key column) |
+| a key was given, **refused** | everything else: `true` / `false`, an object, an array, `NaN`, `±Infinity`, a `BigInt`, a `Symbol`, a `Date`, a function, **`new String(…)` and `new Number(…)` (wrapper objects are not unwrapped)**, `new Boolean(…)`, a `Map`, a value that cannot be read (see *Input that cannot be read*) … |
+
+A key you gave is **never replaced by a generated one**, with `opt.autoGenPk` either `true` or `false`. This is checked together with the well formed strings (before the model files are loaded, before a connection is made, on the copy of your data), and the message is a fixed phrase that does not quote the value:
+
+```alias
+invalid id: not a string or finite number at [data[1].id]
+```
+
+| Function | What happens with a refused key |
+|---|---|
+| `insert`, `insertBulk` | the whole call rejects and **nothing is written**; the `error` event is emitted once before the promise rejects; the row with the smallest index is reported |
+| `save` | **only that row** reports `{ n: 1, nInserted: 0, nModified: 0, ok: 0, err }`, the other rows are saved as usual (also with `autoInsert: false`); the `error` event is emitted once for that row |
+| `del`, `selectByPk` | `del` reports `{ n: 0, nDeleted: 0, ok: 0, err: 'invalid data[<i>].<pk>' }` for that row, `selectByPk` returns `null` (this includes `new String(…)` / `new Number(…)`: they are not unwrapped, so they never match a row) |
+| `select`, `delAll` | unchanged: the condition check rejects with `invalid find: …` |
+
+Why numbers stay valid here: the primary key column of a relational table can be an integer or a decimal column, and a string column accepts a finite number as its text (`insert({ id: 123 })` stores `'123'`, rule of the key column unchanged). Packages of this series whose keys are strings only refuse every non-string key; this package refuses what is neither a string nor a finite number. Like the other packages it only accepts **primitive values** as keys: a `new String('a')` or `new Number(5)` is an object, it is refused, not unwrapped (the predicates of `wsemi` also take primitive values only).
+
+### Breaking changes: a supplied key that is neither a string nor a finite number
+
+| Input | before | now |
+|---|---|---|
+| `insert` / `insertBulk` / `save` with `opt.autoGenPk: true` and an `id` of `true`, `{}`, `[]`, `NaN`, `Infinity`, `1n`, `Symbol()`, `new Date()`, a function, … | the key was treated as "not given": **a generated key was written instead** (the row was stored under a new key, `ok: 1`) | `insert` / `insertBulk` reject (nothing written), `save` marks that row `ok: 0`; message `invalid id: not a string or finite number at [data[i].id]` |
+| the same with `opt.autoGenPk: false` | rejected with `invalid data[i].id, autoGenPk is false` (`save`: the **whole** call rejected) | the new message above; `save` marks only that row `ok: 0` |
+| `undefined`, `null`, `''`, missing `id` | generated (`autoGenPk: true`) or `invalid data[i].id, autoGenPk is false` (`autoGenPk: false`) | unchanged |
+| a string, a finite number | valid | unchanged |
+| `new String('a')`, `new Number(5)`, `new String('')` (wrapper objects), in `insert` / `insertBulk` / `save` | their primitive value was used (`new String('')` counted as "not given" and got a generated key) | refused, not unwrapped: `insert` / `insertBulk` reject (nothing written), `save` marks that row `ok: 0`; message `invalid id: not a string or finite number at [data[i].id]`; the key check never calls `valueOf` (copying a `new Number` whose own `valueOf` throws fails earlier, while your data is copied: `invalid data: must be a readable value`) |
+| `new String('a')`, `new Number(5)` in `del` / `selectByPk` | their primitive value was used (the row was deleted / returned) | `del` reports that row `ok: 0` (`invalid data[i].id`), `selectByPk` returns `null` |
+
+- **Who is affected**: code that passes a key which is not a string or a number (an object or boolean mistakenly) with `autoGenPk: true` and relied on the row being stored under a generated key; and code that passes `new String(…)` / `new Number(…)` as a key (convert it with `String(x)` / `Number(x)` first). Pass no key (leave `id` out, or `undefined` / `null` / `''`) when you want one to be generated.
+- `chkWf` of `src/cvFind.mjs` has a fourth parameter `strictPk` (default `false`, the behaviour of the previous release); `insert`, `insertBulk` and `save` pass `true`, `del` does not.
+
+### Input that cannot be read
+
+Some values throw as soon as they are looked at: a revoked `Proxy`, an object whose `Symbol.toStringTag` getter throws, a `Proxy` whose `ownKeys` trap throws, an array whose first element throws on reading. The predicates of `wsemi` (`isestr`, `isbol`, `iseobj`, `isearr`) answer `false` for them, which used to be read as "not the right type": the constructor silently used the default (`opt.cl` of a revoked `Proxy` became `'test'`), `genModelsByTabs` wrote into the default folder. Now, when such a predicate answers `false`, `chkReadable` of `wsemi` tells "cannot be read" from "readable, but the wrong type", and a value that cannot be read is refused **through the failure path of that function** with a fixed phrase that never contains the text of the original exception:
+
+```alias
+invalid <name>: must be a readable value
+```
+
+| Input | Name | Where | What happens |
+|---|---|---|---|
+| `opt` (the constructor argument) | `opt` | `new WOrmReladb(opt)` | throws (synchronously) |
+| `opt.url`, `opt.db`, `opt.cl`, `opt.fdModels`, `opt.modelType`, `opt.pk`, `opt.storage`, `opt.autoGenPk`, `opt.useStable`, `opt.useEncryption` | `opt.<name>` | constructor | throws (synchronously); a readable value of the wrong type still falls back to the default |
+| `option` (second argument) | `option` | `select`, `selectByPk`, `insert`, `insertBulk`, `save`, `del`, `delAll` | rejects; the `error` event is emitted once with `data` = `null` (nothing is written, nothing is connected) |
+| `data` itself, **or anything inside it that cannot be copied**: an `id` property, a member of a row, an item of the array, a `u8a` field that is a revoked `Proxy` or a throwing getter (also a `Date` whose prototype is `null`, or a structure nested too deep) | `data` | `insert`, `insertBulk`, `save`, `del` | rejects; the `error` event is emitted once with `data` = `null`, nothing is written (a nested value is treated exactly like the top level: the copy step does not tell them apart); a readable value of the wrong type (`5`, a string, `null`, `{}`, `[]`) still returns the empty result as before |
+| `pk` (first argument) | `pk` | `selectByPk` | rejects (the `error` event is emitted once, `data` = `null`); a readable value that is not a key (also `new String(…)`, `new Number(…)`) still returns `null` |
+| `option` | `option` | `genModelsByDB` | throws (synchronously, as this function always did for input it cannot spread) |
+| `fd`, `tabs`, a field type inside `tabs`, `opt` | `fd`, `tabs`, `opt` | `genModelsByTabs` | throws (synchronously) |
+
+An **accessor that throws** (the container is readable, one member throws when it is read; `chkReadable` does not call accessors, so this is caught where the member is read) is refused the same way and **its exception text is never passed on**, since the text is chosen by your object and may contain secrets: `invalid opt.<member>` (constructor), `invalid option.<member>` (`instance`, `transaction`, `returnList`, `autoInsert` of the second argument), `invalid pk` (`selectByPk`), `invalid opt.type` / `invalid tabs` (`genModelsByTabs`), `invalid option` (`genModelsByDB`, which cannot tell which member), and for a primary key that throws when it is read the message of a refused key (`invalid id: not a string or finite number at …`).
+
+A value **inside** your data that cannot be read (an `id` property, a member of a row or an array item that is itself a revoked `Proxy` or a throwing getter) fails while your data is copied. The copy step does not tell the top level from a nested value, and it does not tell "cannot be read" from "cannot be copied" (a `Date` whose prototype is `null`, a structure nested too deep): every failure of the copy is `invalid data: must be a readable value`, with the same path as the top level (`error` event once, `data` = `null`, the promise rejects, nothing is written, no key is generated). What happens **after** the copy (a getter on the prototype that is read later, the `message` of an `Error` value …) keeps its existing path: an exception thrown by your object is handed back after masking (the text is your object's, not guaranteed by this package). Checking and generating happen before anything is written: `genModelsByTabs` reads all of `tabs` first, so a refused table leaves no folder and no file behind.
+
+### Breaking changes: input that cannot be read
+
+| Input | before | now |
+|---|---|---|
+| `opt.<name>` that cannot be read (see the table) | the constructor used the default value silently | the constructor throws `invalid opt.<name>: must be a readable value` |
+| `opt` that cannot be read | the constructor threw the original exception (`Cannot perform 'get' on a proxy that has been revoked`) | `invalid opt: must be a readable value` |
+| `option` that cannot be read (every function that takes it) | rejected with the original exception text and **no `error` event** | rejects with `invalid option: must be a readable value`, `error` event once, `data` = `null` |
+| `opt.<name>` that is an accessor and throws | the constructor threw the original exception text | the constructor throws `invalid opt.<name>: must be a readable value` (no original text) |
+| `option.instance`, `option.transaction`, `option.returnList`, `option.autoInsert` that throws when read | rejected with the original text and **no `error` event** (`select`, `selectByPk`, `delAll`, `del`, `insert`, `insertBulk`, `save`) | rejects with `invalid option.<member>: must be a readable value` (no original text), the `error` event is emitted once (`data` = `null`) |
+| `data` that cannot be read | rejected with the original exception text, **no `error` event** (it failed while the data was copied) | rejects with `invalid data: must be a readable value`, `error` event once, `data` = `null` |
+| a value **inside** `data` that cannot be read or copied (an `id` property, a member of a row, an array item, a `u8a` field that is a revoked `Proxy` or a throwing getter; a `Date` with a `null` prototype; a structure nested too deep) in `insert`, `insertBulk`, `save`, `del` | rejected with the original exception text (e.g. `Cannot perform 'IsArray' on a proxy that has been revoked`, `Maximum call stack size exceeded`), **no `error` event**; an array whose first item is such a getter and which has exactly one item already gave `invalid data` (and the `error` event) while the same getter in an array of two items gave the original text | rejects with `invalid data: must be a readable value`, `error` event once, `data` = `null`, whatever the position and the length of the array |
+| `pk` that cannot be read | `selectByPk` rejected with the original text and no `error` event | rejects with `invalid pk: must be a readable value`, `error` event once |
+| `pk` that is a wrapper (`new String(…)`, `new Number(…)`), also one whose `valueOf` throws | the primitive value was used (the row was returned); a throwing `valueOf` rejected with `invalid pk` | `null`: the wrapper is not unwrapped and `valueOf` is not called |
+| `genModelsByDB(option)` with an `option` that cannot be spread (revoked proxy, throwing trap or getter) | threw the original exception | throws `invalid option: must be a readable value` |
+| `genModelsByTabs` with `fd`, `tabs`, a field type or `opt` that cannot be read, or a getter that throws in them | used the default folder, produced nothing, wrote `[object Object]` as a type, or threw the original exception; tables before the failing one were already written | throws `invalid fd` / `invalid tabs` / `invalid opt` / `invalid opt.type: must be a readable value` before any folder or file is created |
+| a primary key that throws when it is read (getter on the prototype) in `insert`, `insertBulk`, `save` | rejected with the original exception text (`save`: the whole call) | refused like any key that is neither a string nor a finite number (`invalid id: not a string or finite number at …`; `save`: that row `ok: 0`), without the original text |
+
+- **Who is affected**: only code that passes such values (revoked proxies and throwing getters); every readable input behaves as before.
+- Not changed: `select` and `delAll` (the condition check of `wsemi` reports `invalid find: an exception was thrown while reading the condition`).
 
 ## Before Installation
 > If you need to use encrypted sqlite, you need to manually install `@journeyapps/sqlcipher`, as follows:

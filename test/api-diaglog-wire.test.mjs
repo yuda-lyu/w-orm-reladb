@@ -14,7 +14,7 @@ import captureConsole from './tools/captureConsole.mjs'
 
 //R-DIAG接線測試(dspec〈診斷輸出與遮罩〉、wsemi之R-DIAG-01; rulebook R17-8): 本套件之真實站點接上wsemi之getDiag, 僅以sqlite驗證(不動docker容器)
 //  ①共用語料(wsemi/src/_diagCases.mjs)之wire案經本套件之站點重跑: 外來值由change訂閱函數拋出(emitChange之catch → 診斷細節)或由model檔之hook拋出(後端之外來值 → 整批reject與error事件)
-//  ②整批reject之7站、逐筆err(save、del)、snap、closeSequelize、genTransaction、initSequelize之外來值經diag.err/diag.mask: 含憑證者為遮罩後之副本(instanceof同類), 無則原物件
+//  ②整批reject之7站、逐筆err(save、del)、closeSequelize、genTransaction、initSequelize之外來值經diag.err/diag.mask: 含憑證者為遮罩後之副本(instanceof同類), 無則原物件(snap之複製拋錯已於第557項全族對齊輪改為固定詞彙, 不外帶)
 //  ③本套件之固定詞彙(invalid find…、invalid data…、can not import model…、instance is closed…)原樣: 密碼恰為其子字串時亦不被切碎(語料R07)
 //  ④宣告: codes、nested、types、paths(sqlite檔案路徑)、patterns(pragmaKey); genModelsByTabs之diag參數契約
 
@@ -368,8 +368,11 @@ describe('diaglog wire(R-DIAG接線)', function() {
             assert.strictEqual(r.ok[0].err, msg)
         })
 
-        it('snap: 呼叫端數據之getter拋出含憑證之錯誤 → insert之reject為遮罩後之副本', async function() {
+        it('snap: 呼叫端數據之getter拋出含憑證之錯誤 → insert之reject為固定詞彙(原錯誤與憑證皆不外帶; 第557項全族對齊輪A3, 原為遮罩後之副本)', async function() {
+            //A3: 複製(cloneDeep)階段之任何拋錯一律轉invalid data: must be a readable value, 不轉出呼叫端數據所拋之錯誤(含其內之憑證), 故snap不再經diag.err
             let w = wo(getOpt())
+            let evs = []
+            w.on('error', (m, d, msg) => evs.push([m, d, msg]))
             let data = {
                 id: 'g1',
                 get name() {
@@ -377,7 +380,11 @@ describe('diaglog wire(R-DIAG接線)', function() {
                 },
             }
             let r = await settle(w.insert(data))
-            assert.ok(r.err instanceof DbErr && r.err.message === 'getter ***', String(r.err && r.err.message))
+            assert.ok(r.err !== undefined && !(r.err instanceof DbErr), '不是呼叫端拋出之錯誤物件')
+            assert.strictEqual(r.err.message, 'invalid data: must be a readable value')
+            noPw(String(r.err.message), 'message ')
+            noPw(String(r.err.stack), 'stack ')
+            assert.deepStrictEqual(evs, [['insert', null, 'invalid data: must be a readable value']], 'error事件恰一次, data為null')
         })
 
         it('closeSequelize: 驅動之關閉錯誤含憑證 → select(finally關閉)之reject為遮罩後之副本', async function() {

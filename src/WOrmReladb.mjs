@@ -23,6 +23,7 @@ import pmSeries from 'wsemi/src/pmSeries.mjs'
 import pm2resolve from 'wsemi/src/pm2resolve.mjs'
 import pmQueue from 'wsemi/src/pmQueue.mjs'
 import chkOrmStr from 'wsemi/src/chkOrmStr.mjs'
+import chkReadable from 'wsemi/src/chkReadable.mjs'
 import getDiag from 'wsemi/src/getDiag.mjs'
 import getDiagSecrets from 'wsemi/src/getDiagSecrets.mjs'
 import maskDiagUrl from 'wsemi/src/maskDiagUrl.mjs'
@@ -54,6 +55,41 @@ const SAFE_KEYS = ['stmt', 'mode', 'cl', 'name', 'type']
 let pmq = pmQueue(1)
 
 
+//getUnreadableMsg, 呼叫端給的值不可讀(讀取即拋錯, 經wsemi之chkReadable判定)之固定詞彙(第557項, R23): invalid <名稱>: must be a readable value; 名稱為該輸入之名稱(opt、opt.url、option、data、pk等), 不含原例外文字與值
+let getUnreadableMsg = (name) => {
+    return `invalid ${name}: must be a readable value`
+}
+
+
+//readOpt, 取建構設定opt之成員(同步throw, 同建構期其他檢核之通道; 共同規則四.1、四.2):
+//opt容器本身不可讀(已撤銷之Proxy、get陷阱與Symbol.toStringTag拋錯者, 讀其成員即拋錯; 經chkReadable判定)者拋固定詞彙invalid opt;
+//容器可讀而該成員為存取器且拋錯(chkReadable不呼叫存取器)者, 於此讀取處捕捉並轉固定詞彙invalid opt.<成員>(存取器拋出之文字由呼叫端之物件決定, 可能含機敏字串, 不外帶);
+//opt為null等原始值者(讀取拋之TypeError非存取器或不可讀)維持原錯誤
+let readOpt = (opt, k) => {
+    try {
+        return opt[k]
+    }
+    catch (err) {
+        if (opt === null || (typeof opt !== 'object' && typeof opt !== 'function')) {
+            throw err
+        }
+        if (chkReadable(opt) !== '') {
+            throw new Error(getUnreadableMsg('opt'))
+        }
+        throw new Error(getUnreadableMsg(`opt.${k}`))
+    }
+}
+
+
+//chkOptReadable, 建構設定opt之成員經判斷函數(isestr、isbol)判為無效後之可讀性探針(R23): 值不可讀者(已撤銷之Proxy、Symbol.toStringTag拋錯者等)拋固定詞彙, 不被當成型別不符而改用預設;
+//可讀而型別不符者(含未給)回傳(呼叫端依既有行為改用預設); 探針只置於判斷函數回false之後, 有效輸入不多讀
+let chkOptReadable = (opt, k) => {
+    if (chkReadable(readOpt(opt, k)) !== '') {
+        throw new Error(getUnreadableMsg(`opt.${k}`))
+    }
+}
+
+
 /**
  * 操作關聯式資料庫
  *
@@ -79,6 +115,17 @@ let pmq = pmQueue(1)
  * 注意: sqlite之opt.storage無法開啟(SQLITE_CANTOPEN: 路徑為資料夾、檔名超長、無權限、路徑非法等)時，需連線之各函數(select、selectByPk、insert、insertBulk、save、del、delAll、createStorage、genTransaction與init回傳之close)以既有失敗通道回報(reject；createStorage為can not import model訊息)，不會永不settle(第210項, R19)：
  * sequelize 6把開啟失敗之Database留在連線表，其close()永不回呼，本套件於關閉前先移除未開啟(Database.open嚴格為false)者(dropUnopenedConn)。reject之訊息不帶連線憑證。
  *
+ * 注意: 主鍵[給了而非字串或有限數字](第557項, R22): insert、insertBulk、save對主鍵之[未帶]只有undefined、null、空字串(含鍵不存在)，opt.autoGenPk為true時自動產生、為false時整批reject(invalid data[索引].主鍵欄, autoGenPk is false)；
+ * 給了而非字串或有限數字者(布林、物件、陣列、NaN、±Infinity、BigInt、Symbol、Date、函數、new String、new Number、new Boolean等包裝物件，及讀取主鍵時拋錯之值)一律拒絕，不得靜默換成自動產生之主鍵，不隨opt.autoGenPk改變：
+ * insert與insertBulk整批reject(同批皆不寫入)、save該筆ok為0附err，訊息invalid id: not a string or finite number at [data[索引].主鍵欄]，不回顯值。有限數字為有效主鍵(R8, 依主鍵欄型別正規化，與僅收字串主鍵之同系列套件不同)；new String與new Number為物件，不拆包裝(只收原始值)而拒絕；del該筆ok為0、selectByPk回傳null
+ *
+ * 注意: 讀取即拋錯之輸入(第557項, R23): 已撤銷之Proxy、Symbol.toStringTag或ownKeys陷阱拋錯之物件、成員為存取器而拋錯者，經wsemi之chkReadable分辨後依原失敗通道拒絕，訊息為固定詞彙invalid <名稱>: must be a readable value(不含原例外文字)：
+ * 建構之opt與其成員(opt.url、db、cl、fdModels、modelType、pk、storage、autoGenPk、useStable、useEncryption、logging)同步throw(invalid opt、invalid opt.<成員>)，不被當成未給而改用預設；
+ * 七函數之option(invalid option、invalid option.<成員>)、data(invalid data)、selectByPk之pk(invalid pk)為reject，error事件恰一次且data為null，不連線、不寫入；genModelsByDB之option與genModelsByTabs之fd、tabs、opt同步throw。
+ * 可讀而型別不符者行為不變(建構用預設、data為5/字串/null/{}/[]回空結果、selectByPk回null)；data內之id屬性、列之成員或陣列元素本身為不可讀之值(或無法複製者，如原型為null之Date、過深之巢狀)於複製階段即失敗，
+ * 與data本身不可讀同一通道與詞彙(invalid data: must be a readable value，reject且error事件恰一次、data為null，資料庫不變；複製處不分辨頂層或巢狀、不可讀或無法複製)。
+ * 複製之後才讀取之原型存取器與繼承之存取器等所拋之外來錯誤，屬診斷出口(經遮罩之外來錯誤)而不轉為上述固定詞彙(已知限制，見R23)
+ *
  * @class
  * @param {Object} [opt={}] 輸入設定物件，預設{}
  * @param {String} [opt.url='mssql://username:password@localhost:1433'] 輸入連接資料庫字串，資料庫可選'mssql'、'sqlite'、'mysql'、'mariadb'、'postgres'，預設'mssql://username:password@localhost:1433'。格式不合者建構時拋出Error(訊息前綴如invalid host in opt.url)，訊息內回顯之url只含scheme：scheme為上列五者之一時為'<scheme>://***'，其餘(含無://者)整段為***，不回顯主機、帳號與密碼(wsemi之maskDiagUrl)
@@ -92,7 +139,7 @@ let pmq = pmQueue(1)
  * @param {Boolean} [opt.logDetail=false] 輸入是否於console輸出遮罩後之細節布林值，預設false，型別錯誤者視同false。診斷輸出(console)預設只含固定標籤與不含個資之摘要(不含資料值、id、後端錯誤原文、路徑)；為true時console輸出(label, 細節)(訂閱函數之錯誤、model載入失敗之原文、opt.logging之sql全文如console.log('sql', sql全文)等)，有洩漏個資之風險，僅供除錯使用。連線字串、帳號、密碼與sqlite檔案路徑於細節皆以***遮罩。出口、遮罩與選項語意同wsemi之getDiag(規則見wsemi之R-DIAG-01)
  * @param {Function} [opt.funLog=null] 輸入診斷輸出函數(label, safe, detail)，預設無，型別錯誤者視同未給。給予時診斷輸出只交給它而不寫console：label為固定標籤字串，safe為不含個資之摘要物件(可能為undefined；鍵限stmt、mode、cl、name、type、errType、errCode)，detail為完整細節之遮罩拷貝(可能無此引數；連線字串、帳號、密碼與sqlite檔案路徑已以***遮罩；拷貝之形態與上限依wsemi之maskDiagCopy，不執行使用端程式)，供使用端遮罩後轉送。函數拋錯或回傳reject之promise皆被吞下，不影響各操作之結果
  * @param {String} [opt.pk='id'] 輸入數據主鍵字串，預設'id'
- * @param {Boolean} [opt.autoGenPk=true] 輸入若數據pk(id)欄位沒給時則自動給予隨機uuid，型別為布林值，預設true
+ * @param {Boolean} [opt.autoGenPk=true] 輸入若數據pk(id)欄位沒給時則自動給予隨機uuid，型別為布林值，預設true。[沒給]只有undefined、null、空字串(含鍵不存在)；給了而非字串或有限數字之主鍵一律拒絕而不自動產生(R22)
  * @param {Boolean} [opt.useStable=true] 輸入是否使用穩定模式，使用佇列管理同時只能進行一種操作故會犧牲效能，sqlite需開啟穩定模式才不會有非預期錯誤，型別為布林值，預設true
  * @returns {Object} 回傳操作資料庫物件，各事件功能詳見說明
  */
@@ -103,32 +150,43 @@ function WOrmReladb(opt = {}) {
 
 
     //default
-    if (!isestr(opt.url)) {
+    //第557項(R23): 各成員經readOpt讀取(opt容器不可讀 → invalid opt; 成員為存取器而拋錯 → invalid opt.<名>; 皆同步throw固定詞彙), 經判斷函數(isestr、isbol)判為無效後再以chkReadable分辨[不可讀]與[型別不符],
+    //不可讀者同步throw固定詞彙invalid opt.<名>: must be a readable value, 不被當成未給而改用預設; 可讀而型別不符者照舊用預設
+    if (!isestr(readOpt(opt, 'url'))) {
+        chkOptReadable(opt, 'url')
         opt.url = 'mssql://username:password@localhost:1433'
     }
-    if (!isestr(opt.db)) {
+    if (!isestr(readOpt(opt, 'db'))) {
+        chkOptReadable(opt, 'db')
         opt.db = 'worm'
     }
-    if (!isestr(opt.cl)) {
+    if (!isestr(readOpt(opt, 'cl'))) {
+        chkOptReadable(opt, 'cl')
         opt.cl = 'test'
     }
-    if (!isestr(opt.fdModels)) {
+    if (!isestr(readOpt(opt, 'fdModels'))) {
+        chkOptReadable(opt, 'fdModels')
         opt.fdModels = './models'
     }
-    if (!isestr(opt.modelType)) {
+    if (!isestr(readOpt(opt, 'modelType'))) {
+        chkOptReadable(opt, 'modelType')
         opt.modelType = 'js'
     }
-    opt.logging = (opt.logging === true)
-    if (!isestr(opt.pk)) {
+    opt.logging = (readOpt(opt, 'logging') === true)
+    if (!isestr(readOpt(opt, 'pk'))) {
+        chkOptReadable(opt, 'pk')
         opt.pk = 'id'
     }
-    if (!isbol(opt.autoGenPk)) {
+    if (!isbol(readOpt(opt, 'autoGenPk'))) {
+        chkOptReadable(opt, 'autoGenPk')
         opt.autoGenPk = true
     }
-    if (!isbol(opt.useStable)) {
+    if (!isbol(readOpt(opt, 'useStable'))) {
+        chkOptReadable(opt, 'useStable')
         opt.useStable = true
     }
-    if (!isestr(opt.storage)) {
+    if (!isestr(readOpt(opt, 'storage'))) {
+        chkOptReadable(opt, 'storage')
         opt.storage = './worm.db' //storage, only use for sqlite
     }
 
@@ -144,7 +202,8 @@ function WOrmReladb(opt = {}) {
     }
 
     let storageRaw = opt.storage //呼叫端所給之形式(相對路徑等), 供診斷輸出之秘密(儲存路徑)使用與sqlite之拒收判斷(R20); opt.storage於dialect確定後才path.resolve
-    if (!isbol(opt.useEncryption)) {
+    if (!isbol(readOpt(opt, 'useEncryption'))) {
+        chkOptReadable(opt, 'useEncryption')
         opt.useEncryption = false
     }
 
@@ -342,9 +401,95 @@ function WOrmReladb(opt = {}) {
 
 
     /**
+     * 入口階段(option與data之讀取)之整批性拒絕: 依原失敗通道, error事件恰一次後reject, 不寫入、不連線(第557項, R23)
+     * 註: error事件之data傳null(不把不可讀之值交給訂閱函數); 本套件自身之錯誤(固定詞彙, ownErr)原樣, 其餘(如option成員為存取器而拋錯)經outErr
+     *
+     * @ignore
+     * @param {String} mode 輸入操作別字串
+     * @param {Error} err 輸入錯誤物件
+     * @returns {Promise} 回傳rejected Promise
+     */
+    function rejectIn(mode, err) {
+        let res = outErr(err, null)
+        emitError(mode, null, res)
+        return Promise.reject(res)
+    }
+
+
+    /**
+     * 取呼叫端給的option之成員值(第557項, R23)
+     * 註: option本身讀取拋錯而經chkReadable判為不可讀者(已撤銷之Proxy、get陷阱與Symbol.toStringTag拋錯者)拋固定詞彙invalid option: must be a readable value;
+     * 容器可讀而該成員為存取器且拋錯(chkReadable不呼叫存取器)者, 於此讀取處捕捉並轉固定詞彙invalid option.<成員>: must be a readable value(存取器拋出之文字由呼叫端之物件決定, 可能含機敏字串, 不外帶; 共同規則四.2);
+     * 皆為本套件之固定詞彙錯誤(ownErr), 由呼叫端經rejectIn處置; 讀取須於各函數之預檢階段、不得遲於任何連線與寫入
+     *
+     * @ignore
+     * @param {*} option 輸入呼叫端給的option
+     * @param {String} key 輸入成員名
+     * @param {*} def 輸入預設值
+     * @returns {*} 回傳成員值
+     */
+    function getOpt(option, key, def) {
+        try {
+            return get(option, key, def)
+        }
+        catch (err) {
+            if (chkReadable(option) !== '') {
+                throw ownErr(getUnreadableMsg('option'))
+            }
+            throw ownErr(getUnreadableMsg(`option.${key}`))
+        }
+    }
+
+
+    /**
+     * 判定data(insert、insertBulk、save、del之資料容器)是否不可讀(第557項, R23), 供四入口於判斷函數(iseobj、isearr)判複本為無效之後呼叫
+     * (複製[cloneDeep]階段之拋錯不經本函數, 一律由snap轉固定詞彙; 本函數只對[複製時可讀、其後才拋錯]之有狀態存取器可達)
+     * 註: 不可讀指原型鏈上之ownKeys等陷阱拋錯者、有狀態之Symbol.toStringTag拋錯者; 探針只置於判斷為無效之後(有效輸入不多讀)
+     * 註: 自有鍵與原型鏈(iseobj之for...in讀取)只於標籤為[object Object]時探針,
+     * 型別陣列、Buffer等非物件者iseobj不列舉其鍵, 此處亦不可列舉其全部索引(chkReadable之ownKeys對其列舉全部索引)
+     * 註: 輸入為cloneDeep之複本, 其自有屬性(含陣列元素與巢狀值)皆已為資料屬性, 故不另自讀陣列之[0]; 複製階段之巢狀不可讀值由snap統一轉固定詞彙(A3, 見R23)
+     *
+     * @ignore
+     * @param {*} data 輸入呼叫端給的data
+     * @returns {Boolean} 回傳data是否不可讀布林值
+     */
+    function isUnreadableData(data) {
+        try {
+
+            //標籤、陣列之長度與[0](isearr之讀取)
+            if (chkReadable(data, { elements: 'first' }) !== '') {
+                return true
+            }
+
+            //自有鍵與原型鏈(iseobj之for...in讀取)
+            if (Object.prototype.toString.call(data) === '[object Object]' && chkReadable(data, { ownKeys: true }) !== '') {
+                return true
+            }
+
+        }
+        catch (err) {
+            return true //探針自身之讀取拋錯(如有狀態之存取器於探針期間才拋錯)亦屬不可讀
+        }
+        return false
+    }
+
+
+    /**
+     * data不可讀之整批性拒絕(第557項, R23): error事件恰一次(data為null)後reject, 訊息invalid data: must be a readable value
+     *
+     * @ignore
+     * @param {String} mode 輸入操作別字串
+     * @returns {Promise} 回傳rejected Promise
+     */
+    function procUnreadableData(mode) {
+        return rejectIn(mode, ownErr(getUnreadableMsg('data')))
+    }
+
+
+    /**
      * 判定主鍵值是否有效(與主鍵欄型別無關之判定)
      * 註: select以外之五函數對主鍵之認定一律以本函數與normPkOf為準，令selectByPk之[命中]與insert、save、del內對既有數據之認定一致
-     * 註: 有效即非空字串或有限數值(含0), new String與new Number取原始值; NaN、±Infinity、布林、物件等為無效(見cvFind.mjs之normPk)
+     * 註: 有效即非空字串或有限數值(含0); new String與new Number為物件, 不拆包裝而為無效(只收原始值, 第557項全族對齊輪); NaN、±Infinity、布林、物件等為無效(見cvFind.mjs之normPk)
      * 註: 含孤立代理碼元或NUL之字串亦為無效(第66項, R13)，故selectByPk回null；寫入側(insert、insertBulk、save、del)於procPk之前即由chkWf逐筆檢出，
      * 令autoGenPk為true時呼叫端所給之不合格字串不被當成[未給主鍵]而以自動產生之主鍵取代
      *
@@ -760,6 +905,7 @@ function WOrmReladb(opt = {}) {
      *    排除NULL為{$and:[{f:{$ne:null}},{f:{$ne:x}}]}, 含NULL為{$or:[{f:null},{f:{$ne:x}}]}; 字串比對之大小寫依資料庫定序。
      *
      * 註: 恆回傳陣列, 無符合數據回傳空陣列
+     * 註: option不可讀(已撤銷之Proxy等)或其成員instance、transaction為存取器而拋錯者，於入口階段整批reject(invalid option: must be a readable value、invalid option.<成員>: must be a readable value)，error事件恰一次且data為null，不連線(第557項, R23)
      *
      * @memberOf WOrmReladb
      * @param {Object} [find={}] 輸入查詢條件物件(系列白名單, 規則同delAll之使用須知第1-4點); 未給、undefined或{}回傳全部數據; 非條件物件或白名單外運算子整批reject
@@ -770,11 +916,16 @@ function WOrmReladb(opt = {}) {
      */
     async function select(find = {}, option = {}) {
 
-        //instance
-        let instance = get(option, 'instance', null)
-
-        //transaction
-        let transaction = get(option, 'transaction', null)
+        //instance, transaction, option讀取拋錯(容器不可讀或成員為存取器而拋錯)者於入口階段整批reject, error事件恰一次(R23)
+        let instance = null
+        let transaction = null
+        try {
+            instance = getOpt(option, 'instance', null)
+            transaction = getOpt(option, 'transaction', null)
+        }
+        catch (err) {
+            return rejectIn('select', err)
+        }
 
         //check
         if (opt.useEncryption && dialect === 'sqlite') {
@@ -862,9 +1013,11 @@ function WOrmReladb(opt = {}) {
      *
      * 註: 主鍵欄位取自opt.pk，預設為id，支援由呼叫端指定
      * 註: 主鍵未命中或主鍵值無效皆回傳null而不reject，[命中]之判定基準與insert、save、del內對既有數據之認定一致
-     * 註: 含孤立代理碼元或NUL之字串主鍵(含new String包裝者)為無效而回傳null，不連線、不送查詢(第66項, R13): UTF-8存放之資料庫會把孤立代理碼元改寫為U+FFFD，若照送會命中他筆
+     * 註: 含孤立代理碼元或NUL之字串主鍵為無效而回傳null，不連線、不送查詢(第66項, R13): UTF-8存放之資料庫會把孤立代理碼元改寫為U+FFFD，若照送會命中他筆
+     * 註: new String與new Number為物件，不拆包裝(只收原始值)而為無效，回傳null(第557項全族對齊輪)
      * 註: 主鍵值依主鍵欄型別正規化後查詢: 字串類主鍵欄之有限數字以String(v)處置(selectByPk(123)即查'123'), 整數類主鍵欄之標準整數寫法字串轉為數值;
      * 型別不符(整數類主鍵欄給'012'、12.4、'abc'等)亦屬主鍵值無效而回傳null
+     * 註: 不可讀之pk(已撤銷之Proxy、Symbol.toStringTag拋錯者等，經wsemi之chkReadable判定)與不可讀之option(同select)為整批性錯誤: reject(invalid pk: must be a readable value、invalid option…)，error事件恰一次且data為null；可讀而非字串、非數字者(含new String、new Number)仍回傳null(第557項, R23)
      * 註: 本函數不得有副作用，故不創建資料表
      *
      * @memberOf WOrmReladb
@@ -876,11 +1029,16 @@ function WOrmReladb(opt = {}) {
      */
     async function selectByPk(pk, option = {}) {
 
-        //instance
-        let instance = get(option, 'instance', null)
-
-        //transaction
-        let transaction = get(option, 'transaction', null)
+        //instance, transaction, option讀取拋錯(容器不可讀或成員為存取器而拋錯)者於入口階段整批reject, error事件恰一次(R23)
+        let instance = null
+        let transaction = null
+        try {
+            instance = getOpt(option, 'instance', null)
+            transaction = getOpt(option, 'transaction', null)
+        }
+        catch (err) {
+            return rejectIn('selectByPk', err)
+        }
 
         //check, 實例已關閉之判定須先於[主鍵值無效回null], 否則兩者同形而使[已關閉]被誤讀為[查無資料]
         try {
@@ -892,9 +1050,14 @@ function WOrmReladb(opt = {}) {
         }
 
         //check, 未給有效主鍵值視為查無數據, 不送查詢以免無效值被轉為null而誤中其他數據;
-        //含孤立代理碼元或NUL之字串亦為無效(R13); 包裝物件(new String、new Number)只求值一次, 其後以原始值查詢(檢查之值即使用之值)
+        //含孤立代理碼元或NUL之字串亦為無效(R13); 只收原始值: 包裝物件(new String、new Number)為物件而非字串或數值, 不拆包裝而為無效(第557項全族對齊輪)
+        //無效者(normPk不讀取物件之任何成員)再以chkReadable分辨[不可讀]與[可讀而非有效](有效之字串與有限數字不多讀): 不可讀之主鍵值(已撤銷之Proxy、Symbol.toStringTag拋錯者等)為整批性錯誤:
+        //reject且error事件恰一次、data為null, 訊息固定詞彙invalid pk: must be a readable value(R23; 共同規則四.5); 可讀而非字串、非數字者(含包裝物件)仍回null(不變)
         let r0 = normPk(pk, 'any')
         if (r0.kind !== 'ok') {
+            if (pk !== null && (typeof pk === 'object' || typeof pk === 'function') && chkReadable(pk) !== '') {
+                return rejectIn('selectByPk', ownErr(getUnreadableMsg('pk')))
+            }
             return null
         }
         pk = r0.v
@@ -1002,6 +1165,9 @@ function WOrmReladb(opt = {}) {
      * 數據之字串值與鍵名(含巢狀物件、陣列元素、Map/Set等，不論欄位是否在model內)不得含孤立代理碼元(值之NUL不拒)；U+FFFD本身與成對代理(emoji等)為良構，照常接受。
      * 任一筆不合格即reject且同批皆不寫入，訊息為invalid id: 原因 at [data[索引].主鍵欄]或invalid data: 原因 at [data[索引].路徑]，不回顯值；
      * 不隨opt.autoGenPk改變(autoGenPk為true時亦不以自動產生之主鍵取代呼叫端所給之不合格主鍵)，檢核先於連線與model載入，作用於複本
+     * 註: 主鍵[給了而非字串或有限數字](布林、物件、陣列、NaN、±Infinity、BigInt、Symbol、Date、函數、new String、new Number、new Boolean等包裝物件，及讀取時拋錯之值)整批reject且同批皆不寫入，不被當成[未帶]而以自動產生之主鍵取代，不隨opt.autoGenPk改變，
+     * 訊息為invalid id: not a string or finite number at [data[索引].主鍵欄]，不回顯值(第557項, R22); [未帶]只有undefined、null、空字串(含鍵不存在)
+     * 註: data不可讀(已撤銷之Proxy等)或option不可讀/其成員為存取器而拋錯者，整批reject(invalid data: must be a readable value、invalid option…)，error事件恰一次且data為null，不連線(第557項, R23); data為可讀而型別不符之值(5、字串、null、{}、[]等)維持回傳空結果
      * 註: option.returnList開啟時改回與輸入等長且保序之逐筆結果陣列[{n,nInserted,ok}]，
      * 聚合計數只答得出[有幾筆是新的]而答不出[是哪幾筆]，而後者正是去重之產出物；
      * 逐筆元素之n與ok恆為1，資訊由nInserted承載，不變式為
@@ -1018,10 +1184,20 @@ function WOrmReladb(opt = {}) {
     async function insert(data, option = {}) {
 
         //returnList, 回傳形式之切換為靜態, 僅由本選項之取值決定, 不因數據內容或執行結果而變
-        let returnList = get(option, 'returnList', false) === true
+        //option讀取拋錯(容器不可讀或成員為存取器而拋錯)者於入口階段整批reject, error事件恰一次(R23)
+        let returnList = false
+        try {
+            returnList = getOpt(option, 'returnList', false) === true
+        }
+        catch (err) {
+            return rejectIn('insert', err)
+        }
 
-        //check
+        //check, 判斷函數判為無效後以探針分辨[不可讀]與[型別不符](R23): 不可讀者整批reject(error事件恰一次), 可讀而型別不符者維持原行為(回傳空結果)
         if (!iseobj(data) && !isearr(data)) {
+            if (isUnreadableData(data)) {
+                return procUnreadableData('insert')
+            }
             if (returnList) {
                 return []
             }
@@ -1032,11 +1208,16 @@ function WOrmReladb(opt = {}) {
             }
         }
 
-        //instance
-        let instance = get(option, 'instance', null)
-
-        //transaction
-        let transaction = get(option, 'transaction', null)
+        //instance, transaction
+        let instance = null
+        let transaction = null
+        try {
+            instance = getOpt(option, 'instance', null)
+            transaction = getOpt(option, 'transaction', null)
+        }
+        catch (err) {
+            return rejectIn('insert', err)
+        }
 
         //check
         if (opt.useEncryption && dialect === 'sqlite') {
@@ -1061,8 +1242,9 @@ function WOrmReladb(opt = {}) {
             procClosed(instance)
 
             //chkWf, 主鍵與資料之字串良構(孤立代理碼元、主鍵之NUL)逐筆檢核(R13): 先於連線、model載入與任何寫入, 檢查之物件即cloneDeep後之複本且其後只使用該複本;
-            //任一筆不合格即整批拋出(以索引最小者為準)而不寫入任何一筆, 不隨autoGenPk改變, 不以自動產生之主鍵取代不合格之主鍵
-            let bads = chkWf(isarr(data) ? data : [data], opt.pk, true)
+            //任一筆不合格即整批拋出(以索引最小者為準)而不寫入任何一筆, 不隨autoGenPk改變, 不以自動產生之主鍵取代不合格之主鍵;
+            //strictPk(R22): 主鍵[給了而非字串或有限數字](布林、物件、陣列、NaN、±Infinity、BigInt、Symbol、Date等)同屬不合格, 不被當成[未帶]而以自動產生之主鍵取代; [未帶]只有undefined、null、空字串
+            let bads = chkWf(isarr(data) ? data : [data], opt.pk, true, true)
             let iBad = bads.findIndex((v) => v !== null)
             if (iBad >= 0) {
                 throw ownErr(bads[iBad])
@@ -1194,6 +1376,7 @@ function WOrmReladb(opt = {}) {
      * 註: DATE、DATEONLY欄之值換算後年份須在1–9999，範圍外或無效者(如new Date(8.64e15)、new Date(NaN))即reject且同批皆不寫入，訊息為invalid data: date is not a valid time in years 1-9999 at [data[索引].欄名]，
      * 不回顯值，兩方言一致於送出前拒收，規則同insert
      * 註: 主鍵與數據之字串須良構(孤立代理碼元、主鍵之NUL)，不合格者整批reject且同批皆不寫入，規則同insert(第66項, R13)
+     * 註: 主鍵[給了而非字串或有限數字]者整批reject且同批皆不寫入(規則同insert，第557項, R22)；data或option不可讀者整批reject(規則同insert，R23)
      * 註: [全有全無]為獨立於T7之額外要求——T7僅保證每筆之[檢查主鍵不存在]與[寫入]為原子，不保證整批。
      * mssql因綁定參數數量上限會由驅動層自動拆為多語句送出，實測1000筆之批次於末筆撞主鍵時已有946筆落盤，
      * 故一律以交易包覆並於失敗時回滾；呼叫端已給transaction時改以巢狀交易(SAVEPOINT)包覆，
@@ -1208,8 +1391,11 @@ function WOrmReladb(opt = {}) {
      */
     async function insertBulk(data, option = {}) {
 
-        //check
+        //check, 判斷函數判為無效後以探針分辨[不可讀]與[型別不符](R23): 不可讀者整批reject(error事件恰一次), 可讀而型別不符者維持原行為(回傳空結果)
         if (!iseobj(data) && !isearr(data)) {
+            if (isUnreadableData(data)) {
+                return procUnreadableData('insertBulk')
+            }
             return {
                 n: 0,
                 nInserted: 0,
@@ -1217,11 +1403,16 @@ function WOrmReladb(opt = {}) {
             }
         }
 
-        //instance
-        let instance = get(option, 'instance', null)
-
-        //transaction
-        let transaction = get(option, 'transaction', null)
+        //instance, transaction, option讀取拋錯(容器不可讀或成員為存取器而拋錯)者於入口階段整批reject, error事件恰一次(R23)
+        let instance = null
+        let transaction = null
+        try {
+            instance = getOpt(option, 'instance', null)
+            transaction = getOpt(option, 'transaction', null)
+        }
+        catch (err) {
+            return rejectIn('insertBulk', err)
+        }
 
         //check
         if (opt.useEncryption && dialect === 'sqlite') {
@@ -1246,8 +1437,8 @@ function WOrmReladb(opt = {}) {
             procClosed(instance)
 
             //chkWf, 主鍵與資料之字串良構(孤立代理碼元、主鍵之NUL)逐筆檢核(R13): 先於連線、model載入與任何寫入, 檢查之物件即cloneDeep後之複本且其後只使用該複本;
-            //任一筆不合格即整批拋出(以索引最小者為準)而不寫入任何一筆, 不隨autoGenPk改變, 不以自動產生之主鍵取代不合格之主鍵
-            let bads = chkWf(isarr(data) ? data : [data], opt.pk, true)
+            //任一筆不合格即整批拋出(以索引最小者為準)而不寫入任何一筆, 不隨autoGenPk改變, 不以自動產生之主鍵取代不合格之主鍵; strictPk見insert(R22)
+            let bads = chkWf(isarr(data) ? data : [data], opt.pk, true, true)
             let iBad = bads.findIndex((v) => v !== null)
             if (iBad >= 0) {
                 throw ownErr(bads[iBad])
@@ -1545,6 +1736,8 @@ function WOrmReladb(opt = {}) {
      * 註: 主鍵值依主鍵欄型別正規化(字串類主鍵欄之123即'123')；型別不符(整數類主鍵欄給'012'等)屬呼叫端未履行契約，整批reject且同批皆不寫入
      * 註: DATE、DATEONLY欄之值換算後年份須在1–9999，範圍外或無效者(如new Date(8.64e15)、new Date(NaN))屬呼叫端未履行契約，整批reject且同批皆不寫入(含autoInsert為false而不會寫入者；不降為該筆ok為0)，
      * 訊息為invalid data: date is not a valid time in years 1-9999 at [data[索引].欄名]，不回顯值，兩方言一致於送出前拒收，規則同insert
+     * 註: 主鍵[給了而非字串或有限數字]者(規則同insert，第557項, R22)為該筆失敗，ok為0並附err(invalid id: not a string or finite number at [data[索引].主鍵欄]，不回顯值)，同批其他筆照常，不隨opt.autoGenPk改變(修前autoGenPk為false時整批reject)；
+     * data或option不可讀者整批reject(invalid data: must be a readable value、invalid option…)，error事件恰一次且data為null(R23)
      * 註: 主鍵與數據之字串須良構(孤立代理碼元、主鍵之NUL；規則同insert, 第66項, R13)，但不合格者為該筆失敗而非整批reject：該筆ok為0並附err(invalid id: 原因 at [data[索引].主鍵欄]或invalid data: 原因 at [data[索引].路徑]，不回顯值)，
      * 不讀取資料庫、不寫入(含autoInsert為false)，同批其他筆照常處理；不隨opt.autoGenPk改變。全部筆數皆不合格時不連線
      *
@@ -1558,16 +1751,26 @@ function WOrmReladb(opt = {}) {
      */
     async function save(data, option = {}) {
 
-        //check
+        //check, 判斷函數判為無效後以探針分辨[不可讀]與[型別不符](R23): 不可讀者整批reject(error事件恰一次), 可讀而型別不符者維持原行為(回傳空陣列)
         if (!iseobj(data) && !isearr(data)) {
+            if (isUnreadableData(data)) {
+                return procUnreadableData('save')
+            }
             return []
         }
 
-        //instance
-        let instance = get(option, 'instance', null)
-
-        //transaction
-        let transaction = get(option, 'transaction', null)
+        //instance, transaction, autoInsert, option讀取拋錯(容器不可讀或成員為存取器而拋錯)者於入口階段整批reject, error事件恰一次(R23)
+        let instance = null
+        let transaction = null
+        let autoInsert = true
+        try {
+            instance = getOpt(option, 'instance', null)
+            transaction = getOpt(option, 'transaction', null)
+            autoInsert = getOpt(option, 'autoInsert', true)
+        }
+        catch (err) {
+            return rejectIn('save', err)
+        }
 
         //check
         if (opt.useEncryption && dialect === 'sqlite') {
@@ -1575,9 +1778,6 @@ function WOrmReladb(opt = {}) {
                 diag('@journeyapps/sqlcipher can not support transaction.')
             }
         }
-
-        //autoInsert
-        let autoInsert = get(option, 'autoInsert', true)
 
         //isErr, res
         let isErr = false
@@ -1595,8 +1795,8 @@ function WOrmReladb(opt = {}) {
             procClosed(instance)
 
             //chkWf, 主鍵與資料之字串良構(孤立代理碼元、主鍵之NUL)逐筆檢核(R13): 先於連線、model載入與任何讀取、寫入、刪除, 檢查之物件即cloneDeep後之複本且其後只使用該複本;
-            //不合格者為該筆失敗(ok為0附err, 同批其他筆照常), bads為逐筆訊息(合格者為null); 不隨autoGenPk改變
-            let bads = chkWf(isarr(data) ? data : [data], opt.pk, true)
+            //不合格者為該筆失敗(ok為0附err, 同批其他筆照常), bads為逐筆訊息(合格者為null); 不隨autoGenPk改變; strictPk見insert(R22): 給了而非字串或有限數字之主鍵亦為該筆失敗
+            let bads = chkWf(isarr(data) ? data : [data], opt.pk, true, true)
             let nOk = bads.filter((v) => v === null).length
 
             //initSequelize, 內部自動初始化須在try內: 其例外(如驅動缺失)與si.err同屬整批性錯誤, 方能於reject前發出error事件, 已建構之sequelize亦由finally關閉; 全部不合格者無須連線
@@ -1685,8 +1885,10 @@ function WOrmReladb(opt = {}) {
      * 註: 未帶有效主鍵者為該筆之輸入問題，回ok為0與err且不送查詢條件(以免無效值被轉為null而誤中其他數據)，
      * 不中斷其餘筆數，以此與[主鍵未命中]之ok為1區辨；主鍵值與主鍵欄型別不符者(整數類主鍵欄給'012'等)亦同
      * 註: 主鍵值依主鍵欄型別正規化後刪除(字串類主鍵欄之123即'123')，正規化值寫回該筆數據
+     * 註: 給了而非字串或有限數字之主鍵(布林、物件、陣列等)本即為該筆失敗(ok為0並附invalid data[索引].主鍵欄)，第557項核實不變；data或option不可讀者整批reject(invalid data: must be a readable value、invalid option…)，error事件恰一次且data為null(R23)
      * 註: 本函數不受opt.autoGenPk影響，於任一設定下皆不補值
-     * 註: 主鍵含孤立代理碼元或NUL者(含new String包裝者；UTF-8存放之資料庫會把孤立代理碼元改寫為U+FFFD而刪到他筆)為該筆失敗，ok為0並附err(invalid id: 原因 at [data[索引].主鍵欄]，不回顯值)，
+     * 註: new String與new Number為物件，不拆包裝(只收原始值)而為無效主鍵，該筆ok為0並附err(invalid data[索引].主鍵欄…；第557項全族對齊輪)
+     * 註: 主鍵含孤立代理碼元或NUL者(UTF-8存放之資料庫會把孤立代理碼元改寫為U+FFFD而刪到他筆)為該筆失敗，ok為0並附err(invalid id: 原因 at [data[索引].主鍵欄]，不回顯值)，
      * 不送查詢，同批其他筆照常；只檢主鍵，其他欄位不檢(第66項, R13)；全部筆數皆不合格時不連線。其他無效主鍵之err亦不回顯主鍵值(invalid data[索引].主鍵欄…)
      *
      * @memberOf WOrmReladb
@@ -1698,16 +1900,24 @@ function WOrmReladb(opt = {}) {
      */
     async function del(data, option = {}) {
 
-        //check
+        //check, 判斷函數判為無效後以探針分辨[不可讀]與[型別不符](R23): 不可讀者整批reject(error事件恰一次), 可讀而型別不符者維持原行為(回傳空陣列)
         if (!iseobj(data) && !isearr(data)) {
+            if (isUnreadableData(data)) {
+                return procUnreadableData('del')
+            }
             return []
         }
 
-        //instance
-        let instance = get(option, 'instance', null)
-
-        //transaction
-        let transaction = get(option, 'transaction', null)
+        //instance, transaction, option讀取拋錯(容器不可讀或成員為存取器而拋錯)者於入口階段整批reject, error事件恰一次(R23)
+        let instance = null
+        let transaction = null
+        try {
+            instance = getOpt(option, 'instance', null)
+            transaction = getOpt(option, 'transaction', null)
+        }
+        catch (err) {
+            return rejectIn('del', err)
+        }
 
         //check
         if (opt.useEncryption && dialect === 'sqlite') {
@@ -1908,6 +2118,7 @@ function WOrmReladb(opt = {}) {
      *
      * 註: n與nDeleted皆為實際刪除筆數，兩者恆相等，n不得取全表筆數
      * 註: 條件無命中時回{n:0,nDeleted:0,ok:1}，不視為錯誤
+     * 註: option不可讀或其成員instance、transaction為存取器而拋錯者，於入口階段整批reject(invalid option…)，error事件恰一次且data為null，不刪除任何數據(第557項, R23)
      *
      * @memberOf WOrmReladb
      * @param {Object} [find={}] 輸入刪除條件物件(系列白名單, 見使用須知)，不給予find則代表刪除全部數據
@@ -1918,11 +2129,16 @@ function WOrmReladb(opt = {}) {
      */
     async function delAll(find = {}, option = {}) {
 
-        //instance
-        let instance = get(option, 'instance', null)
-
-        //transaction
-        let transaction = get(option, 'transaction', null)
+        //instance, transaction, option讀取拋錯(容器不可讀或成員為存取器而拋錯)者於入口階段整批reject, error事件恰一次(R23)
+        let instance = null
+        let transaction = null
+        try {
+            instance = getOpt(option, 'instance', null)
+            transaction = getOpt(option, 'transaction', null)
+        }
+        catch (err) {
+            return rejectIn('delAll', err)
+        }
 
         //check
         if (opt.useEncryption && dialect === 'sqlite') {
@@ -2055,6 +2271,8 @@ function WOrmReladb(opt = {}) {
      *
      * 診斷輸出(sql紀錄與建表、外鍵查詢失敗)經本套件單一出口：預設承接建構時之opt.logging、opt.logDetail、opt.funLog，標籤加前綴'genModelsByDB '(如'genModelsByDB sql'、'genModelsByDB tables catch')，option內給予者(型別正確)覆寫單次呼叫；連線字串、帳號、密碼與sqlite檔案路徑(含opt.url、option.username、option.password、option.storage)於細節皆以***遮罩
      *
+     * option不可讀(已撤銷之Proxy、ownKeys陷阱或Symbol.toStringTag拋錯之物件)或其成員為存取器而拋錯者，展開時即同步throw固定詞彙invalid option: must be a readable value(不含原例外文字，不連線；第557項, R23)
+     *
      * reject與同步拋出之值為w-auto-sequelize所給(其固定詞彙如need username原樣；後端錯誤中單次呼叫之憑證已由w-auto-sequelize遮罩)
      *
      * @memberOf WOrmReladb
@@ -2084,10 +2302,16 @@ function WOrmReladb(opt = {}) {
             storage: './worm.db',
         }
 
-        //merge
-        option = {
-            ...def,
-            ...option,
+        //merge, 展開option讀其自有鍵與值: 容器不可讀(已撤銷之Proxy、ownKeys陷阱與Symbol.toStringTag拋錯者)或成員為存取器而拋錯者(拋出之文字由呼叫端決定, 不外帶; 共同規則四.1、四.2),
+        //一律同步throw固定詞彙invalid option: must be a readable value(R23; 本函數既有之同步拋出通道不變; 展開無從得知是哪一個成員, 名稱用容器名)
+        try {
+            option = {
+                ...def,
+                ...option,
+            }
+        }
+        catch (err) {
+            throw ownErr(getUnreadableMsg('option'))
         }
 
         //database
@@ -2142,6 +2366,8 @@ function WOrmReladb(opt = {}) {
      *
      * 診斷輸出(產生之檔案路徑、寫檔失敗之錯誤)經本實例之單一出口(遵守opt.logDetail、opt.funLog)：標籤為'generate file:'、'save file catch'，預設只輸出{ name, type }與錯誤類別、代碼，路徑與錯誤原文為細節；寫檔失敗只記錄、不拋錯
      *
+     * fd、tabs、tabs內之欄位型別與opt不可讀(已撤銷之Proxy、Symbol.toStringTag或ownKeys陷阱拋錯之物件，或成員為存取器而拋錯者)時，於建立資料夾與寫出任何檔案之前同步throw固定詞彙invalid fd、invalid tabs、invalid opt、invalid opt.type: must be a readable value(不含原例外文字；第557項, R23)，不被當成未給而寫入預設資料夾，亦不把不可讀之值當型別字串寫入models檔
+     *
      * @memberOf WOrmReladb
      * @param {String} [fd='./models'] 輸入models儲存的資料夾名稱字串，預設'./models'
      * @param {Object} [tabs={}] 輸入各資料表物件，預設{}
@@ -2166,15 +2392,19 @@ function WOrmReladb(opt = {}) {
 
     //snap, 數據於呼叫當下即同步複製(R13): useStable時各函數經佇列延後執行(pmQueue於執行前delay), 若於函數內才複製,
     //呼叫端於呼叫後立即改動原數據(如重用同一陣列)會影響實際檢核與寫入之值; 函數內只使用此複本, 檢核與寫入皆作用於同一份複本
-    //複製拋錯(如getter拋錯)與函數內之其他錯誤同為rejected promise; 其錯誤值為呼叫端數據之getter所拋(外來值), 經diag.err(R-DIAG)
-    let snap = (fn) => {
+    //第557項全族對齊輪(R23, A3): 複製(cloneDeep)拋錯者, 不論data容器本身不可讀(已撤銷之Proxy、ownKeys陷阱與Symbol.toStringTag拋錯者等)、
+    //巢狀值不可讀(id屬性、列之成員、陣列元素、u8a等欄為已撤銷之Proxy或拋錯之存取器)、或可讀而無法複製(原型為null之Date、過深之巢狀等), 一律轉固定詞彙invalid data: must be a readable value,
+    //走與頂層不可讀相同之通道(整批reject, error事件恰一次且data為null, 不連線、不寫入、資料庫不變), 不補值; 複製處之catch不分辨頂層與巢狀、不可讀與無法複製,
+    //不轉出呼叫端數據所拋之文字(共同規則四.2、四.3); 長度1與長度>=2之陣列元素存取器同一處置
+    //範圍止於複製處: 複製之後才讀取原型存取器、繼承之存取器等所拋之外來錯誤維持各函數既有之診斷出口(經diag.err), 不擴大(已知限制, R23)
+    let snap = (mode, fn) => {
         return function(data, ...rest) {
             let d
             try {
                 d = cloneDeep(data)
             }
             catch (err) {
-                return Promise.reject(diag.err(err))
+                return procUnreadableData(mode)
             }
             return fn(d, ...rest)
         }
@@ -2191,16 +2421,16 @@ function WOrmReladb(opt = {}) {
         ee.selectByPk = function() {
             return pmq(selectByPk, ...arguments)
         }
-        ee.insert = snap((...args) => {
+        ee.insert = snap('insert', (...args) => {
             return pmq(insert, ...args)
         })
-        ee.insertBulk = snap((...args) => {
+        ee.insertBulk = snap('insertBulk', (...args) => {
             return pmq(insertBulk, ...args)
         })
-        ee.save = snap((...args) => {
+        ee.save = snap('save', (...args) => {
             return pmq(save, ...args)
         })
-        ee.del = snap((...args) => {
+        ee.del = snap('del', (...args) => {
             return pmq(del, ...args)
         })
         ee.delAll = function() {
@@ -2210,10 +2440,10 @@ function WOrmReladb(opt = {}) {
     else {
         ee.select = select
         ee.selectByPk = selectByPk
-        ee.insert = snap(insert)
-        ee.insertBulk = snap(insertBulk)
-        ee.save = snap(save)
-        ee.del = snap(del)
+        ee.insert = snap('insert', insert)
+        ee.insertBulk = snap('insertBulk', insertBulk)
+        ee.save = snap('save', save)
+        ee.del = snap('del', del)
         ee.delAll = delAll
     }
 

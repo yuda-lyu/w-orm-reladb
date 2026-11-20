@@ -1167,9 +1167,9 @@ describe('normPk', function() {
         ok(1.5, 'str', '1.5')
         ok(0, 'str', '0')
         ok(-0, 'str', '0')
-        //包裝物件(同new String、new Number)先取原始值
-        ok(Object('a'), 'str', 'a')
-        ok(Object(5), 'str', '5')
+        //包裝物件(new String、new Number)為物件, 不拆包裝(第557項全族對齊輪, 共同規則一第6點; wsemi判斷函數只收原始值, 與w-orm-mdb之normPk一致), 無效
+        no(Object('a'), 'str', 'invalid')
+        no(Object(5), 'str', 'invalid')
     })
 
     it('R8 整數類: 安全整數原樣, 標準整數寫法字串為Number(s), 其餘為型別不符', function() {
@@ -1215,15 +1215,15 @@ describe('normPk', function() {
         ok('x', 'bool', 'x')
     })
 
-    it('R8 任何型別: NaN、±Infinity、空字串、布林、物件、陣列、Date、BigInt、null、undefined為無效', function() {
+    it('R8 任何型別: NaN、±Infinity、空字串、布林、物件(含new String、new Number等包裝物件)、陣列、Date、BigInt、null、undefined為無效', function() {
         for (let kind of ['str', 'int', 'num', 'date', 'any']) {
-            for (let v of [NaN, Infinity, -Infinity, '', Object(''), true, false, {}, [], [1], new Date(0), 10n, null, undefined]) {
+            for (let v of [NaN, Infinity, -Infinity, '', Object(''), Object('a'), Object(5), Object(0), true, false, {}, [], [1], new Date(0), 10n, null, undefined]) {
                 no(v, kind, 'invalid')
             }
         }
     })
 
-    it('R13 字串良構: 孤立代理碼元與NUL之字串於各型別主鍵欄皆為無效(含包裝物件), 良構之U+FFFD與成對代理照常(第66項, 與條件側同標準)', function() {
+    it('R13 字串良構: 孤立代理碼元與NUL之字串於各型別主鍵欄皆為無效(包裝物件不拆包裝, 一律無效), 良構之U+FFFD與成對代理照常(第66項, 與條件側同標準)', function() {
         for (let kind of ['str', 'int', 'num', 'date', 'any']) {
             for (let v of ['a\uD800', '\uDC00', 'x\uD800y', 'a\uDC00\uD800', 'a\u0000b', '\u0000', Object('a\uD800'), Object('a\u0000')]) {
                 no(v, kind, 'invalid')
@@ -1232,7 +1232,7 @@ describe('normPk', function() {
         ok('a\uFFFDb', 'str', 'a\uFFFDb')
         ok('a😀b', 'str', 'a😀b')
         ok('a😀b', 'date', 'a😀b')
-        ok(Object('a\uFFFDb'), 'str', 'a\uFFFDb')
+        no(Object('a\uFFFDb'), 'str', 'invalid') //\u826F\u69CB\u5B57\u4E32\u4E4B\u5305\u88DD\u7269\u4EF6\u4EA6\u70BA\u7269\u4EF6, \u4E0D\u62C6\u5305\u88DD\u800C\u7121\u6548
     })
 
 })

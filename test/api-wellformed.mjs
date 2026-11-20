@@ -360,20 +360,24 @@ export function defineWellformedSuites(label, getOpt) {
             assert.ok(rows.every((v) => v.id.isWellFormed()))
         })
 
-        it('String包裝物件之主鍵: 良構者取原始值存放、含孤立代理或NUL者拒收', async function() {
-            let r = await w.insert([{ id: Object('wrap-ok'), name: 'x' }], cs)
-            assert.strictEqual(r.nInserted, 1)
-            assert.deepStrictEqual(await ids(), ['wrap-ok'])
-            let r1 = await settle(w.insert([{ id: Object('a\uD800'), name: 'x' }], cs))
-            assert.strictEqual(msgOf(r1.err), 'invalid id: string contains lone surrogate at [data[0].id]')
-            let r2 = await settle(w.insertBulk([{ id: Object('a\u0000'), name: 'x' }], cs))
-            assert.strictEqual(msgOf(r2.err), 'invalid id: string contains NUL at [data[0].id]')
-            let r3 = await w.del([{ id: Object('a\uD800') }, { id: Object('wrap-ok') }], cs)
-            assert.deepStrictEqual(r3.map((v) => v.ok), [0, 1])
+        it('String包裝物件之主鍵不拆包裝(第557項全族對齊輪, 共同規則一第6點): 不論內容良構與否皆為物件而拒絕, 不寫入; del該筆ok為0、不刪原始字串之同值主鍵之外者', async function() {
+            for (let s of ['wrap-ok', 'a\uD800', 'a\u0000']) {
+                let r1 = await settle(w.insert([{ id: Object(s), name: 'x' }], cs))
+                assert.strictEqual(msgOf(r1.err), 'invalid id: not a string or finite number at [data[0].id]', `insert ${s.length}`)
+                let r2 = await settle(w.insertBulk([{ id: Object(s), name: 'x' }], cs))
+                assert.strictEqual(msgOf(r2.err), 'invalid id: not a string or finite number at [data[0].id]', `insertBulk ${s.length}`)
+                let r3 = await w.save([{ id: Object(s), name: 'x' }], cs)
+                assert.deepStrictEqual(r3.map((v) => v.ok), [0], `save ${s.length}`)
+                assert.strictEqual(r3[0].err, 'invalid id: not a string or finite number at [data[0].id]')
+            }
+            assert.deepStrictEqual(await ids(), [])
+            await w.insert([{ id: 'wrap-ok', name: 'x' }], cs)
+            let rd = await w.del([{ id: Object('a\uD800') }, { id: Object('wrap-ok') }, { id: 'wrap-ok' }], cs)
+            assert.deepStrictEqual(rd.map((v) => v.ok), [0, 0, 1], '包裝物件(含良構者)該筆ok為0, 原始字串者刪除')
             assert.deepStrictEqual(await ids(), [])
         })
 
-        it('檢查之值即使用之值(主鍵): 偽裝成String之物件其valueOf僅被讀取一次, 存入者即被檢核者', async function() {
+        it('檢查之值即使用之值(主鍵): 偽裝成String之物件不被拆包裝, valueOf不被呼叫, 拒絕且不寫入', async function() {
             let n = 0
             let evil = {
                 [Symbol.toStringTag]: 'String',
@@ -383,9 +387,9 @@ export function defineWellformedSuites(label, getOpt) {
                 },
             }
             let r = await settle(w.insert([{ id: evil, name: 'x' }], cs))
-            assert.strictEqual(n, 1, `valueOf被讀取${n}次`)
-            assert.ok(r.err === undefined, msgOf(r.err))
-            assert.deepStrictEqual(await ids(), ['evil-ok'])
+            assert.strictEqual(n, 0, `valueOf被讀取${n}次`)
+            assert.strictEqual(msgOf(r.err), 'invalid id: not a string or finite number at [data[0].id]')
+            assert.deepStrictEqual(await ids(), [])
         })
 
         it('主鍵欄名非id(opt.pk為key): 檢核跟隨opt.pk, 訊息路徑用該欄名(insert、insertBulk、save、del、selectByPk)', async function() {
@@ -415,7 +419,7 @@ export function defineWellformedSuites(label, getOpt) {
             }
         })
 
-        it('selectByPk: 包裝物件主鍵只求值一次(第一次良構、其後求值回不合格者不影響查詢鍵)', async function() {
+        it('selectByPk: 包裝物件與偽裝成String之物件不拆包裝(valueOf不被呼叫), 一律為無效主鍵回null', async function() {
             await w.insert([mk('k-1')], cs)
             let n = 0
             let pkObj = {
@@ -425,9 +429,10 @@ export function defineWellformedSuites(label, getOpt) {
                     return n === 1 ? 'k-1' : 'k\uD800'
                 },
             }
-            let r = await w.selectByPk(pkObj, cs)
-            assert.strictEqual(n, 1, `valueOf被讀取${n}次`)
-            assert.strictEqual(r.id, 'k-1')
+            assert.strictEqual(await w.selectByPk(pkObj, cs), null)
+            assert.strictEqual(await w.selectByPk(Object('k-1'), cs), null)
+            assert.strictEqual(n, 0, `valueOf被讀取${n}次`)
+            assert.strictEqual((await w.selectByPk('k-1', cs)).id, 'k-1', '原始字串照常')
         })
 
         it('returnList與交易: 不合格輸入仍整批reject(不回傳逐筆陣列), 呼叫端交易不受影響', async function() {
@@ -484,7 +489,7 @@ export function defineWellformedSuites(label, getOpt) {
             }
         })
 
-        it('複製拋錯(getter拋錯)時回傳rejected promise而非同步拋出(useStable:true與false)', async function() {
+        it('複製拋錯(getter拋錯)時回傳rejected promise而非同步拋出, 訊息為固定詞彙invalid data: must be a readable value(useStable:true與false; 第557項全族對齊輪A3: 修前為原例外文字boom)', async function() {
             for (let useStable of [true, false]) {
                 let wu = wo(getOpt({ cl: 'twf', useStable }))
                 for (let api of ['insert', 'insertBulk', 'save', 'del']) {
@@ -499,7 +504,7 @@ export function defineWellformedSuites(label, getOpt) {
                         p = wu[api](bad)
                     }, `${api} useStable:${useStable}`)
                     let r = await settle(p)
-                    assert.strictEqual(msgOf(r.err), 'boom', `${api} useStable:${useStable}`)
+                    assert.strictEqual(msgOf(r.err), 'invalid data: must be a readable value', `${api} useStable:${useStable}`)
                 }
             }
         })

@@ -8,6 +8,7 @@ import { defineWellformedSuites } from './api-wellformed.mjs'
 import { defineLowerCaseSuites } from './api-lower-cases.mjs'
 import { defineScopeSuites } from './api-scope.mjs'
 import { defineFloatSuites } from './api-float.mjs'
+import { definePkGivenSuites } from './api-pkgiven.mjs'
 import { defineConnErrSuites } from './api-connerr.mjs'
 import { defineTdsEncryptRealSuites } from './api-tdsencrypt-real.mjs'
 
@@ -193,5 +194,6 @@ defineWellformedSuites('mssql', getOpt)
 defineLowerCaseSuites('mssql', getOpt)
 defineScopeSuites('mssql', getOpt)
 defineFloatSuites('mssql', getOpt)
+definePkGivenSuites('mssql', getOpt)
 defineConnErrSuites('mssql', getOpt, { kill: killSessions, sleepSql: `WAITFOR DELAY '00:00:30'` })
 defineTdsEncryptRealSuites('mssql', getOpt, { encInfo, getDirect: () => ({ host: 'localhost', port: ctPort, username: 'username', password: 'password', database: 'worm' }) })

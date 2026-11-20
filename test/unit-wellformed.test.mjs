@@ -33,7 +33,8 @@ describe('normPk 字串分支: 孤立代理碼元與NUL為無效主鍵(R13)', fu
             }
             it(`${kind}欄 ${k}(${f.label}) → {kind:'invalid'}, 形狀不變`, function() {
                 assert.deepStrictEqual(normPk(f.str, kind), { kind: 'invalid' })
-                assert.deepStrictEqual(normPk(Object(f.str), kind), { kind: 'invalid' }, 'String包裝物件取原始值後同處置')
+                //第557項全族對齊輪(共同規則一第6點): String包裝物件為物件, 不拆包裝, 一律為無效(與其內容良構與否無關)
+                assert.deepStrictEqual(normPk(Object(f.str), kind), { kind: 'invalid' }, 'String包裝物件不拆包裝, 同為無效')
             })
         }
     }
@@ -45,7 +46,8 @@ describe('normPk 字串分支: 孤立代理碼元與NUL為無效主鍵(R13)', fu
                 continue
             }
             assert.deepStrictEqual(normPk(f.str, 'str'), { kind: 'ok', v: f.str }, k)
-            assert.deepStrictEqual(normPk(Object(f.str), 'str'), { kind: 'ok', v: f.str }, `${k} 包裝物件`)
+            //第557項全族對齊輪: 良構字串之包裝物件亦為物件, 不拆包裝而為無效(只收原始值)
+            assert.deepStrictEqual(normPk(Object(f.str), 'str'), { kind: 'invalid' }, `${k} 包裝物件不拆包裝`)
             assert.deepStrictEqual(normPk(f.str, 'any'), { kind: 'ok', v: f.str }, `${k} any`)
         }
     })
@@ -80,7 +82,8 @@ describe('chkPkWf: 主鍵值之字串良構判定', function() {
         let f = forms[k]
         it(`${k}(${f.label}) → ${whyId(f)}`, function() {
             assert.strictEqual(chkPkWf(f.str), whyId(f))
-            assert.strictEqual(chkPkWf(Object(f.str)), whyId(f), '包裝物件')
+            //第557項全族對齊輪: 只收原始值, 包裝物件非字串, 不拆包裝而回null(其無效由normPk與chkWf之strictPk判定)
+            assert.strictEqual(chkPkWf(Object(f.str)), null, '包裝物件非字串')
         })
     }
 
@@ -190,42 +193,30 @@ describe('chkWf: 逐筆檢核寫入數據(主鍵 + 資料), 訊息固定詞彙�
         }
     })
 
-    it('包裝物件主鍵: 合格者將原始字串寫回該筆(令其後之正規化讀到的即被檢查者), valueOf只讀一次', function() {
+    it('包裝物件主鍵不拆包裝(第557項全族對齊輪, 共同規則一第6點): 不呼叫valueOf、不寫回; 非strictPk回null(其無效由逐筆迴圈依normPk判定), strictPk拒絕', function() {
         let n = 0
         let evil = {
             [Symbol.toStringTag]: 'String',
             valueOf() {
                 n++
-                return n === 1 ? 'evil-ok' : 'evil\uD800'
+                return 'evil-ok'
             },
         }
-        let d = [{ id: Object('wrap') }, { id: evil }]
-        assert.deepStrictEqual(chkWf(d, 'id', true), [null, null])
-        assert.strictEqual(n, 1)
-        assert.strictEqual(d[0].id, 'wrap')
-        assert.strictEqual(d[1].id, 'evil-ok')
-        assert.strictEqual(typeof d[0].id, 'string')
-    })
-
-    it('Number包裝物件主鍵: valueOf只求值一次, 原始數值寫回該筆', function() {
-        let n = 0
-        let num = {
-            [Symbol.toStringTag]: 'Number',
-            valueOf() {
-                n++
-                return n === 1 ? 42 : NaN
-            },
-        }
-        let d = [{ id: num }, { id: Object(7) }]
-        assert.deepStrictEqual(chkWf(d, 'id', true), [null, null])
-        assert.strictEqual(n, 1)
-        assert.strictEqual(d[0].id, 42)
-        assert.strictEqual(d[1].id, 7)
-        assert.strictEqual(typeof d[1].id, 'number')
+        let d = [{ id: Object('wrap') }, { id: evil }, { id: Object(7) }]
+        let w0 = d.map((v) => v.id)
+        assert.deepStrictEqual(chkWf(d, 'id', true), [null, null, null], '非strictPk: 包裝物件非字串, 良構檢核不判不合格')
+        assert.strictEqual(n, 0, '不呼叫valueOf')
+        assert.strictEqual(typeof d[0].id, 'object', '不寫回原始值')
+        assert.strictEqual(d[0].id, w0[0])
+        assert.strictEqual(d[1].id, w0[1])
+        assert.strictEqual(typeof d[2].id, 'object')
+        let why = (i) => `invalid id: not a string or finite number at [data[${i}].id]`
+        assert.deepStrictEqual(chkWf(d, 'id', true, true), [why(0), why(1), why(2)], 'strictPk: 拒絕')
+        assert.strictEqual(n, 0, 'strictPk亦不呼叫valueOf')
     })
 
     it('不修改合格筆之其他欄位, 不為不合格筆寫回', function() {
-        let d = [{ id: 'a\uD800', name: 'x' }, { id: Object('ok'), name: 'y', n: { a: [1, 2] } }]
+        let d = [{ id: 'a\uD800', name: 'x' }, { id: 'ok', name: 'y', n: { a: [1, 2] } }]
         chkWf(d, 'id', true)
         assert.strictEqual(d[0].id, 'a\uD800')
         assert.deepStrictEqual(d[1], { id: 'ok', name: 'y', n: { a: [1, 2] } })
