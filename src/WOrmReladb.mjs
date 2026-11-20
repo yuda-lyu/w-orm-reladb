@@ -34,7 +34,7 @@ import getSqlStmt from './getSqlStmt.mjs'
 import dropUnopenedConn from './dropUnopenedConn.mjs'
 import mergeOptLog from './mergeOptLog.mjs'
 import { ownErr, isOwnErr } from './ownErr.mjs'
-import cvFind, { getColKind, getColScale, normPk, chkWf, chkFindShape, genDateChecker } from './cvFind.mjs'
+import cvFind, { getColKind, getColScale, normPk, chkWf, isOwnPk, chkFindShape, genDateChecker } from './cvFind.mjs'
 
 
 //DIALECTS, opt.url可用之資料庫種類(scheme); 建構期錯誤訊息回顯opt.url時只回顯其中之scheme(maskDiagUrl)
@@ -119,6 +119,11 @@ let chkOptReadable = (opt, k) => {
  * 給了而非字串或有限數字者(布林、物件、陣列、NaN、±Infinity、BigInt、Symbol、Date、函數、new String、new Number、new Boolean等包裝物件，及讀取主鍵時拋錯之值)一律拒絕，不得靜默換成自動產生之主鍵，不隨opt.autoGenPk改變：
  * insert與insertBulk整批reject(同批皆不寫入)、save該筆ok為0附err，訊息invalid id: not a string or finite number at [data[索引].主鍵欄]，不回顯值。有限數字為有效主鍵(R8, 依主鍵欄型別正規化，與僅收字串主鍵之同系列套件不同)；new String與new Number為物件，不拆包裝(只收原始值)而拒絕；del該筆ok為0、selectByPk回傳null
  *
+ * 注意: 主鍵只認自有可列舉之資料屬性(第569項, R25): 數據物件之主鍵欄(opt.pk)為繼承(原型鏈上，如Object.create({ id })之原型、類別原型上之get id()或資料屬性，不論繼承值之型別)或自有不可列舉者，一律視為[未帶]，
+ * 與鍵不存在同處置：insert、insertBulk、save於opt.autoGenPk為true時補新主鍵(以Object.defineProperty設為自有可列舉之資料屬性，不用賦值，故原型之主鍵欄為frozen或僅有getter者亦可)、為false時整批reject(invalid data[索引].主鍵欄, autoGenPk is false)；
+ * del該筆ok為0並附invalid data[索引].主鍵欄，不得刪除庫內與繼承值相同之列；save不得以繼承值更新同值之列，insert與insertBulk不得因繼承值而跳過、撞鍵或寫入以繼承值為主鍵之列。
+ * 修前讀得繼承值即視為已帶而寫入、更新或刪除該值所指之列。自有可列舉者不變(含自有存取器於複製階段轉為資料屬性、自有主鍵遮蔽原型上之同名屬性)；非主鍵欄之繼承欄位不變；selectByPk收純量，不適用
+ *
  * 注意: 讀取即拋錯之輸入(第557項, R23): 已撤銷之Proxy、Symbol.toStringTag或ownKeys陷阱拋錯之物件、成員為存取器而拋錯者，經wsemi之chkReadable分辨後依原失敗通道拒絕，訊息為固定詞彙invalid <名稱>: must be a readable value(不含原例外文字)：
  * 建構之opt與其成員(opt.url、db、cl、fdModels、modelType、pk、storage、autoGenPk、useStable、useEncryption、logging)同步throw(invalid opt、invalid opt.<成員>)，不被當成未給而改用預設；
  * 七函數之option(invalid option、invalid option.<成員>)、data(invalid data)、selectByPk之pk(invalid pk)為reject，error事件恰一次且data為null，不連線、不寫入；genModelsByDB之option與genModelsByTabs之fd、tabs、opt同步throw。
@@ -139,7 +144,7 @@ let chkOptReadable = (opt, k) => {
  * @param {Boolean} [opt.logDetail=false] 輸入是否於console輸出遮罩後之細節布林值，預設false，型別錯誤者視同false。診斷輸出(console)預設只含固定標籤與不含個資之摘要(不含資料值、id、後端錯誤原文、路徑)；為true時console輸出(label, 細節)(訂閱函數之錯誤、model載入失敗之原文、opt.logging之sql全文如console.log('sql', sql全文)等)，有洩漏個資之風險，僅供除錯使用。連線字串、帳號、密碼與sqlite檔案路徑於細節皆以***遮罩。出口、遮罩與選項語意同wsemi之getDiag(規則見wsemi之R-DIAG-01)
  * @param {Function} [opt.funLog=null] 輸入診斷輸出函數(label, safe, detail)，預設無，型別錯誤者視同未給。給予時診斷輸出只交給它而不寫console：label為固定標籤字串，safe為不含個資之摘要物件(可能為undefined；鍵限stmt、mode、cl、name、type、errType、errCode)，detail為完整細節之遮罩拷貝(可能無此引數；連線字串、帳號、密碼與sqlite檔案路徑已以***遮罩；拷貝之形態與上限依wsemi之maskDiagCopy，不執行使用端程式)，供使用端遮罩後轉送。函數拋錯或回傳reject之promise皆被吞下，不影響各操作之結果
  * @param {String} [opt.pk='id'] 輸入數據主鍵字串，預設'id'
- * @param {Boolean} [opt.autoGenPk=true] 輸入若數據pk(id)欄位沒給時則自動給予隨機uuid，型別為布林值，預設true。[沒給]只有undefined、null、空字串(含鍵不存在)；給了而非字串或有限數字之主鍵一律拒絕而不自動產生(R22)
+ * @param {Boolean} [opt.autoGenPk=true] 輸入若數據pk(id)欄位沒給時則自動給予隨機uuid，型別為布林值，預設true。[沒給]只有undefined、null、空字串(含鍵不存在)，以及主鍵欄為繼承(原型鏈上)或自有不可列舉者(R25，主鍵只認自有可列舉之資料屬性)；給了而非字串或有限數字之主鍵一律拒絕而不自動產生(R22)
  * @param {Boolean} [opt.useStable=true] 輸入是否使用穩定模式，使用佇列管理同時只能進行一種操作故會犧牲效能，sqlite需開啟穩定模式才不會有非預期錯誤，型別為布林值，預設true
  * @returns {Object} 回傳操作資料庫物件，各事件功能詳見說明
  */
@@ -703,10 +708,32 @@ function WOrmReladb(opt = {}) {
 
 
     /**
+     * 於數據物件(已cloneDeep之複本)補上主鍵值(第569項, R25)
+     * 註: 主鍵欄非自有可列舉者(缺此屬性、繼承者)以Object.defineProperty定義為自有可列舉之資料屬性, 遮蔽原型上之值;
+     * 不得以賦值(v[opt.pk] = id): 原型上之主鍵欄為唯讀(frozen)或僅有getter(類別之get id())者, 嚴格模式下賦值會拋TypeError, 賦值亦會觸發原型上之setter而不產生自有屬性
+     * 註: 自有可列舉者(含值為undefined、null、空字串)與非物件之列維持賦值, 令insert([5])一類既有之原生TypeError不變
+     *
+     * @ignore
+     * @param {Object} v 輸入數據物件(已cloneDeep之複本)
+     * @param {String} id 輸入主鍵值
+     * @returns {undefined} 無回傳值
+     */
+    function setPk(v, id) {
+        if (v !== null && (typeof v === 'object' || typeof v === 'function') && !isOwnPk(v, opt.pk)) {
+            Object.defineProperty(v, opt.pk, { value: id, writable: true, enumerable: true, configurable: true })
+            return
+        }
+        v[opt.pk] = id
+    }
+
+
+    /**
      * 檢查並補齊單筆數據之主鍵
      * autoGenPk為true時未帶有效主鍵者自動產生，為false時往外拋
      * 註: 未帶有效主鍵屬呼叫端未履行契約而非某一筆資料本身之問題，故為整批性錯誤而不降級為該筆ok為0，
      * 若降級為逐筆結果，呼叫端易於整批resolve之下漏看，使[忘了給主鍵]靜默變成[少寫了幾筆]
+     * 註: 主鍵只認自有可列舉之資料屬性(第569項, R25): 繼承(原型鏈上, 不論值之型別)或自有不可列舉者視為未帶, 與鍵不存在同處置(補值或拒絕);
+     * 先以既有路徑取值, 值無效(未帶或無效值)即短路不查描述子, 只有值有效才查是否自有可列舉, 故有效輸入之讀取次序與次數同修前
      * 註: 本函數須於任何寫入之前一次對全部數據完成，令拋錯時同批之有效筆數亦不會被寫入
      * 註: 自動產生之主鍵值為字串，故補值前檢查主鍵欄位確為字串類型，不符者以明確訊息拋出，
      * 而非任由資料庫回報型別錯誤; 本套件之model定義於手上得知主鍵型別，故不適用T6之[套件無從得知主鍵型別]例外
@@ -719,8 +746,8 @@ function WOrmReladb(opt = {}) {
      */
     function procPk(md, v, k) {
 
-        //check
-        if (isEffPk(get(v, opt.pk))) {
+        //check, 有效且為自有可列舉者視為已帶(&&短路: 值無效時不查描述子)
+        if (isEffPk(get(v, opt.pk)) && isOwnPk(v, opt.pk)) {
             return v
         }
 
@@ -741,8 +768,8 @@ function WOrmReladb(opt = {}) {
             throw ownErr(`autoGenPk is true but pk column [${opt.pk}] in model [${opt.cl}] is [${tp}], auto generated pk is a string, need to set autoGenPk to false and supply pk by caller`)
         }
 
-        //genIDSeq, 為UUIDv7格式而具單調遞增性, 主鍵接近順序遞增可減少索引頁面分裂
-        v[opt.pk] = genIDSeq()
+        //genIDSeq, 為UUIDv7格式而具單調遞增性, 主鍵接近順序遞增可減少索引頁面分裂; 以setPk補值(非自有可列舉者以defineProperty定義自有屬性)
+        setPk(v, genIDSeq())
 
         return v
     }
@@ -1168,6 +1195,8 @@ function WOrmReladb(opt = {}) {
      * 註: 主鍵[給了而非字串或有限數字](布林、物件、陣列、NaN、±Infinity、BigInt、Symbol、Date、函數、new String、new Number、new Boolean等包裝物件，及讀取時拋錯之值)整批reject且同批皆不寫入，不被當成[未帶]而以自動產生之主鍵取代，不隨opt.autoGenPk改變，
      * 訊息為invalid id: not a string or finite number at [data[索引].主鍵欄]，不回顯值(第557項, R22); [未帶]只有undefined、null、空字串(含鍵不存在)
      * 註: data不可讀(已撤銷之Proxy等)或option不可讀/其成員為存取器而拋錯者，整批reject(invalid data: must be a readable value、invalid option…)，error事件恰一次且data為null，不連線(第557項, R23); data為可讀而型別不符之值(5、字串、null、{}、[]等)維持回傳空結果
+     * 註: 主鍵只認自有可列舉之資料屬性(第569項, R25): 主鍵欄為繼承(原型鏈上，不論值之型別)或自有不可列舉者視為[未帶]，與鍵不存在同處置(autoGenPk為true補新主鍵、為false整批reject)，
+     * 不得因繼承值而跳過、撞鍵或寫入以繼承值為主鍵之列；補值以Object.defineProperty設為自有可列舉之資料屬性(不用賦值)
      * 註: option.returnList開啟時改回與輸入等長且保序之逐筆結果陣列[{n,nInserted,ok}]，
      * 聚合計數只答得出[有幾筆是新的]而答不出[是哪幾筆]，而後者正是去重之產出物；
      * 逐筆元素之n與ok恆為1，資訊由nInserted承載，不變式為
@@ -1377,6 +1406,7 @@ function WOrmReladb(opt = {}) {
      * 不回顯值，兩方言一致於送出前拒收，規則同insert
      * 註: 主鍵與數據之字串須良構(孤立代理碼元、主鍵之NUL)，不合格者整批reject且同批皆不寫入，規則同insert(第66項, R13)
      * 註: 主鍵[給了而非字串或有限數字]者整批reject且同批皆不寫入(規則同insert，第557項, R22)；data或option不可讀者整批reject(規則同insert，R23)
+     * 註: 主鍵只認自有可列舉之資料屬性(規則同insert，第569項, R25): 繼承或自有不可列舉之主鍵視為[未帶]，不得因繼承值而撞庫內同值之列
      * 註: [全有全無]為獨立於T7之額外要求——T7僅保證每筆之[檢查主鍵不存在]與[寫入]為原子，不保證整批。
      * mssql因綁定參數數量上限會由驅動層自動拆為多語句送出，實測1000筆之批次於末筆撞主鍵時已有946筆落盤，
      * 故一律以交易包覆並於失敗時回滾；呼叫端已給transaction時改以巢狀交易(SAVEPOINT)包覆，
@@ -1738,6 +1768,7 @@ function WOrmReladb(opt = {}) {
      * 訊息為invalid data: date is not a valid time in years 1-9999 at [data[索引].欄名]，不回顯值，兩方言一致於送出前拒收，規則同insert
      * 註: 主鍵[給了而非字串或有限數字]者(規則同insert，第557項, R22)為該筆失敗，ok為0並附err(invalid id: not a string or finite number at [data[索引].主鍵欄]，不回顯值)，同批其他筆照常，不隨opt.autoGenPk改變(修前autoGenPk為false時整批reject)；
      * data或option不可讀者整批reject(invalid data: must be a readable value、invalid option…)，error事件恰一次且data為null(R23)
+     * 註: 主鍵只認自有可列舉之資料屬性(規則同insert，第569項, R25): 繼承或自有不可列舉之主鍵視為[未帶](autoGenPk為true補新主鍵而新增一列、為false整批reject)，不得以繼承值更新庫內同值之列
      * 註: 主鍵與數據之字串須良構(孤立代理碼元、主鍵之NUL；規則同insert, 第66項, R13)，但不合格者為該筆失敗而非整批reject：該筆ok為0並附err(invalid id: 原因 at [data[索引].主鍵欄]或invalid data: 原因 at [data[索引].路徑]，不回顯值)，
      * 不讀取資料庫、不寫入(含autoInsert為false)，同批其他筆照常處理；不隨opt.autoGenPk改變。全部筆數皆不合格時不連線
      *
@@ -1887,6 +1918,7 @@ function WOrmReladb(opt = {}) {
      * 註: 主鍵值依主鍵欄型別正規化後刪除(字串類主鍵欄之123即'123')，正規化值寫回該筆數據
      * 註: 給了而非字串或有限數字之主鍵(布林、物件、陣列等)本即為該筆失敗(ok為0並附invalid data[索引].主鍵欄)，第557項核實不變；data或option不可讀者整批reject(invalid data: must be a readable value、invalid option…)，error事件恰一次且data為null(R23)
      * 註: 本函數不受opt.autoGenPk影響，於任一設定下皆不補值
+     * 註: 主鍵只認自有可列舉之資料屬性(第569項, R25): 主鍵欄為繼承(原型鏈上，不論值之型別)或自有不可列舉者視為未給主鍵，該筆ok為0並附err(invalid data[索引].主鍵欄)，不送查詢，不得刪除庫內與繼承值相同之列
      * 註: new String與new Number為物件，不拆包裝(只收原始值)而為無效主鍵，該筆ok為0並附err(invalid data[索引].主鍵欄…；第557項全族對齊輪)
      * 註: 主鍵含孤立代理碼元或NUL者(UTF-8存放之資料庫會把孤立代理碼元改寫為U+FFFD而刪到他筆)為該筆失敗，ok為0並附err(invalid id: 原因 at [data[索引].主鍵欄]，不回顯值)，
      * 不送查詢，同批其他筆照常；只檢主鍵，其他欄位不檢(第66項, R13)；全部筆數皆不合格時不連線。其他無效主鍵之err亦不回顯主鍵值(invalid data[索引].主鍵欄…)
@@ -1986,8 +2018,9 @@ function WOrmReladb(opt = {}) {
                 //pkv
                 let pkv = get(v, opt.pk)
 
-                //check, 未帶有效主鍵者不補值亦不送查詢, 直接視為該筆無法處理
-                if (!isEffPk(pkv)) {
+                //check, 未帶有效主鍵者不補值亦不送查詢, 直接視為該筆無法處理; 主鍵只認自有可列舉之資料屬性(第569項, R25):
+                //繼承(原型鏈上)或自有不可列舉者視為未帶, 不得以讀得之繼承值刪除庫內同值之列; 先以既有路徑取值, 值無效即短路不查描述子
+                if (!isEffPk(pkv) || !isOwnPk(v, opt.pk)) {
 
                     //rest
                     rest = {

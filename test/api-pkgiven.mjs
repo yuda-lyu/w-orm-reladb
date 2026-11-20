@@ -11,6 +11,7 @@ import { NOT_GIVEN, GIVEN_BAD, HOSTILE, withId, msgOf, isGen } from './tools/hos
 //    insert、insertBulk整批reject(error事件恰一次、同批皆不寫入), save該筆ok為0附err(同批其他筆照常, error事件恰一次), 訊息invalid id: not a string or finite number at [data[<k>].id], 不回顯值;
 //  del、selectByPk修前即拒絕/回null, 核實不變(del該筆ok為0附invalid data[k].id、selectByPk回null)
 //  有限數字為有效主鍵(R8, 不變); new String、new Number為物件, 不拆包裝而拒絕(第557項全族對齊輪, 共同規則一第6點; 與w-orm-mdb之normPk一致), selectByPk回null、del該筆ok為0
+//第569項(R25)更正: 主鍵只認自有可列舉之資料屬性, 經原型存取器取得(繼承)之主鍵(含不可讀之物件)視為[未帶], 不屬上述[給了而非字串或有限數字]; 讀取即拋錯之存取器(無從判定其值)仍歸入拒絕(見api-pkown.mjs)
 //model: twf(id STRING主鍵, name TEXT; 專用資料表)、tpkint(id INTEGER主鍵)
 
 
@@ -109,12 +110,13 @@ export function definePkGivenSuites(label, getOpt) {
             }
         }
 
-        //讀取即拋錯之主鍵值(經原型存取器取得, 自有屬性者於複製階段即拋, 見api-readable): 同屬[給了而非字串或有限數字]
+        //經原型存取器取得之主鍵值(繼承): 第569項(R25)起主鍵只認自有可列舉之資料屬性, 繼承者(不論值之型別, 含不可讀之物件)視為[未帶], 不再屬R22之[給了而非字串或有限數字]而拒絕;
+        //自有屬性者於複製階段即拋(見api-readable); 讀取即拋錯之存取器(無從判定其值)仍歸入R22之拒絕(見下一案)
         for (let [hn, hf] of Object.entries(HOSTILE)) {
             for (let ag of [true, false]) {
                 for (let fn of ['insert', 'insertBulk', 'save']) {
-                    it(`${fn} autoGenPk=${ag}: id經原型存取器取得且為${hn}, 同屬給了而非字串或有限數字而拒絕, 不補新主鍵`, async function() {
-                        //R22.2: 讀取即拋錯之物件作為id; 拆包裝讀標籤拋錯者(revoked、tagThrow)經chkReadable判為不可讀
+                    it(`${fn} autoGenPk=${ag}: id經原型存取器取得且為${hn}(繼承, R25視為未帶): ${ag ? '補新主鍵寫入' : '照未帶之既有訊息整批reject'}, 不讀取其值而外洩原例外文字`, async function() {
+                        //R25(取代修前R22.2對繼承之不可讀物件之拒絕): 繼承之主鍵視為未帶, 與鍵不存在同處置; 資料檢核不走訪被遮蔽之繼承主鍵, 故不外洩原例外文字
                         let proto = {
                             get id() {
                                 return hf()
@@ -123,16 +125,18 @@ export function definePkGivenSuites(label, getOpt) {
                         let d = Object.create(proto, { name: { value: 'new', enumerable: true } })
                         let w = ag ? wT : wF
                         let r = await settle(w[fn](d))
-                        if (fn === 'save') {
+                        if (ag) {
                             assert.ok(r.err === undefined, msgOf(r.err))
-                            assert.deepStrictEqual([r.v[0].ok, r.v[0].err], [0, MSG(0)])
+                            assert.strictEqual(errCount(), 0)
+                            assert.deepStrictEqual(await rows(), [...seedExp, 'GEN:new'].sort())
                         }
                         else {
                             assert.ok(r.err !== undefined)
-                            assert.strictEqual(msgOf(r.err), MSG(0))
+                            assert.strictEqual(msgOf(r.err), 'invalid data[0].id, autoGenPk is false')
+                            assert.strictEqual(errCount(), 1)
+                            assert.deepStrictEqual(await rows(), seedExp)
                         }
-                        assert.strictEqual(errCount(), 1)
-                        assert.deepStrictEqual(await rows(), seedExp)
+                        assert.ok(ev.error.every((e) => String(e.err).indexOf('SECRET') < 0))
                     })
                 }
             }

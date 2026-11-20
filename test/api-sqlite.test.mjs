@@ -7,6 +7,7 @@ import { defineLowerCaseSuites } from './api-lower-cases.mjs'
 import { defineScopeSuites } from './api-scope.mjs'
 import { defineFloatSuites } from './api-float.mjs'
 import { definePkGivenSuites } from './api-pkgiven.mjs'
+import { definePkOwnSuites } from './api-pkown.mjs'
 
 
 //sqlite使用獨立暫存storage檔測試, 不使用專案根目錄之worm.sqlite
@@ -54,3 +55,4 @@ defineLowerCaseSuites('sqlite', getOpt)
 defineScopeSuites('sqlite', getOpt)
 defineFloatSuites('sqlite', getOpt)
 definePkGivenSuites('sqlite', getOpt)
+definePkOwnSuites('sqlite', getOpt)

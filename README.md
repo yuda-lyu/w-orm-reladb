@@ -477,6 +477,34 @@ Why numbers stay valid here: the primary key column of a relational table can be
 - **Who is affected**: code that passes a key which is not a string or a number (an object or boolean mistakenly) with `autoGenPk: true` and relied on the row being stored under a generated key; and code that passes `new String(…)` / `new Number(…)` as a key (convert it with `String(x)` / `Number(x)` first). Pass no key (leave `id` out, or `undefined` / `null` / `''`) when you want one to be generated.
 - `chkWf` of `src/cvFind.mjs` has a fourth parameter `strictPk` (default `false`, the behaviour of the previous release); `insert`, `insertBulk` and `save` pass `true`, `del` does not.
 
+### Primary keys you supply: only an own, enumerable property counts
+
+The key of a row (`opt.pk`, `id` by default) counts as **given** only when it is an **own, enumerable data property** of the row. A key that is **inherited** (on the prototype chain: `Object.create({ id: 'a1' })`, the `get id()` or the data property of a class prototype, whatever the type of the inherited value) or an **own non-enumerable** property is treated as **"no key given"**, exactly like a missing property:
+
+| Function | What happens with an inherited (or own non-enumerable) key |
+|---|---|
+| `insert`, `insertBulk`, `save` with `opt.autoGenPk: true` (default) | a new key is generated and set as an own enumerable data property (`Object.defineProperty`, not an assignment: a prototype whose key is frozen, or has only a getter, does not make it throw); the row is written under the **new** key |
+| the same with `opt.autoGenPk: false` | the whole call rejects with `invalid data[<i>].<pk>, autoGenPk is false` (as for a missing key) |
+| `del` | that row reports `{ n: 0, nDeleted: 0, ok: 0, err: 'invalid data[<i>].<pk>' }` and **nothing is deleted** |
+| `selectByPk` | takes a plain key, not a row: unchanged (a row object returns `null`) |
+
+The check reads the value the same way as before and looks at the property descriptor only when a key was given (it never calls a getter for this, and a key that is `undefined`, `null` or `''` is not looked at): input with an own key is read exactly as often as before. A value that throws when it is read keeps the rule of *Input that cannot be read* (a refused key). Not changed: an **own** enumerable key (also an own accessor, which is copied as a data property when your data is copied, and an own key that shadows an inherited one), the other (non-key) fields of a row, and a row whose keys are all inherited (the call returns the empty result, as before).
+
+### Breaking changes: only an own, enumerable key counts
+
+| Input | before | now |
+|---|---|---|
+| `insert`, `insertBulk`, `save` with a row whose key is **inherited** (e.g. `Object.create({ id: 'a1' })` plus own fields), no row with that key in the table | the inherited value was read as the key and the row was **written under it** (a number was stored as text) | `autoGenPk: true`: written under a generated key; `autoGenPk: false`: rejected (`invalid data[i].id, autoGenPk is false`) |
+| the same, a row with that key already in the table | `insert` skipped it (`nInserted: 0`), `insertBulk` rejected (key conflict), **`save` updated that row** (`nModified: 1`) | a generated key (or the rejection above): the existing row is **not touched** |
+| `del` with a row whose key is inherited | **deleted the row with that key** | that row reports `ok: 0` (`invalid data[i].id`), nothing is deleted |
+| a class instance whose prototype has `get id()` or whose prototype is frozen, in `insert`, `insertBulk`, `save`, `del` | rejected with the raw `TypeError` (`Cannot set property id of … which has only a getter`, `Cannot assign to read only property`) | as above |
+| an inherited key whose value is refused or malformed (an object, `NUL` in a string, …) | rejected as a refused or malformed key (`invalid id: …`) | treated as "no key given" like any inherited key; `del` reports `invalid data[i].id` |
+
+- **Who is affected**: code that builds rows with `Object.create(template)`, class instances with the key on the prototype, or objects whose key was defined non-enumerable, and relied on the key being picked up. Give the key as an own property (`{ ...template, id }`, `Object.assign({}, row)`, or define it enumerable) to keep the old effect.
+- The check of your data (well formed strings) ignores an inherited key, so its value is neither read nor checked (an inherited key that is an unreadable object, or a string with a lone surrogate, is "no key given" like any other); the other inherited fields of the row are checked as before. The only rows that are checked as a whole, including an inherited key, are built-in objects that are not plain objects or class instances (a `Map`, a `Set`, an `Error`, an array); a key inherited by such a row is still "no key given".
+- **Known limit**: a key that you define as an own enumerable property on top of a prototype that has the same name as a **frozen** or **getter-only** property makes the copy of your data fail (`invalid data: must be a readable value`), and with a **setter** on the prototype the setter is called and the key counts as inherited. This comes from the way your data is copied and is not new.
+- `chkWf` of `src/cvFind.mjs` (same signature) treats an inherited or non-enumerable key as not given, and `src/cvFind.mjs` also exports `isOwnPk(row, pk)`.
+
 ### Input that cannot be read
 
 Some values throw as soon as they are looked at: a revoked `Proxy`, an object whose `Symbol.toStringTag` getter throws, a `Proxy` whose `ownKeys` trap throws, an array whose first element throws on reading. The predicates of `wsemi` (`isestr`, `isbol`, `iseobj`, `isearr`) answer `false` for them, which used to be read as "not the right type": the constructor silently used the default (`opt.cl` of a revoked `Proxy` became `'test'`), `genModelsByTabs` wrote into the default folder. Now, when such a predicate answers `false`, `chkReadable` of `wsemi` tells "cannot be read" from "readable, but the wrong type", and a value that cannot be read is refused **through the failure path of that function** with a fixed phrase that never contains the text of the original exception:
