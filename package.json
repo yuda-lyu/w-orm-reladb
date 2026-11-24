@@ -1,11 +1,11 @@
 {
   "name": "w-orm-reladb",
-  "version": "1.1.51",
+  "version": "1.1.52",
   "main": "dist/w-orm-reladb.umd.js",
   "dependencies": {
     "json5": "^2.2.3",
     "sqlite3": "^6.0.1",
-    "tedious": "^20.3.9",
+    "tedious": "^20.3.10",
     "w-auto-sequelize": "^1.0.82",
     "wsemi": "^1.9.72"
   },
