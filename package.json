@@ -1,20 +1,20 @@
 {
   "name": "w-orm-reladb",
-  "version": "1.1.58",
+  "version": "1.1.59",
   "main": "dist/w-orm-reladb.umd.js",
   "dependencies": {
     "json5": "^2.2.3",
     "sqlite3": "^6.0.1",
     "tedious": "^20.3.10",
-    "w-auto-sequelize": "^1.0.89",
-    "wsemi": "^1.9.79"
+    "w-auto-sequelize": "^1.0.90",
+    "wsemi": "^1.9.81"
   },
   "dependenciesTemp": {
     "@journeyapps/sqlcipher": "^5.3.1",
     "msg": "install sqlcipher fo the protection when db=sqlite"
   },
   "devDependencies": {
-    "w-package-tools": "^1.1.31"
+    "w-package-tools": "^1.1.32"
   },
   "scripts": {
     "test": "mocha --parallel \"test/*.test.mjs\" --timeout 180000",
